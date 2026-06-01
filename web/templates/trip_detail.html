@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Trip {{ trip.id }} — LeapMotor Mate{% endblock %}
+
+{% block content %}
+<div class="mb-5 flex items-center gap-3">
+  <a href="/trips?highlight={{ trip.id }}" class="text-slate-400 hover:text-white text-sm">{{ t('back_trips') }}</a>
+  <span class="text-slate-600">/</span>
+  <h1 class="text-xl font-bold text-white">
+    {{ trip.started_at[:10] if trip.started_at else 'Trip' }}
+    <span class="text-slate-400 font-normal text-base ml-1">{{ trip.started_at[11:16] if trip.started_at else '' }}</span>
+  </h1>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+  <!-- Stats -->
+  <div class="space-y-4">
+    <div class="card">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <div class="stat-label">{{ t('distance') }}</div>
+          <div class="stat-value">{{ "%.1f"|format(trip.distance_km or 0) }}<span class="text-base font-normal text-slate-400"> km</span></div>
+        </div>
+        <div>
+          <div class="stat-label">{{ t('duration') }}</div>
+          <div class="stat-value">{{ "%.0f"|format(trip.duration_min or 0) }}<span class="text-base font-normal text-slate-400"> min</span></div>
+        </div>
+        <div>
+          <div class="stat-label">{{ t('efficiency') }}</div>
+          {% if trip.efficiency_kwh_100km %}
+          <div class="stat-value {% if trip.efficiency_kwh_100km < 18 %}text-green-400{% elif trip.efficiency_kwh_100km < 22 %}text-yellow-400{% else %}text-red-400{% endif %}">
+            {{ "%.1f"|format(trip.efficiency_kwh_100km) }}<span class="text-sm font-normal text-slate-400"> kWh/100</span>
+          </div>
+          {% else %}<div class="stat-value text-slate-500">—</div>{% endif %}
+        </div>
+        <div>
+          <div class="stat-label">{{ t('regen') }}</div>
+          <div class="stat-value text-green-400">{{ "%.2f"|format(trip.regen_kwh or 0) }}<span class="text-base font-normal text-slate-400"> kWh</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card space-y-3 text-sm">
+      <div class="flex justify-between">
+        <span class="text-slate-400">{{ t('start_soc') }}</span>
+        <span class="text-white font-medium">{{ "%.1f"|format(trip.start_soc or 0) }}%</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-slate-400">{{ t('end_soc') }}</span>
+        <span class="text-white font-medium">{{ "%.1f"|format(trip.end_soc or 0) }}%</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-slate-400">{{ t('soc_used') }}</span>
+        <span class="text-white font-medium">{{ "%.1f"|format((trip.start_soc or 0) - (trip.end_soc or 0)) }}%</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-slate-400">{{ t('start_odometer') }}</span>
+        <span class="text-white font-medium">{{ "%.0f"|format(trip.start_odometer_km or 0) }} km</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-slate-400">{{ t('gps_points') }}</span>
+        <span class="text-white font-medium">{{ trip.positions|length }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div class="card lg:col-span-2 p-0 overflow-hidden">
+    {% if trip.positions and trip.positions|length > 1 %}
+    <div id="map" style="height:460px"></div>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      const coords = {{ trip.positions | tojson }};
+      const latlngs = coords.map(p => [p.latitude, p.longitude]);
+      const map = L.map('map').fitBounds(L.latLngBounds(latlngs).pad(0.15));
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      }).addTo(map);
+
+      // Route: single red with white outline for visibility
+      L.polyline(latlngs, { color: '#ffffff', weight: 8, opacity: 0.7 }).addTo(map);
+      L.polyline(latlngs, { color: '#e63946', weight: 5, opacity: 1.0 }).addTo(map);
+
+      // Flag markers
+      const flagIcon = (color, checkered) => L.divIcon({
+        html: `<div style="filter:drop-shadow(0 2px 5px rgba(0,0,0,.55));width:24px;height:34px;position:relative">
+          <div style="position:absolute;bottom:0;left:3px;width:3px;height:32px;background:${color};border-radius:2px"></div>
+          ${checkered
+            ? `<div style="position:absolute;top:0;left:6px;width:18px;height:13px;
+                background:repeating-conic-gradient(#111 0% 25%,#fff 0% 50%) 0 0/6px 6px;
+                border:1px solid #333;border-radius:1px"></div>`
+            : `<div style="position:absolute;top:0;left:6px;width:0;height:0;
+                border-top:7px solid ${color};border-right:0;
+                border-bottom:7px solid transparent;
+                border-left:18px solid ${color}"></div>`
+          }
+        </div>`,
+        iconSize: [24, 34],
+        iconAnchor: [3, 34],
+        className: ''
+      });
+      L.marker(latlngs[0],               {icon: flagIcon('#22c55e', false)}).addTo(map)
+        .bindPopup('Start — {{ "%.1f"|format(trip.start_soc or 0) }}% SOC');
+      L.marker(latlngs[latlngs.length-1], {icon: flagIcon('#444',   true) }).addTo(map)
+        .bindPopup('End — {{ "%.1f"|format(trip.end_soc or 0) }}% SOC');
+    </script>
+    <!-- Speed bar -->
+    <div style="padding:12px 16px 14px; background:#1e293b; border-top:1px solid #334155">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em">{{ t('speed_profile') }}</span>
+        <span style="font-size:11px;color:#64748b">
+          <span style="color:#22c55e">■</span> 0-40
+          <span style="color:#fbbf24;margin-left:8px">■</span> 40-80
+          <span style="color:#e63946;margin-left:8px">■</span> 80+
+          <span style="color:#64748b;margin-left:4px">km/h</span>
+        </span>
+      </div>
+      <canvas id="speed-bar" style="width:100%;height:40px;display:block"></canvas>
+    </div>
+    <script>
+    (function() {
+      const canvas = document.getElementById('speed-bar');
+      canvas.width  = canvas.offsetWidth || 800;
+      canvas.height = 40;
+      const ctx  = canvas.getContext('2d');
+      const pts  = coords.filter(p => p.speed_kmh != null);
+      if (!pts.length) return;
+
+      const maxSpd = Math.max(...pts.map(p => p.speed_kmh), 1);
+      const w = canvas.width / pts.length;
+
+      pts.forEach((p, i) => {
+        const spd   = p.speed_kmh || 0;
+        const color = spd > 80 ? '#e63946' : spd > 40 ? '#fbbf24' : '#22c55e';
+        const h     = Math.max(4, (spd / maxSpd) * canvas.height);
+        ctx.fillStyle = color;
+        ctx.fillRect(i * w, canvas.height - h, Math.ceil(w), h);
+      });
+    })();
+    </script>
+
+    {% else %}
+    <div class="flex items-center justify-center h-64 text-slate-500">
+      <div class="text-center">
+        <div class="text-4xl mb-2">📍</div>
+        <div>{{ t('not_enough_gps') }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

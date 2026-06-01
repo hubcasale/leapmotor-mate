@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}Statistics — LeapMotor Mate{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-white">{{ t('statistics_title') }}</h1>
+  <p class="text-slate-400 text-sm mt-1">{{ t('all_time') }}</p>
+</div>
+
+<!-- KPI cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="card">
+    <div class="stat-label">{{ t('total_trips') }}</div>
+    <div class="stat-value">{{ totals.trip_count or 0 }}</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('total_distance') }}</div>
+    <div class="flex items-baseline gap-1">
+      <span class="stat-value">{{ totals.total_km or 0 }}</span>
+      <span class="text-slate-400 text-sm">km</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('avg_efficiency') }}</div>
+    <div class="flex items-baseline gap-1">
+      {% if totals.avg_efficiency %}
+      <span class="stat-value {% if totals.avg_efficiency < 18 %}text-green-400{% elif totals.avg_efficiency < 22 %}text-yellow-400{% else %}text-red-400{% endif %}">
+        {{ totals.avg_efficiency }}
+      </span>
+      <span class="text-slate-400 text-sm">kWh/100km</span>
+      {% else %}
+      <span class="stat-value text-slate-500">—</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('best_efficiency') }}</div>
+    <div class="flex items-baseline gap-1">
+      {% if totals.best_efficiency %}
+      <span class="stat-value text-green-400">{{ totals.best_efficiency }}</span>
+      <span class="text-slate-400 text-sm">kWh/100km</span>
+      {% else %}
+      <span class="stat-value text-slate-500">—</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="card">
+    <div class="stat-label">{{ t('drive_time') }}</div>
+    <div class="flex items-baseline gap-1">
+      {% if totals.total_drive_min %}
+      {% set h = (totals.total_drive_min // 60) | int %}
+      {% set m = (totals.total_drive_min % 60) | int %}
+      <span class="stat-value">{{ h }}</span><span class="text-slate-400 text-sm">h</span>
+      <span class="stat-value ml-1">{{ m }}</span><span class="text-slate-400 text-sm">m</span>
+      {% else %}
+      <span class="stat-value text-slate-500">—</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('energy_used') }}</div>
+    <div class="flex items-baseline gap-1">
+      <span class="stat-value">{{ totals.total_kwh_used or 0 }}</span>
+      <span class="text-slate-400 text-sm">kWh</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('charge_sessions') }}</div>
+    <div class="stat-value">{{ totals.charge_count or 0 }}</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('energy_charged') }}</div>
+    <div class="flex items-baseline gap-1">
+      <span class="stat-value">{{ totals.total_kwh_charged or 0 }}</span>
+      <span class="text-slate-400 text-sm">kWh</span>
+    </div>
+  </div>
+</div>
+
+<!-- Cloud insights: energy distribution + 6-week consumption trend -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <div class="card" hx-get="/api/energy-breakdown" hx-trigger="load" hx-swap="innerHTML">
+    <div class="text-center py-4 text-slate-500 text-sm">{{ t('loading') }}…</div>
+  </div>
+  <div class="card" hx-get="/api/consumption-rank" hx-trigger="load" hx-swap="innerHTML">
+    <div class="text-center py-4 text-slate-500 text-sm">{{ t('loading') }}…</div>
+  </div>
+</div>
+
+<!-- Regen KPI row -->
+<div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+  <div class="card">
+    <div class="stat-label">{{ t('total_regen') }}</div>
+    <div class="flex items-baseline gap-1">
+      <span class="stat-value text-green-400">{{ totals.total_regen_kwh or 0 }}</span>
+      <span class="text-slate-400 text-sm">kWh</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('avg_regen_trip') }}</div>
+    <div class="flex items-baseline gap-1">
+      <span class="stat-value text-green-400">{{ totals.avg_regen_kwh or 0 }}</span>
+      <span class="text-slate-400 text-sm">kWh</span>
+    </div>
+  </div>
+  <div class="card col-span-2 lg:col-span-1">
+    <div class="stat-label">{{ t('regen_pct') }}</div>
+    <div class="flex items-baseline gap-1">
+      {% if totals.regen_pct %}
+      <span class="stat-value text-green-400">{{ totals.regen_pct }}</span>
+      <span class="text-slate-400 text-sm">%</span>
+      <span class="text-slate-500 text-xs ml-1">{{ t('energy_used') | lower }}</span>
+      {% else %}
+      <span class="stat-value text-slate-500">—</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if grouped %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+{% macro eff_badge(v) %}
+  {% if v %}
+  <span class="{% if v < 18 %}text-green-400{% elif v < 22 %}text-yellow-400{% else %}text-red-400{% endif %} font-medium">
+    {{ v }} <span class="text-slate-500 font-normal text-xs">kWh/100km</span>
+  </span>
+  {% endif %}
+{% endmacro %}
+
+<div class="space-y-3" id="stats-tree">
+{% for year in grouped %}
+
+  <!-- YEAR -->
+  <details id="sy-{{ year.label }}" class="group">
+    <summary style="background:#1e293b;border:1px solid #334155;list-style:none"
+             class="flex items-center justify-between px-4 py-3 rounded-xl cursor-pointer select-none">
+      <div class="flex items-center gap-3">
+        <span class="group-open:rotate-90 text-slate-400" style="transition:transform .2s;display:inline-block">▶</span>
+        <span class="text-white font-bold text-lg">{{ year.label }}</span>
+      </div>
+      <div class="flex items-center gap-5 text-sm">
+        <span class="text-slate-500">{{ year.trip_count }} trips</span>
+        <span class="text-white font-semibold">{{ year.total_km }} km</span>
+        <span class="text-slate-400">{{ year.total_kwh }} kWh</span>
+        {{ eff_badge(year.avg_efficiency) }}
+      </div>
+    </summary>
+
+    <div class="ml-4 mt-2 space-y-2">
+    {% for mo_key, month in year.months.items() %}
+
+      <!-- MONTH -->
+      <details id="sm-{{ mo_key }}" class="group/month">
+        <summary style="background:#0f172a;border:1px solid #1e293b;list-style:none"
+                 class="flex items-center justify-between px-4 py-2.5 rounded-lg cursor-pointer select-none">
+          <div class="flex items-center gap-3">
+            <span class="group-open/month:rotate-90 text-slate-500 text-sm" style="transition:transform .2s;display:inline-block">▶</span>
+            <span class="text-slate-200 font-semibold">{{ month.label }}</span>
+          </div>
+          <div class="flex items-center gap-5 text-xs">
+            <span class="text-slate-500">{{ month.trip_count }} trips</span>
+            <span class="text-slate-200 font-semibold">{{ month.total_km }} km</span>
+            <span class="text-slate-400">{{ month.total_kwh }} kWh</span>
+            {{ eff_badge(month.avg_efficiency) }}
+          </div>
+        </summary>
+
+        <!-- Per-trip charts: Distance + Efficiency + Regen -->
+        <div class="ml-4 mt-2 pb-3 px-2 grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <div style="background:#0a1628;border:1px solid #1a2438;border-radius:10px;padding:12px">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-2">{{ t('distance_per_trip') }}</div>
+            <canvas id="chart-km-{{ mo_key }}" height="160"></canvas>
+          </div>
+          <div style="background:#0a1628;border:1px solid #1a2438;border-radius:10px;padding:12px">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-2">{{ t('efficiency_trend') }}</div>
+            <canvas id="chart-eff-{{ mo_key }}" height="160"></canvas>
+          </div>
+          <div style="background:#0a1628;border:1px solid #1a2438;border-radius:10px;padding:12px">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-2">{{ t('regen_trend') }}</div>
+            <canvas id="chart-regen-{{ mo_key }}" height="160"></canvas>
+          </div>
+        </div>
+        <script>
+        (function () {
+          const trips    = {{ month.trips | tojson }};
+          const labels   = trips.map(t => t.label);
+          const kmData   = trips.map(t => t.distance_km || 0);
+          const effData  = trips.map(t => t.efficiency_kwh_100km || null);
+          const regenData = trips.map(t => t.regen_kwh || 0);
+          const tick = { color: '#64748b', font: { size: 9 }, maxRotation: 45 };
+          const grid = { color: '#1e293b' };
+
+          new Chart(document.getElementById('chart-km-{{ mo_key }}'), {
+            type: 'bar',
+            data: { labels, datasets: [{
+              label: 'km', data: kmData,
+              backgroundColor: '#14b8a650', borderColor: '#14b8a6',
+              borderWidth: 1, borderRadius: 3,
+            }]},
+            options: {
+              responsive: true,
+              plugins: { legend: { display: false } },
+              scales: {
+                x: { ticks: tick, grid },
+                y: { beginAtZero: true, ticks: tick, grid,
+                     title: { display: true, text: 'km', color: '#475569', font: { size: 9 } } },
+              }
+            }
+          });
+
+          new Chart(document.getElementById('chart-eff-{{ mo_key }}'), {
+            type: 'line',
+            data: { labels, datasets: [{
+              label: 'kWh/100km', data: effData,
+              borderColor: '#f59e0b', backgroundColor: '#f59e0b15',
+              fill: true, tension: 0.3, pointRadius: 3,
+              pointBackgroundColor: '#f59e0b', spanGaps: true,
+            }]},
+            options: {
+              responsive: true,
+              plugins: { legend: { display: false } },
+              scales: {
+                x: { ticks: tick, grid },
+                y: { beginAtZero: false, ticks: tick, grid,
+                     title: { display: true, text: 'kWh/100km', color: '#475569', font: { size: 9 } } },
+              }
+            }
+          });
+
+          new Chart(document.getElementById('chart-regen-{{ mo_key }}'), {
+            type: 'bar',
+            data: { labels, datasets: [{
+              label: 'kWh', data: regenData,
+              backgroundColor: '#22c55e40', borderColor: '#22c55e',
+              borderWidth: 1, borderRadius: 3,
+            }]},
+            options: {
+              responsive: true,
+              plugins: { legend: { display: false } },
+              scales: {
+                x: { ticks: tick, grid },
+                y: { beginAtZero: true, ticks: tick, grid,
+                     title: { display: true, text: 'kWh', color: '#475569', font: { size: 9 } } },
+              }
+            }
+          });
+        })();
+        </script>
+
+      </details>
+    {% endfor %}
+    </div>
+
+  </details>
+{% endfor %}
+</div>
+
+<script>
+(function () {
+  const LS_KEY = 'lm_stats_open';
+  const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+  document.querySelectorAll('#stats-tree details').forEach(el => {
+    el.open = el.id in saved ? saved[el.id] : el.id.startsWith('sy-') || el.id.startsWith('sm-');
+    el.addEventListener('toggle', () => {
+      const st = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+      st[el.id] = el.open;
+      localStorage.setItem(LS_KEY, JSON.stringify(st));
+    });
+  });
+})();
+</script>
+
+{% else %}
+<div class="card text-center py-12 text-slate-500">
+  <div class="text-5xl mb-3">📊</div>
+  <div class="text-lg">{{ t('no_data_yet') }}</div>
+  <div class="text-sm mt-1">{{ t('stats_after_trip') }}</div>
+</div>
+{% endif %}
+{% endblock %}

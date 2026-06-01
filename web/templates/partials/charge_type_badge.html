@@ -1,0 +1,35 @@
+{% set ct = charge_types.get(charge.location_type, charge_types.HOME) %}
+<div id="charge-type-{{ charge.id }}" class="charge-type-selector">
+  <!-- Current type badge + dropdown -->
+  <div style="position:relative;display:inline-block">
+    <button onclick="document.getElementById('ct-menu-{{ charge.id }}').classList.toggle('hidden')"
+            style="background:{{ ct.color }}22;color:{{ ct.color }};border:1px solid {{ ct.color }}55;
+                   padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;
+                   display:flex;align-items:center;gap:5px">
+      {{ ct.icon }} {{ ct.label }} <span style="font-size:9px;opacity:.7">▼</span>
+    </button>
+
+    <div id="ct-menu-{{ charge.id }}" class="hidden"
+         style="position:absolute;right:0;top:calc(100% + 4px);z-index:50;
+                background:#1e293b;border:1px solid #334155;border-radius:10px;
+                padding:4px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
+      {% for key, info in charge_types.items() %}
+      <form hx-post="/api/charges/{{ charge.id }}/type"
+            hx-target="#charge-type-{{ charge.id }}"
+            hx-swap="outerHTML"
+            hx-on::after-request="document.getElementById('cost-{{ charge.id }}').textContent = event.detail.xhr ? '' : ''"
+            style="margin:0">
+        <input type="hidden" name="location_type" value="{{ key }}">
+        <button type="submit"
+                onclick="document.getElementById('ct-menu-{{ charge.id }}').classList.add('hidden')"
+                style="width:100%;text-align:left;padding:7px 12px;border-radius:7px;font-size:13px;
+                       cursor:pointer;background:{% if charge.location_type == key %}{{ info.color }}22{% else %}transparent{% endif %};
+                       color:{{ info.color }};border:none;display:flex;align-items:center;gap:8px">
+          {{ info.icon }} {{ info.label }}
+          {% if charge.location_type == key %}<span style="margin-left:auto;font-size:10px">✓</span>{% endif %}
+        </button>
+      </form>
+      {% endfor %}
+    </div>
+  </div>
+</div>

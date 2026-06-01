@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}LeapMotor Mate{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { brand: '#14b8a6' }
+        }
+      }
+    }
+  </script>
+  <style>
+    .soc-bar { transition: width 0.6s ease; }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.625rem 1rem;
+      border-radius: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: rgb(148 163 184);
+      text-decoration: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    .nav-link:hover { color: white; background: rgb(51 65 85); }
+    .nav-link.active { color: white; background: rgb(51 65 85); }
+
+    .card {
+      background: rgb(30 41 59);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      border: 1px solid rgb(51 65 85);
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      color: rgb(148 163 184);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: white;
+    }
+    .bg-slate-750 { background: rgb(36 49 65); }
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: inline; }
+    .htmx-request.htmx-indicator { display: inline; }
+  </style>
+</head>
+<body class="h-full bg-slate-900 text-slate-100 flex">
+
+  <!-- Sidebar -->
+  <aside class="w-56 flex-shrink-0 bg-slate-800 border-r border-slate-700 flex flex-col h-screen sticky top-0">
+    <!-- Logo -->
+    <div class="px-5 py-5 border-b border-slate-700">
+      <div class="flex items-center gap-2">
+        <img src="/static/leapmotor-logo.svg" alt="Leapmotor" class="h-5 w-auto" style="filter:brightness(0) invert(1)">
+        <span class="text-sm font-medium text-brand">Mate</span>
+      </div>
+      {% if vehicle %}
+      <div class="mt-3 text-xs text-slate-400">{{ vehicle.car_type }} {{ vehicle.year or '' }}</div>
+      {% endif %}
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 px-3 py-4 space-y-1">
+      <a href="/"           class="nav-link {% if page=='overview'    %}active{% endif %}">
+        <span class="text-lg">⚡</span> {{ t('nav_overview') }}
+      </a>
+      <a href="/trips"      class="nav-link {% if page=='trips'       %}active{% endif %}">
+        <span class="text-lg">🗺</span> {{ t('nav_trips') }}
+      </a>
+      <a href="/charges"    class="nav-link {% if page=='charges'     %}active{% endif %}">
+        <span class="text-lg">🔌</span> {{ t('nav_charges') }}
+      </a>
+      <a href="/statistics" class="nav-link {% if page=='statistics'  %}active{% endif %}">
+        <span class="text-lg">📊</span> {{ t('nav_statistics') }}
+      </a>
+      <a href="/commands"   class="nav-link {% if page=='commands'    %}active{% endif %}">
+        <span class="text-lg">🎮</span> {{ t('nav_commands') }}
+      </a>
+    </nav>
+
+    <!-- Settings at bottom -->
+    <div class="px-3 py-4 border-t border-slate-700">
+      <a href="/settings" class="nav-link {% if page=='settings' %}active{% endif %}">
+        <span class="text-lg">⚙️</span> {{ t('nav_settings') }}
+      </a>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 overflow-y-auto">
+    <div class="max-w-6xl mx-auto px-6 py-6">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+</body>
+</html>

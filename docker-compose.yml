@@ -1,0 +1,14 @@
+services:
+  leapmotor-mate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_FROM: python:3.12-slim
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./data:/data            # persistent DB only (code is baked into the image)
+    environment:
+      - DB_PATH=/data/leapmotor_mate.db
+    restart: unless-stopped

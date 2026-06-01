@@ -1,0 +1,73 @@
+{% if status %}
+{% set soc = status.soc or 0 %}
+{% set color = soc_color(soc) %}
+{% set state = state_label(status) %}
+
+<!-- SOC + Range -->
+<div class="flex items-end justify-between mb-4">
+  <div>
+    <div class="stat-label">{{ t('battery') }}</div>
+    <div class="text-5xl font-bold" style="color:{{ color }}">{{ "%.1f"|format(soc) }}<span class="text-2xl text-slate-400">%</span></div>
+  </div>
+  <div class="text-right">
+    <div class="stat-label">{{ t('range') }}</div>
+    <div class="stat-value">{{ status.range_km|int }} <span class="text-base font-normal text-slate-400">km</span></div>
+  </div>
+</div>
+
+<!-- SOC bar -->
+<div class="w-full bg-slate-700 rounded-full h-3 mb-5">
+  <div class="soc-bar h-3 rounded-full" style="width:{{ soc }}%; background:{{ color }}"></div>
+</div>
+
+<!-- Status row -->
+<div class="grid grid-cols-3 gap-3 text-center mb-4">
+  <div class="bg-slate-750 rounded-lg p-3">
+    <div class="stat-label">{{ t('state') }}</div>
+    <div class="font-semibold {{ state_color(status) }}">{{ state }}</div>
+  </div>
+  <div class="bg-slate-750 rounded-lg p-3">
+    <div class="stat-label">{{ t('speed') }}</div>
+    <div class="font-semibold text-white">{{ status.speed_kmh|int }} <span class="text-xs text-slate-400">km/h</span></div>
+  </div>
+  <div class="bg-slate-750 rounded-lg p-3">
+    <div class="stat-label">{{ t('gear') }}</div>
+    <div class="font-semibold text-white text-lg">{{ status.gear or 'P' }}</div>
+  </div>
+</div>
+
+<!-- Details row -->
+<div class="grid grid-cols-2 gap-3 text-sm">
+  <div class="flex justify-between text-slate-400">
+    <span>{{ t('odometer') }}</span>
+    <span class="text-white font-medium">{{ "%.0f"|format(status.odometer_km or 0) }} km</span>
+  </div>
+  <div class="flex justify-between text-slate-400">
+    <span>{{ t('inside_temp') }}</span>
+    <span class="text-white font-medium">{{ "%.0f"|format(status.inside_temp or 0) }}°C</span>
+  </div>
+  <div class="flex justify-between text-slate-400">
+    <span>{{ t('ac_target') }}</span>
+    <span class="text-white font-medium">
+      {% if status.climate_target_temp %}{{ "%.0f"|format(status.climate_target_temp) }}°C{% else %}—{% endif %}
+    </span>
+  </div>
+  <div class="flex justify-between text-slate-400">
+    <span>{{ t('battery_temp') }}</span>
+    <span class="text-white font-medium">
+      {% if status.battery_min_temp %}{{ "%.0f"|format(status.battery_min_temp) }}°C{% else %}—{% endif %}
+    </span>
+  </div>
+  <div class="flex justify-between text-slate-400 col-span-2">
+    <span>{{ t('last_seen') }}</span>
+    <span class="text-white font-medium">{{ status.last_seen }}</span>
+  </div>
+</div>
+
+{% else %}
+<div class="text-center py-8 text-slate-400">
+  <div class="text-4xl mb-3">📡</div>
+  <div>{{ t('waiting_data') }}</div>
+  <div class="text-sm mt-1">{{ t('check_poller') }}</div>
+</div>
+{% endif %}

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav_overview') }} — LeapMotor Mate{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-white">{{ t('overview_title') }}</h1>
+  <p class="text-slate-400 text-sm mt-1">{{ vehicle.car_type if vehicle else 'LeapMotor' }} {{ t('live_status') }}</p>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+  <!-- Status card (auto-refresh every 30s via HTMX) -->
+  <div class="card lg:col-span-1"
+       id="status-card"
+       hx-get="/api/status-card"
+       hx-trigger="every 30s"
+       hx-swap="innerHTML">
+    {% include "partials/status_card.html" %}
+  </div>
+
+  <!-- Map -->
+  <div class="card lg:col-span-1 min-h-64">
+    {% if status and status.latitude and status.longitude %}
+    <div class="stat-label mb-3">{{ t('last_position') }}</div>
+    <div id="map" class="w-full rounded-lg" style="height:280px"></div>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      const map = L.map('map').setView([{{ status.latitude }}, {{ status.longitude }}], 15);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      }).addTo(map);
+      const icon = L.divIcon({
+        html: '<div style="background:#14b8a6;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 0 6px rgba(0,0,0,0.5)"></div>',
+        iconSize: [14,14], iconAnchor: [7,7]
+      });
+      L.marker([{{ status.latitude }}, {{ status.longitude }}], {icon}).addTo(map)
+        .bindPopup('{{ vehicle.car_type if vehicle else "Leapmotor" }} — {{ status.last_seen }}').openPopup();
+    </script>
+    {% else %}
+    <div class="flex items-center justify-center h-64 text-slate-500">
+      <div class="text-center">
+        <div class="text-4xl mb-2">🗺</div>
+        <div>{{ t('last_position') }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Vehicle picture (hidden if no picture available) -->
+  <div class="card lg:col-span-1 flex flex-col min-h-64">
+    <div class="stat-label mb-3">{{ vehicle.car_type if vehicle else t('vehicle') }}</div>
+    <div class="flex-1 flex items-center justify-center">
+      <img src="/api/car-picture" alt="{{ vehicle.car_type if vehicle else 'Vehicle' }}"
+           class="max-h-56 w-full object-contain"
+           onerror="this.closest('.card').style.display='none'">
+    </div>
+  </div>
+
+  <!-- Recent trips -->
+  <div class="card lg:col-span-2">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-semibold text-white">{{ t('recent_trips') }}</h2>
+      <a href="/trips" class="text-brand text-sm hover:underline">{{ t('view_all') }}</a>
+    </div>
+    {% if recent_trips %}
+    <div class="space-y-3">
+      {% for trip in recent_trips %}
+      <a href="/trips/{{ trip.id }}" class="flex items-center justify-between p-3 bg-slate-750 rounded-lg hover:bg-slate-700 transition-colors block">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full bg-brand/20 flex items-center justify-center text-brand">🗺</div>
+          <div>
+            <div class="text-sm font-medium text-white">
+              {{ trip.started_at[:10] if trip.started_at else '—' }}
+              <span class="text-slate-400 font-normal ml-1">{{ trip.started_at[11:16] if trip.started_at else '' }}</span>
+            </div>
+            <div class="text-xs text-slate-400">{{ "%.0f"|format(trip.duration_min or 0) }} min</div>
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-sm font-bold text-white">{{ "%.1f"|format(trip.distance_km or 0) }} km</div>
+          <div class="text-xs text-slate-400">
+            {% if trip.efficiency_kwh_100km %}{{ "%.1f"|format(trip.efficiency_kwh_100km) }} kWh/100km{% endif %}
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-6 text-slate-500 text-sm">{{ t('no_trips') }}</div>
+    {% endif %}
+  </div>
+
+  <!-- Last charge -->
+  <div class="card">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-semibold text-white">{{ t('last_charge') }}</h2>
+      <a href="/charges" class="text-brand text-sm hover:underline">{{ t('all_charges') }}</a>
+    </div>
+    {% if last_charge %}
+    <div class="space-y-3">
+      <div class="flex justify-between items-center">
+        <span class="stat-label">{{ t('energy_added') }}</span>
+        <span class="text-xl font-bold text-yellow-400">+{{ "%.1f"|format(last_charge.energy_added_kwh or 0) }} kWh</span>
+      </div>
+      <div class="flex justify-between text-sm">
+        <span class="text-slate-400">{{ t('soc') }}</span>
+        <span class="text-white">{{ "%.0f"|format(last_charge.start_soc or 0) }}% → {{ "%.0f"|format(last_charge.end_soc or 0) }}%</span>
+      </div>
+      <div class="flex justify-between text-sm">
+        <span class="text-slate-400">{{ t('duration') }}</span>
+        <span class="text-white">{{ "%.0f"|format(last_charge.duration_min or 0) }} min</span>
+      </div>
+      <div class="flex justify-between text-sm">
+        <span class="text-slate-400">{{ t('type') }}</span>
+        <span class="text-white {% if last_charge.charge_type == 'DC' %}text-yellow-400{% endif %}">
+          {{ last_charge.charge_type or 'AC' }}
+          {% if last_charge.max_power_kw %} · {{ "%.1f"|format(last_charge.max_power_kw) }} kW{% endif %}
+        </span>
+      </div>
+      {% if last_charge.cost %}
+      <div class="flex justify-between text-sm">
+        <span class="text-slate-400">{{ t('cost') }}</span>
+        <span class="text-white">€{{ "%.2f"|format(last_charge.cost) }}</span>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="text-center py-6 text-slate-500 text-sm">{{ t('no_charges') }}</div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

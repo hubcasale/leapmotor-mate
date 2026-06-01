@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Settings — LeapMotor Mate{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-white">{{ t('settings_title') }}</h1>
+</div>
+
+<div class="max-w-lg space-y-5">
+
+  <!-- Vehicle info -->
+  {% if vehicle %}
+  <div class="card">
+    <h2 class="font-semibold text-white mb-4">{{ t('vehicle_section') }}</h2>
+    <div class="space-y-3 text-sm">
+      <div class="flex justify-between">
+        <span class="text-slate-400">{{ t('model') }}</span>
+        <span class="text-white">Leapmotor {{ vehicle.car_type }} {{ vehicle.year or '' }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-slate-400">{{ t('vin') }}</span>
+        <span class="text-white font-mono text-xs">{{ vehicle.vin }}</span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Battery -->
+  <div class="card">
+    <h2 class="font-semibold text-white mb-4">{{ t('battery_cap_section') }}</h2>
+    <div class="space-y-3">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-sm text-white">{{ t('capacity') }}</div>
+          <div class="text-xs text-slate-400">{{ t('capacity_desc') }}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-white font-bold">{{ settings.get('battery_capacity_kwh', '67.1') }}</span>
+          <span class="text-slate-400 text-sm">kWh</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charge prices -->
+  <div class="card">
+    <h2 class="font-semibold text-white mb-1">{{ t('charge_prices') }}</h2>
+    <p class="text-xs text-slate-400 mb-4">{{ t('charge_prices_desc') }}</p>
+
+    <form hx-post="/api/settings/prices"
+          hx-target="#prices-feedback"
+          hx-swap="innerHTML"
+          style="margin:0">
+      <div class="space-y-3">
+
+        {% set price_rows = [
+          ('HOME', '🏠', 'Home',      'price_home_kwh',  '#22c55e'),
+          ('AC',   '🔌', 'AC Public', 'price_ac_kwh',    '#60a5fa'),
+          ('FAST', '⚡', 'Fast DC',   'price_fast_kwh',  '#fb923c'),
+          ('HPC',  '🚀', 'HPC',       'price_hpc_kwh',   '#e879f9'),
+        ] %}
+
+        {% for key, icon, label, setting_key, color in price_rows %}
+        <div style="display:flex;align-items:center;gap:12px;background:#0f172a;border-radius:10px;padding:10px 14px">
+          <span style="font-size:18px;width:24px;text-align:center">{{ icon }}</span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;color:{{ color }}">{{ label }}</div>
+            <div style="font-size:11px;color:#64748b">
+              {% if key == 'HOME' %}{{ t('home_desc') }}
+              {% elif key == 'AC' %}{{ t('ac_desc') }}
+              {% elif key == 'FAST' %}{{ t('fast_desc') }}
+              {% else %}{{ t('hpc_desc') }}
+              {% endif %}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:#64748b;font-size:13px">€</span>
+            <input type="number" name="{{ setting_key }}"
+                   value="{{ settings.get(setting_key, '0.00') }}"
+                   step="0.01" min="0" max="9.99"
+                   style="width:72px;background:#1e293b;border:1px solid #334155;border-radius:8px;
+                          padding:6px 10px;color:white;font-size:14px;font-weight:600;text-align:right">
+            <span style="color:#64748b;font-size:12px">/ kWh</span>
+          </div>
+        </div>
+        {% endfor %}
+
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
+        <div id="prices-feedback" style="font-size:13px;color:#64748b"></div>
+        <button type="submit"
+                style="background:#14b8a6;color:white;border:none;border-radius:8px;
+                       padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer">
+          {{ t('save_prices') }}
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

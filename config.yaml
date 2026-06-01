@@ -1,0 +1,34 @@
+name: "LeapMotor Mate"
+description: "Trip tracking and remote control for Leapmotor vehicles (B10, C10, T03)"
+version: "1.0.0"
+slug: "leapmotor_mate"
+url: "https://github.com/ProtossBlaster/leapmotor-mate"
+init: false
+startup: "application"
+boot: "auto"
+homeassistant: "2024.1.0"
+
+arch:
+  - aarch64
+  - amd64
+  - armv7
+
+map:
+  - type: data
+    read_only: false
+
+ingress: true
+ingress_port: 4000
+panel_icon: "mdi:car-electric"
+panel_title: "LeapMotor Mate"
+
+ports:
+  4000/tcp: null
+ports_description:
+  4000/tcp: "Web UI (not needed with ingress)"
+
+options:
+  log_level: "info"
+
+schema:
+  log_level: "list(trace|debug|info|warning|error|critical)"

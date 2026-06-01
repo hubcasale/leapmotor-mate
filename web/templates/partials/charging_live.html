@@ -1,0 +1,41 @@
+{% set is_charging = status and status.charging %}
+<div class="flex items-center gap-2 mb-4">
+  <span class="text-xl">⚡</span>
+  <span class="font-semibold text-white">{{ t('charging') }}</span>
+  {% if is_charging %}
+  <span class="ml-auto text-xs font-bold px-2 py-0.5 rounded-full text-yellow-400 bg-yellow-400/10 border border-yellow-400/30 animate-pulse">{{ t('live_badge') }}</span>
+  {% else %}
+  <span class="ml-auto text-xs text-slate-600">{{ t('not_charging') }}</span>
+  {% endif %}
+</div>
+
+<div class="grid grid-cols-2 gap-3">
+  <div style="background:#0f172a;border-radius:8px;padding:10px 14px">
+    <div class="text-slate-500 text-xs mb-1">{{ t('power') }}</div>
+    <div class="font-bold {% if is_charging %}text-yellow-400{% else %}text-slate-600{% endif %}">
+      {% if is_charging %}{{ "%.1f"|format(status.charge_power_kw or 0) }} <span class="text-xs font-normal text-slate-400">kW</span>{% else %}—{% endif %}
+    </div>
+  </div>
+  <div style="background:#0f172a;border-radius:8px;padding:10px 14px">
+    <div class="text-slate-500 text-xs mb-1">{{ t('time_remaining') }}</div>
+    <div class="font-bold {% if is_charging %}text-white{% else %}text-slate-600{% endif %}">
+      {% if is_charging and status.remaining_charge_min %}
+        {% set h = (status.remaining_charge_min // 60)|int %}
+        {% set m = (status.remaining_charge_min % 60)|int %}
+        {% if h > 0 %}{{ h }}h {{ m }}m{% else %}{{ m }}m{% endif %}
+      {% else %}—{% endif %}
+    </div>
+  </div>
+  <div style="background:#0f172a;border-radius:8px;padding:10px 14px">
+    <div class="text-slate-500 text-xs mb-1">{{ t('current_a') }}</div>
+    <div class="font-bold {% if is_charging %}text-white{% else %}text-slate-600{% endif %}">
+      {% if is_charging and status.charge_current_a %}{{ "%.0f"|format(status.charge_current_a|abs) }} <span class="text-xs font-normal text-slate-400">A</span>{% else %}—{% endif %}
+    </div>
+  </div>
+  <div style="background:#0f172a;border-radius:8px;padding:10px 14px">
+    <div class="text-slate-500 text-xs mb-1">{{ t('voltage') }}</div>
+    <div class="font-bold {% if is_charging %}text-white{% else %}text-slate-600{% endif %}">
+      {% if is_charging and status.charge_voltage_v %}{{ "%.0f"|format(status.charge_voltage_v) }} <span class="text-xs font-normal text-slate-400">V</span>{% else %}—{% endif %}
+    </div>
+  </div>
+</div>

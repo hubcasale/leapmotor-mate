@@ -1,0 +1,114 @@
+"""LeapMotor Mate — vehicle data poller."""
+import logging
+import os
+import pathlib
+import time
+
+_PROJECT_ROOT = pathlib.Path(__file__).parent.parent
+
+from client import LeapmotorMateClient
+from db import Database
+from recorder import Recorder
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("leapmotor_mate")
+
+
+def load_config(db: "Database") -> dict:
+    """Load credentials from DB settings, falling back to env vars (dev mode).
+    DB takes precedence over env — same order as the web layer — so a stray
+    LEAPMOTOR_USER in the environment (or a mounted .env) can never silently
+    switch the poller to a different account than the one set up in the wizard."""
+    def _get(key_env: str, key_db: str, default: str = "") -> str:
+        return db.get_setting(key_db) or os.environ.get(key_env) or default
+
+    return {
+        "username":  _get("LEAPMOTOR_USER", "leapmotor_user"),
+        "password":  _get("LEAPMOTOR_PASS", "leapmotor_pass"),
+        "pin":       _get("LEAPMOTOR_PIN",  "leapmotor_pin", ""),
+        "cert_path": os.environ.get("CERT_PATH", str(_PROJECT_ROOT / "certs" / "app.crt")),
+        "key_path":  os.environ.get("KEY_PATH",  str(_PROJECT_ROOT / "certs" / "app.key")),
+    }
+
+
+def main():
+    db_path = os.environ.get("DB_PATH", "leapmotor_mate.db")
+    log.info("Starting LeapMotor Mate poller")
+
+    db = Database(db_path)
+
+    # If no env vars set, wait for the setup wizard to complete
+    if not os.environ.get("LEAPMOTOR_USER") and not db.is_setup_complete():
+        log.info("Waiting for setup wizard...")
+        while not db.is_setup_complete():
+            time.sleep(5)
+        log.info("Setup complete — starting poller")
+    cfg = load_config(db)
+    _u = cfg["username"]
+    _masked = (_u[:3] + "***" + _u[_u.find("@"):]) if "@" in _u else (_u[:3] + "***")
+    device_id = db.get_or_create_device_id()
+    log.info("Poller authenticating as account: %s | device_id: %s", _masked, device_id)
+    client = LeapmotorMateClient(
+        username=cfg["username"],
+        password=cfg["password"],
+        pin=cfg["pin"],
+        cert_path=cfg["cert_path"],
+        key_path=cfg["key_path"],
+        device_id=device_id,
+    )
+
+    client.login()
+    # Vehicle is known after login; register it in the DB
+    from leapmotor_api import LeapmotorApiClient
+    v = client._vehicle
+    vehicle_id = db.ensure_vehicle(v.vin, v.car_type, getattr(v, "year", None))
+
+    # First run: set battery capacity from per-model default
+    # (will be overridable via setup wizard / settings UI)
+    if not db.is_setup_complete():
+        from db import default_capacity_for
+        capacity = default_capacity_for(v.car_type)
+        db.set_battery_capacity(capacity)
+        log.info(
+            "First run: %s default battery capacity set to %.1f kWh "
+            "(change in Settings if you have a different variant)",
+            v.car_type, capacity,
+        )
+
+    # Crash/restart recovery for open trips/charges happens on the first poll inside
+    # Recorder._resume_or_close(), which RESUMES a still-ongoing session (avoiding
+    # fragmentation) and only closes it if the activity has actually ended.
+    recorder = Recorder(db, vehicle_id)
+
+    log.info("Polling VIN %s (vehicle_id=%d)", v.vin, vehicle_id)
+
+    while True:
+        try:
+            data = client.get_status()
+            recorder.process(data)
+            log.info(
+                "SOC %.1f%% | Range %d km | Speed %.0f km/h | State: %-8s | Gear: %s | Next poll: %ds",
+                data.soc, data.range_km, data.speed_kmh,
+                recorder.state.value, data.gear,
+                recorder.poll_interval,
+            )
+            recorder.mark_online()
+        except KeyboardInterrupt:
+            log.info("Stopped by user")
+            break
+        except Exception as exc:
+            log.error("Poll error: %s", exc)
+            recorder.mark_offline()
+
+        time.sleep(recorder.poll_interval)
+
+    client.close()
+    db.close()
+
+
+if __name__ == "__main__":
+    main()
