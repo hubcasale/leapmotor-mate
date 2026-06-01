@@ -143,6 +143,17 @@ def _charge_power_kw(sig: dict) -> float:
     return round(abs(current * voltage) / 1000.0, 3)
 
 
+def _is_plugged_in(sig: dict) -> bool:
+    """Whether the charge cable is physically connected. Signal 47 is the reliable plug
+    flag (matches leapmotor-ha _is_plugged_in) — it stays 0 while driving. Signal 1149
+    is only a fallback: it reads 1 spuriously during regen at speed, so it must NOT be
+    the primary source or driving gets mistaken for a charge session."""
+    plug = _si(sig, "47")
+    if plug is not None:
+        return plug == 1
+    return _si(sig, "1149") in (1, 2)
+
+
 def _is_charging(sig: dict) -> bool:
     """Whether the car is actually charging. Charging only happens while PARKED, so the
     car must be stationary (gear P, speed ~0); plus the cable plugged in (1149) AND a
@@ -209,7 +220,7 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
             int(sig.get(k) or 0) != 0
             for k in ("1277", "1278", "1279", "1280", "1281")
         ),
-        plug_connected=int(sig.get("1149") or 0) != 0,
+        plug_connected=_is_plugged_in(sig),
         remaining_charge_min=int(sig.get("1200") or 0),
         charge_voltage_v=float(sig.get("1177") or 0),
         charge_current_a=float(sig.get("1178") or 0),

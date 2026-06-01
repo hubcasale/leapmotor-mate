@@ -232,6 +232,11 @@ def save_fresh_signals(signals: dict) -> None:
     gear_map = {0: "P", 1: "R", 2: "N", 3: "D"}
     windows_open = int(any(sig(k) != 0 for k in ("1693", "1694", "1695", "1696")))
 
+    # Plug from signal 47 (reliable, stays 0 while driving) — 1149 only as fallback,
+    # since it reads 1 spuriously during regen at speed. Matches leapmotor-ha.
+    _plug47 = signals.get("47")
+    plug_connected = (int(_plug47) == 1) if _plug47 is not None else (sig("1149") in (1, 2))
+
     db.execute(
         """INSERT INTO positions (
             vehicle_id, recorded_at,
@@ -254,7 +259,7 @@ def save_fresh_signals(signals: dict) -> None:
             gear_map.get(sig("1010"), "P"),
             int(_is_charging()),
             sigf("1182"), sigf("2183"), sigf("1349"),
-            sig("1298"), sig("1938"), sig("1149"),
+            sig("1298"), sig("1938"), int(plug_connected),
             int(sig("2669") == 2), int(sig("2681") == 2), int(sig("1945") == 2),
             sig("1281"), windows_open, sig("1724"),
             sig("1200") or None,
