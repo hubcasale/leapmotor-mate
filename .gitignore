@@ -16,3 +16,6 @@ certs/app.key
 # Personal one-off migration scripts (not for distribution)
 scripts/import_from_ha.py
 scripts/import_ha_history.py
+
+# Dev-only compose override (bind-mounts source) — not for distribution
+docker-compose.override.yml

@@ -1,9 +1,0 @@
-# Development override — auto-merged by `docker compose` on top of docker-compose.yml.
-# Live-mounts the source so code edits apply with `docker compose restart` (no rebuild).
-# NOT for production: delete this file, or run `docker compose -f docker-compose.yml ...`
-# to use the clean image-baked code (as the standalone/HA add-on does).
-services:
-  leapmotor-mate:
-    volumes:
-      - ./web:/app/web
-      - ./poller:/app/poller
