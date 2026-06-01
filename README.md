@@ -52,7 +52,12 @@ The data lives in a local SQLite database. Nothing is sent anywhere except to th
 
 ### Option A — Home Assistant add‑on
 
-1. In Home Assistant: **Settings → Add‑ons → Add‑on Store → ⋮ → Repositories**, add the add‑on repository URL.
+1. In Home Assistant: **Settings → Add‑ons → Add‑on Store → ⋮ → Repositories**, and add the **add‑on** repository URL (note the `-addon` suffix — this is a separate repo from the code):
+
+   ```
+   https://github.com/ProtossBlaster/leapmotor-mate-addon
+   ```
+
 2. Install **LeapMotor Mate**, start it, and open the panel (car icon in the sidebar).
 3. Follow the setup wizard.
 
@@ -160,7 +165,12 @@ I dati restano in un database SQLite locale. Nulla viene inviato altrove se non 
 
 ### Opzione A — Add‑on Home Assistant
 
-1. In Home Assistant: **Impostazioni → Add‑on → Store → ⋮ → Repository**, aggiungi l'URL del repository dell'add‑on.
+1. In Home Assistant: **Impostazioni → Add‑on → Store → ⋮ → Repository**, e aggiungi l'URL del repository **add‑on** (nota il suffisso `-addon` — è un repo separato dal codice):
+
+   ```
+   https://github.com/ProtossBlaster/leapmotor-mate-addon
+   ```
+
 2. Installa **LeapMotor Mate**, avvialo e apri il pannello (icona auto nella barra laterale).
 3. Segui il wizard di setup.
 
