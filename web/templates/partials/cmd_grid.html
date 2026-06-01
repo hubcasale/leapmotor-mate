@@ -10,7 +10,7 @@
 
 {% macro action_btn(cmd, label, confirm="") %}
 <button
-  hx-post="/api/command/{{ cmd }}"
+  hx-post="api/command/{{ cmd }}"
   hx-target="#result-{{ cmd }}"
   hx-swap="innerHTML"
   hx-indicator="#spin-{{ cmd }}"
@@ -37,7 +37,7 @@
     {% if on %}{{ t('climate_on_state') }}{% elif on is none %}{{ t('unknown') }}{% else %}{{ t('climate_off_state') }}{% endif %}
   </span>
   <button
-    hx-post="/api/command/{{ cmd }}"
+    hx-post="api/command/{{ cmd }}"
     hx-target="#result-{{ cmd }}"
     hx-swap="innerHTML"
     hx-indicator="#spin-{{ cmd }}"
@@ -60,7 +60,7 @@
 {% if show_open %}{% set cmd = cmd_open %}{% set label = t('btn_open') %}{% set confirm = confirm_open %}
 {% else %}{% set cmd = cmd_close %}{% set label = t('btn_close') %}{% set confirm = confirm_close %}{% endif %}
 <button
-  hx-post="/api/command/{{ cmd }}"
+  hx-post="api/command/{{ cmd }}"
   hx-target="#result-{{ cmd }}"
   hx-swap="innerHTML"
   hx-indicator="#spin-{{ cmd }}"

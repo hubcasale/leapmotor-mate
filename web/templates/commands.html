@@ -11,12 +11,12 @@
 
 <script>
 function refreshCmdGrid() {
-  htmx.ajax('GET', '/api/cmd-grid', {target: '#cmd-grid', swap: 'outerHTML'});
+  htmx.ajax('GET', 'api/cmd-grid', {target: '#cmd-grid', swap: 'outerHTML'});
 }
 
 document.addEventListener('htmx:afterRequest', function(e) {
   var path = (e.detail.pathInfo || {}).requestPath || '';
-  if (!e.detail.successful || !path.startsWith('/api/command/')) return;
+  if (!e.detail.successful || !path.startsWith('api/command/')) return;
   var resultId = 'result-' + path.split('/').pop();
   var el = document.getElementById(resultId);
   var slow = el && el.querySelector('[data-slow]');

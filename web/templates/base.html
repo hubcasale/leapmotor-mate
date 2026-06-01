@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <!-- Resolve all relative URLs against the HA ingress path (empty when standalone) -->
+  <base href="{{ request.headers.get('x-ingress-path', '') }}/">
   <title>{% block title %}LeapMotor Mate{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
@@ -65,7 +67,7 @@
     <!-- Logo -->
     <div class="px-5 py-5 border-b border-slate-700">
       <div class="flex items-center gap-2">
-        <img src="/static/leapmotor-logo.svg" alt="Leapmotor" class="h-5 w-auto" style="filter:brightness(0) invert(1)">
+        <img src="static/leapmotor-logo.svg" alt="Leapmotor" class="h-5 w-auto" style="filter:brightness(0) invert(1)">
         <span class="text-sm font-medium text-brand">Mate</span>
       </div>
       {% if vehicle %}
@@ -75,26 +77,26 @@
 
     <!-- Nav -->
     <nav class="flex-1 px-3 py-4 space-y-1">
-      <a href="/"           class="nav-link {% if page=='overview'    %}active{% endif %}">
+      <a href="."           class="nav-link {% if page=='overview'    %}active{% endif %}">
         <span class="text-lg">⚡</span> {{ t('nav_overview') }}
       </a>
-      <a href="/trips"      class="nav-link {% if page=='trips'       %}active{% endif %}">
+      <a href="trips"       class="nav-link {% if page=='trips'       %}active{% endif %}">
         <span class="text-lg">🗺</span> {{ t('nav_trips') }}
       </a>
-      <a href="/charges"    class="nav-link {% if page=='charges'     %}active{% endif %}">
+      <a href="charges"     class="nav-link {% if page=='charges'     %}active{% endif %}">
         <span class="text-lg">🔌</span> {{ t('nav_charges') }}
       </a>
-      <a href="/statistics" class="nav-link {% if page=='statistics'  %}active{% endif %}">
+      <a href="statistics"  class="nav-link {% if page=='statistics'  %}active{% endif %}">
         <span class="text-lg">📊</span> {{ t('nav_statistics') }}
       </a>
-      <a href="/commands"   class="nav-link {% if page=='commands'    %}active{% endif %}">
+      <a href="commands"    class="nav-link {% if page=='commands'    %}active{% endif %}">
         <span class="text-lg">🎮</span> {{ t('nav_commands') }}
       </a>
     </nav>
 
     <!-- Settings at bottom -->
     <div class="px-3 py-4 border-t border-slate-700">
-      <a href="/settings" class="nav-link {% if page=='settings' %}active{% endif %}">
+      <a href="settings" class="nav-link {% if page=='settings' %}active{% endif %}">
         <span class="text-lg">⚙️</span> {{ t('nav_settings') }}
       </a>
     </div>

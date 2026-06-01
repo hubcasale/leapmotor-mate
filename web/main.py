@@ -30,7 +30,8 @@ async def setup_check(request: Request, call_next):
     if os.environ.get("LEAPMOTOR_USER"):
         return await call_next(request)
     if not db_reader.is_setup_complete():
-        return RedirectResponse("/setup")
+        # Honor the HA ingress path so the redirect stays inside the add-on panel
+        return RedirectResponse(request.headers.get("x-ingress-path", "") + "/setup")
     return await call_next(request)
 
 
@@ -89,7 +90,7 @@ async def trip_detail(request: Request, trip_id: int):
     vehicle, _ = db_reader.get_vehicle()
     trip = db_reader.get_trip_detail(trip_id)
     if not trip:
-        return RedirectResponse("/trips")
+        return RedirectResponse(request.headers.get("x-ingress-path", "") + "/trips")
     return templates.TemplateResponse(request, "trip_detail.html", _ctx(
         page="trips", vehicle=vehicle, trip=trip,
     ))
@@ -567,7 +568,7 @@ async def setup_submit(request: Request):
     # Reset the command session so it picks up new credentials
     command_client._session._reset()
 
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse(request.headers.get("x-ingress-path", "") + "/", status_code=303)
 
 
 if __name__ == "__main__":

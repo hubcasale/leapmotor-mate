@@ -14,7 +14,7 @@
                 background:#1e293b;border:1px solid #334155;border-radius:10px;
                 padding:4px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
       {% for key, info in charge_types.items() %}
-      <form hx-post="/api/charges/{{ charge.id }}/type"
+      <form hx-post="api/charges/{{ charge.id }}/type"
             hx-target="#charge-type-{{ charge.id }}"
             hx-swap="outerHTML"
             hx-on::after-request="document.getElementById('cost-{{ charge.id }}').textContent = event.detail.xhr ? '' : ''"

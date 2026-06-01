@@ -12,7 +12,7 @@
   <!-- Status card (auto-refresh every 30s via HTMX) -->
   <div class="card lg:col-span-1"
        id="status-card"
-       hx-get="/api/status-card"
+       hx-get="api/status-card"
        hx-trigger="every 30s"
        hx-swap="innerHTML">
     {% include "partials/status_card.html" %}
@@ -51,7 +51,7 @@
   <div class="card lg:col-span-1 flex flex-col min-h-64">
     <div class="stat-label mb-3">{{ vehicle.car_type if vehicle else t('vehicle') }}</div>
     <div class="flex-1 flex items-center justify-center">
-      <img src="/api/car-picture" alt="{{ vehicle.car_type if vehicle else 'Vehicle' }}"
+      <img src="api/car-picture" alt="{{ vehicle.car_type if vehicle else 'Vehicle' }}"
            class="max-h-56 w-full object-contain"
            onerror="this.closest('.card').style.display='none'">
     </div>
@@ -61,12 +61,12 @@
   <div class="card lg:col-span-2">
     <div class="flex items-center justify-between mb-4">
       <h2 class="font-semibold text-white">{{ t('recent_trips') }}</h2>
-      <a href="/trips" class="text-brand text-sm hover:underline">{{ t('view_all') }}</a>
+      <a href="trips" class="text-brand text-sm hover:underline">{{ t('view_all') }}</a>
     </div>
     {% if recent_trips %}
     <div class="space-y-3">
       {% for trip in recent_trips %}
-      <a href="/trips/{{ trip.id }}" class="flex items-center justify-between p-3 bg-slate-750 rounded-lg hover:bg-slate-700 transition-colors block">
+      <a href="trips/{{ trip.id }}" class="flex items-center justify-between p-3 bg-slate-750 rounded-lg hover:bg-slate-700 transition-colors block">
         <div class="flex items-center gap-3">
           <div class="w-9 h-9 rounded-full bg-brand/20 flex items-center justify-center text-brand">🗺</div>
           <div>
@@ -95,7 +95,7 @@
   <div class="card">
     <div class="flex items-center justify-between mb-4">
       <h2 class="font-semibold text-white">{{ t('last_charge') }}</h2>
-      <a href="/charges" class="text-brand text-sm hover:underline">{{ t('all_charges') }}</a>
+      <a href="charges" class="text-brand text-sm hover:underline">{{ t('all_charges') }}</a>
     </div>
     {% if last_charge %}
     <div class="space-y-3">

@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <!-- Resolve relative URLs against the HA ingress path (empty when standalone) -->
+  <base href="{{ request.headers.get('x-ingress-path', '') }}/">
   <title>LeapMotor Mate — Setup</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { theme: { extend: { colors: { brand: '#14b8a6' } } } }</script>
@@ -79,7 +81,7 @@
 
   <!-- ── Step 2: Account login ────────────────────────────────────────────── -->
   <!-- Form -->
-  <form method="post" action="/setup" class="space-y-4" id="setup-form" style="display:none"
+  <form method="post" action="setup" class="space-y-4" id="setup-form" style="display:none"
         onsubmit="return validateSubmit()">
     <input type="hidden" name="language"  id="lang-input"  value="en">
     <input type="hidden" name="battery"   id="h-battery"   value="">
@@ -280,7 +282,7 @@ async function saveCert() {
   document.getElementById('cert-btn-label').textContent = s.certSaving;
   btn.disabled = true; btn.style.opacity = '0.6';
   try {
-    const resp = await fetch('/api/setup/cert', { method: 'POST', body: fd });
+    const resp = await fetch('api/setup/cert', { method: 'POST', body: fd });
     const data = await resp.json();
     if (!resp.ok || data.error) { showCertError(data.error || 'Error'); return; }
     // Cert saved → reveal the login step
@@ -401,7 +403,7 @@ async function detectCar() {
   document.getElementById('detect-result').style.display = 'none';
 
   try {
-    const resp = await fetch('/api/setup/detect-vehicle', {
+    const resp = await fetch('api/setup/detect-vehicle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user, password: pwd, pin }),
@@ -519,7 +521,7 @@ setLang('{{ prefill.language if prefill else "" }}' || initLang);
 // Show the cert step first unless the certificate is already present.
 (async () => {
   try {
-    const r = await fetch('/api/setup/cert-status');
+    const r = await fetch('api/setup/cert-status');
     const d = await r.json();
     if (d.present) {
       document.getElementById('setup-form').style.display = 'block';

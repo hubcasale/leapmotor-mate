@@ -46,7 +46,7 @@
   <div class="card">
     <h2 class="font-semibold text-white mb-1">{{ t('polling_section') }}</h2>
     <div class="text-xs text-slate-400 mb-4">{{ t('polling_desc') }}</div>
-    <form hx-post="/api/poll-settings" hx-trigger="change" hx-target="#poll-result" hx-swap="innerHTML" class="space-y-5">
+    <form hx-post="api/poll-settings" hx-trigger="change" hx-target="#poll-result" hx-swap="innerHTML" class="space-y-5">
       <div>
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm text-white">{{ t('poll_parked_label') }}</span>
@@ -78,7 +78,7 @@
     <h2 class="font-semibold text-white mb-1">{{ t('charge_prices') }}</h2>
     <p class="text-xs text-slate-400 mb-4">{{ t('charge_prices_desc') }}</p>
 
-    <form hx-post="/api/settings/prices"
+    <form hx-post="api/settings/prices"
           hx-target="#prices-feedback"
           hx-swap="innerHTML"
           style="margin:0">

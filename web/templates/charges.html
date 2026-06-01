@@ -12,7 +12,7 @@
 
   <!-- Live charging status -->
   <div id="charging-live-panel" class="card"
-       hx-get="/api/charging-live"
+       hx-get="api/charging-live"
        hx-trigger="every 30s"
        hx-swap="innerHTML">
     {% include "partials/charging_live.html" %}
@@ -28,7 +28,7 @@
       </span>
     </div>
     <div class="text-xs text-slate-500 mb-3">{{ t('charge_limit_desc') }}</div>
-    <form hx-post="/api/charge-limit"
+    <form hx-post="api/charge-limit"
           hx-target="#cl-result"
           hx-swap="innerHTML"
           hx-on::after-request="if(event.detail.successful){document.getElementById('cl-badge').textContent=document.getElementById('cl-input').value+'%';}"
@@ -49,7 +49,7 @@
 
 <script>
 // Fetch current charge limit on page load and update badge + input
-fetch('/api/charge-plan').then(r => r.json()).then(d => {
+fetch('api/charge-plan').then(r => r.json()).then(d => {
   var p = d.charge_limit_percent;
   if (p) {
     document.getElementById('cl-badge').textContent = p + '%';
@@ -246,7 +246,7 @@ fetch('/api/charge-plan').then(r => r.json()).then(d => {
                                 background:#1e293b;border:1px solid #334155;border-radius:10px;
                                 padding:4px;min-width:155px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
                       {% for key, info in charge_types.items() %}
-                      <form hx-post="/api/charges/{{ c.id }}/type"
+                      <form hx-post="api/charges/{{ c.id }}/type"
                             hx-target="#charge-type-{{ c.id }}"
                             hx-swap="outerHTML"
                             hx-on::after-request="document.getElementById('ct-menu-{{ c.id }}') && document.getElementById('ct-menu-{{ c.id }}').classList.add('hidden')"
