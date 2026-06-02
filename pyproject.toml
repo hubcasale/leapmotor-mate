@@ -1,0 +1,63 @@
+[project]
+name = "leapconnect"
+version = "0.8.0"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "aiosqlite>=0.20.0",
+    "alembic>=1.13.0",
+    "leapmotor-api==0.3.1",
+    "Pillow>=10.0.0",
+    "aiomqtt>=2.0.0",
+    "httpx>=0.28.1",
+]
+
+[project.scripts]
+serve = "uvicorn main:app --host 0.0.0.0 --port 8099"
+
+[dependency-groups]
+dev = [
+    "bump-my-version>=1.3.0",
+    "httpx>=0.28.1",
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.4.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["SIM102"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.bumpversion]
+current_version = "0.8.0"
+commit = true
+tag = true
+tag_name = "v{new_version}"
+commit_message = "bump: {current_version} → {new_version}"
+pre_commit_hooks = ["uv lock --no-upgrade"]
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "frontend/package.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'

@@ -1,0 +1,169 @@
+/* ================================================================
+   LEAPCONNECT — Design System
+   ================================================================ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #090b12;
+  --bg2:     #0d1018;
+  --card:    #111420;
+  --border:  #1c2135;
+  --border2: #1a1f30;
+  --elevated:#161b2a;
+  --input:   #0e1220;
+
+  --text:    #e2e6f0;
+  --muted:   #4a5468;
+  --muted2:  #3a4458;
+  --muted3:  #5c6478;
+  --label:   #6a748a;
+  --heading: #c8cfe0;
+  --sub:     #8892a8;
+
+  --cyan:    #00d4ff;
+  --green:   #00e676;
+  --amber:   #ffab40;
+  --red:     #ff5252;
+  --purple:  #7c6aff;
+  --orange:  #ff7043;
+
+  /* Additional UI tokens */
+  --btn-bg:     #1c2240;
+  --btn-border: #2a3050;
+  --btn-hover:  #252d50;
+  --hero-bg:    linear-gradient(160deg, #0d1422, #111826);
+  --divider:    #181d2c;
+  --toggle-bg:  #1c2240;
+  --toggle-border: #2a3050;
+  --toggle-knob: #3a4468;
+  --skeleton:   linear-gradient(90deg, #1c2240 25%, #252d4a 50%, #1c2240 75%);
+  --chart-grid: #1c2135;
+  --chart-tick: #4a5468;
+  --tooltip-bg: #161b2a;
+  --tooltip-border: #1c2240;
+  --heatmap-empty: #1a1f2e;
+  --shadow-menu: 0 12px 32px #000a, 0 2px 8px #0004;
+  --shadow-card: none;
+  --map-filter: none;
+
+  --font: 'Inter', 'Outfit', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --transition: 0.2s ease;
+}
+
+/* Light theme — inspired by official Leapmotor app (mint-green tint) */
+[data-theme="light"] {
+  --bg:      #f2f8f5;
+  --bg2:     #f7faf9;
+  --card:    #ffffff;
+  --border:  #e0ebe5;
+  --border2: #e6f0ea;
+  --elevated:#eaf4ef;
+  --input:   #f0f5f3;
+
+  --text:    #1a2420;
+  --muted:   #5a6e64;
+  --muted2:  #7a8e84;
+  --muted3:  #4a5e54;
+  --label:   #4a6058;
+  --heading: #1a2420;
+  --sub:     #4a6058;
+
+  --cyan:    #0099aa;
+  --green:   #00b368;
+  --amber:   #d49000;
+  --red:     #d63030;
+  --purple:  #5a48cc;
+  --orange:  #d05030;
+
+  --btn-bg:     #eaf4ef;
+  --btn-border: #d8e8e0;
+  --btn-hover:  #ddeee5;
+  --hero-bg:    linear-gradient(160deg, #e8f5ee, #f0faf5);
+  --divider:    #e0ebe5;
+  --toggle-bg:  #d8e8e0;
+  --toggle-border: #c8dcd2;
+  --toggle-knob: #9ab0a4;
+  --skeleton:   linear-gradient(90deg, #e0ebe5 25%, #f0f8f5 50%, #e0ebe5 75%);
+  --chart-grid: #e0ebe5;
+  --chart-tick: #5a6e64;
+  --tooltip-bg: #ffffff;
+  --tooltip-border: #d8e8e0;
+  --heatmap-empty: #eaf4ef;
+  --shadow-menu: 0 8px 24px #1a242010, 0 2px 8px #1a242008;
+  --shadow-card: 0 2px 8px #1a24200a, 0 1px 3px #1a242006;
+  --map-filter: none;
+}
+
+html {
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--btn-bg); border-radius: 3px; }
+
+/* Keyframes */
+@keyframes lm-slideup {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes lm-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+@keyframes lm-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes lm-fadein {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Spinner */
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: lm-spin 0.8s linear infinite;
+}
+
+/* Range input global */
+input[type=range] {
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--border);
+  outline: none;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+button { font-family: inherit; }

@@ -1,0 +1,166 @@
+"""Persistence layer data models."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+
+DEFAULT_INTERVAL_MINUTES = 15
+
+
+@dataclass(frozen=True, slots=True)
+class VehicleSnapshot:
+    """A single point-in-time snapshot of vehicle telemetry."""
+
+    vin: str
+    timestamp: datetime
+
+    # Battery
+    battery_soc: int | None = None
+    battery_current: float | None = None
+    battery_voltage: float | None = None
+    battery_charging_power_kw: float | None = None
+    battery_discharge_power_kw: float | None = None
+    battery_is_charging: bool | None = None
+    battery_is_discharging: bool | None = None
+    battery_dump_energy: float | None = None
+    battery_expected_mileage: int | None = None
+    battery_charge_state: int | None = None
+
+    # Drive
+    drive_is_parked: bool | None = None
+    drive_speed: int | None = None
+    drive_total_mileage: int | None = None
+
+    # Ignition
+    ignition_is_on1: bool | None = None
+    ignition_is_on2: bool | None = None
+
+    # Vehicle
+    vehicle_is_charging: bool | None = None
+    vehicle_is_plugged: bool | None = None
+    vehicle_is_regening: bool | None = None
+    vehicle_is_parked: bool | None = None
+    vehicle_is_locked: bool | None = None
+    vehicle_latitude: float | None = None
+    vehicle_longitude: float | None = None
+
+    # Climate
+    climate_outdoor_temp: int | None = None
+
+    # Tire
+    tire_front_left_pressure: float | None = None
+    tire_front_right_pressure: float | None = None
+    tire_rear_left_pressure: float | None = None
+    tire_rear_right_pressure: float | None = None
+
+
+@dataclass
+class UserPreferences:
+    """User-configurable preferences."""
+
+    electricity_price_kwh: float = 0.25
+    theme: str = "dark"
+    downsampling_enabled: bool = True
+    downsampling_max_points: int = 2000
+
+
+@dataclass
+class SchedulerSettings:
+    """User-facing scheduler configuration."""
+
+    enabled: bool = False
+    interval_minutes: int = DEFAULT_INTERVAL_MINUTES
+    mqtt_interval_seconds: int = 60
+    rate_limit_seconds: int = 10
+    # Transition detection settings
+    transition_detection_enabled: bool = True
+    transition_poll_interval_seconds: int = 10
+    transition_min_event_interval_seconds: int = 10
+
+
+@dataclass
+class LiveRefreshSettings:
+    """Live refresh configuration for WebSocket-connected clients."""
+
+    interval_seconds: int = 30  # 0 = disabled, default 30s
+
+
+@dataclass
+class MqttSettings:
+    """MQTT connection settings for Home Assistant integration."""
+
+    enabled: bool = False
+    broker: str = ""
+    port: int = 1883
+    username: str = ""
+    password: str = ""
+    use_tls: bool = False
+    discovery_prefix: str = "homeassistant"
+    topic_prefix: str = "leapconnect"
+
+
+@dataclass
+class AbrpSettings:
+    """ABRP (A Better Route Planner) telemetry settings."""
+
+    enabled: bool = False
+    user_token: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class VehicleEvent:
+    """A single state-transition event detected for a vehicle."""
+
+    vin: str
+    timestamp: datetime
+    event_type: str  # e.g. "regen_start", "regen_stop", "charge_start"
+    field_name: str  # e.g. "is_regening", "battery_soc"
+    old_value: str | None = None
+    new_value: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class NotificationChannel:
+    """A configured notification channel (e.g. Telegram bot)."""
+
+    id: int | None = None
+    channel_type: str = "telegram"  # "telegram", "email", "webhook", ...
+    config: dict = None  # type: ignore[assignment]
+    enabled: bool = True
+    created_at: datetime | None = None
+
+    def __post_init__(self):
+        if self.config is None:
+            self.config = {}
+
+
+@dataclass
+class NotificationPreference:
+    """Per-event notification preference for a channel."""
+
+    id: int | None = None
+    channel_id: int = 0
+    event_type: str = ""
+    enabled: bool = True
+    config: dict | None = None  # thresholds, timeouts, etc.
+
+
+@dataclass
+class Geofence:
+    """A geographic zone for enter/exit notifications."""
+
+    id: int | None = None
+    vin: str | None = None  # None = applies to all vehicles
+    name: str = ""
+    latitude: float = 0.0
+    longitude: float = 0.0
+    radius_m: float = 200.0
+    notify_on_enter: bool = True
+    notify_on_exit: bool = True
+    enabled: bool = True
