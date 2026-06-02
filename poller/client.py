@@ -5,6 +5,7 @@ backend only exposes /status/get/c10 for this model.
 """
 import json
 import logging
+import os
 import types
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -104,6 +105,21 @@ class LeapmotorMateClient:
             raise RuntimeError("No vehicles found on this account")
         self._vehicle = vehicles[0]
         log.info("Authenticated — VIN: %s  model: %s", self._vehicle.vin, self._vehicle.car_type)
+
+    def relogin(self):
+        """Force a fresh login to self-heal a broken session. The account TLS cert
+        lives in a /tmp temp file; if it vanishes, every request fails forever with
+        'Could not find the TLS certificate file'. Dropping the shared-session blob
+        and re-logging in re-creates the cert. Also recovers auth/token drops."""
+        try:
+            import sqlite3
+            c = sqlite3.connect(os.environ.get("DB_PATH", "leapmotor_mate.db"), timeout=5)
+            c.execute("DELETE FROM settings WHERE key='shared_session'")
+            c.commit()
+            c.close()
+        except Exception as e:  # noqa: BLE001
+            log.debug("Could not clear shared session before relogin: %s", e)
+        self.login()
 
     def get_status(self) -> VehicleData:
         raw = self._api.get_vehicle_raw_status(self._vehicle)

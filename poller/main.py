@@ -100,6 +100,8 @@ def main():
 
     log.info("Polling VIN %s (vehicle_id=%d)", v.vin, vehicle_id)
 
+    last_relogin = 0.0   # rate-limit guard for session recovery
+
     while True:
         try:
             # Apply user-tunable poll cadence (Settings) live, each cycle
@@ -138,6 +140,23 @@ def main():
             log.error("Poll error: %s", exc)
             recorder.mark_offline()
             interval = recorder.poll_interval
+            # Self-heal: a vanished /tmp account-cert file (or an auth/token/connection
+            # drop) makes every poll fail forever — the poller used to just keep erroring.
+            # Force a fresh login to re-create the cert. Guarded to ~once/min so a rapid
+            # double login can't trip Leapmotor's rate limiter.
+            msg = str(exc).lower()
+            recoverable = any(s in msg for s in (
+                "certificate", "cert", "unauthorized", "token", "login",
+                "verification", "connection", "timed out", "timeout", "ssl",
+            ))
+            if recoverable and time.time() - last_relogin > 60:
+                last_relogin = time.time()
+                try:
+                    log.info("Attempting session recovery (re-login)…")
+                    client.relogin()
+                    log.info("Session recovered after re-login")
+                except Exception as e2:  # noqa: BLE001
+                    log.warning("Re-login failed, will retry next cycle: %s", e2)
 
         # Interruptible sleep: while parked we may be sleeping for minutes, so check the
         # boost flag every few seconds and wake immediately if one is requested.

@@ -3,6 +3,15 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.5] — 2026-06-02
+
+### Fixed
+- **Poller self-recovery**: if the account TLS certificate temp file vanished from
+  `/tmp` (every poll then failed with "Could not find the TLS certificate file"),
+  the poller stayed stuck in an error loop indefinitely. It now forces a fresh
+  login to re-create the certificate on cert/auth/token/connection errors (rate-
+  limited to ~once per minute). Also recovers from auth/token drops.
+
 ## [1.0.4] — 2026-06-02
 
 ### Fixed
