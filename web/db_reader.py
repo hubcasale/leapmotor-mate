@@ -443,6 +443,39 @@ def get_charges(limit: int = 50) -> list[dict]:
     return out
 
 
+def get_charge_power_curve(charge_id: int) -> dict:
+    """Per-sample charging power for one session, for the expandable power chart.
+    Power = |pack_voltage(1177) x pack_current(1178)| / 1000 — the same value as the
+    HA `sensor.leapmotor_charging_power`. NOT rounded to 1 decimal (that flattens the
+    curve); kept at 3 decimals so the real variation shows. Samples come from the
+    general `positions` log (may be pruned over time → empty for very old sessions)."""
+    db = _get()
+    ch = db.execute("SELECT started_at, ended_at FROM charges WHERE id = ?", (charge_id,)).fetchone()
+    if not ch:
+        return {"labels": [], "power": [], "soc": []}
+    start, end = ch["started_at"], ch["ended_at"]
+    if end:
+        rows = db.execute(
+            "SELECT recorded_at, charge_voltage_v, charge_current_a, soc FROM positions "
+            "WHERE charging = 1 AND recorded_at >= ? AND recorded_at <= ? ORDER BY recorded_at",
+            (start, end),
+        ).fetchall()
+    else:  # charge still in progress — open upper bound
+        rows = db.execute(
+            "SELECT recorded_at, charge_voltage_v, charge_current_a, soc FROM positions "
+            "WHERE charging = 1 AND recorded_at >= ? ORDER BY recorded_at",
+            (start,),
+        ).fetchall()
+    labels, power, soc = [], [], []
+    for r in rows:
+        v = r["charge_voltage_v"] or 0
+        a = r["charge_current_a"] or 0
+        labels.append((_local_iso(r["recorded_at"]) or "")[11:16])  # HH:MM local
+        power.append(round(abs(v * a) / 1000.0, 3))
+        soc.append(r["soc"])
+    return {"labels": labels, "power": power, "soc": soc}
+
+
 def get_stats_grouped() -> list[dict]:
     """Trip stats nested as year → month → day (aggregated, no individual trips)."""
     from collections import OrderedDict

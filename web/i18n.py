@@ -119,6 +119,8 @@ _T: dict[str, dict[str, str]] = {
         "session_singular":     "session",
         "sessions_plural":      "sessions",
         "live_badge":           "LIVE",
+        "power_curve":          "Charging power",
+        "no_power_data":        "No power data for this session",
         # Commands
         "commands_title":       "Commands",
         "commands_subtitle":    "Remote vehicle controls",
@@ -352,6 +354,8 @@ _T: dict[str, dict[str, str]] = {
         "session_singular":     "sessione",
         "sessions_plural":      "sessioni",
         "live_badge":           "LIVE",
+        "power_curve":          "Potenza di ricarica",
+        "no_power_data":        "Nessun dato di potenza per questa sessione",
         # Commands
         "commands_title":       "Comandi",
         "commands_subtitle":    "Controlli remoti veicolo",
@@ -585,6 +589,8 @@ _T: dict[str, dict[str, str]] = {
         "session_singular":     "session",
         "sessions_plural":      "sessions",
         "live_badge":           "LIVE",
+        "power_curve":          "Puissance de charge",
+        "no_power_data":        "Aucune donnée de puissance pour cette session",
         # Commands
         "commands_title":       "Commandes",
         "commands_subtitle":    "Commandes à distance du véhicule",

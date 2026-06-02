@@ -210,6 +210,16 @@ async def set_charge_type(request: Request, charge_id: int):
     })
 
 
+@app.get("/api/charge/{charge_id}/power-chart", response_class=HTMLResponse)
+async def charge_power_chart(request: Request, charge_id: int):
+    """Lazy-loaded power-over-time chart for one charge session (expandable in the list)."""
+    curve = db_reader.get_charge_power_curve(charge_id)
+    return templates.TemplateResponse(request, "partials/charge_power_chart.html", _ctx(
+        cid=charge_id,
+        labels=curve["labels"], power=curve["power"], soc=curve["soc"],
+    ))
+
+
 @app.post("/api/settings/prices", response_class=HTMLResponse)
 async def save_prices(request: Request):
     form = await request.form()

@@ -1,0 +1,49 @@
+{% if power and power|length > 1 %}
+<div id="pc-{{ cid }}" class="-mx-1"></div>
+<script>
+(function () {
+  var el = document.getElementById('pc-{{ cid }}');
+  if (!el || typeof ApexCharts === 'undefined') return;
+  if (el._c) { try { el._c.destroy(); } catch (e) {} }
+  var power  = {{ power|tojson }};
+  var soc    = {{ soc|tojson }};
+  var labels = {{ labels|tojson }};
+  el._c = new ApexCharts(el, {
+    chart: { type: 'line', height: 190, toolbar: { show: false }, zoom: { enabled: false },
+             fontFamily: 'inherit', background: 'transparent', parentHeightOffset: 0,
+             animations: { enabled: false } },
+    series: [
+      { name: 'kW',    type: 'area', data: power },
+      { name: 'SOC %', type: 'line', data: soc },
+    ],
+    stroke: { curve: 'smooth', width: [2, 1.5] },
+    colors: ['#fbbf24', '#38bdf8'],
+    fill: { type: ['gradient', 'solid'],
+            gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.05, stops: [0, 100] } },
+    dataLabels: { enabled: false },
+    markers: { size: 0 },
+    xaxis: { categories: labels, tickAmount: 6, tooltip: { enabled: false },
+             labels: { style: { colors: '#64748b', fontSize: '10px' }, rotate: 0, hideOverlappingLabels: true },
+             axisBorder: { show: false }, axisTicks: { show: false } },
+    yaxis: [
+      { seriesName: 'kW',
+        labels: { style: { colors: '#fbbf24', fontSize: '10px' }, formatter: function (v) { return v.toFixed(2); } },
+        title: { text: 'kW', style: { color: '#fbbf24', fontSize: '10px' } } },
+      { opposite: true, seriesName: 'SOC %', min: 0, max: 100,
+        labels: { style: { colors: '#38bdf8', fontSize: '10px' }, formatter: function (v) { return v.toFixed(0); } },
+        title: { text: 'SOC', style: { color: '#38bdf8', fontSize: '10px' } } },
+    ],
+    grid: { borderColor: '#1e293b', strokeDashArray: 4, padding: { left: 8, right: 8 } },
+    legend: { labels: { colors: '#94a3b8' }, fontSize: '11px', markers: { width: 9, height: 9 } },
+    tooltip: { theme: 'dark', shared: true, intersect: false,
+               y: { formatter: function (v, o) {
+                      if (v == null) return '';
+                      return o.seriesIndex === 0 ? v.toFixed(3) + ' kW' : v.toFixed(1) + ' %';
+                    } } },
+  });
+  el._c.render();
+})();
+</script>
+{% else %}
+<div class="text-xs text-slate-500 py-2">{{ t('no_power_data') }}</div>
+{% endif %}
