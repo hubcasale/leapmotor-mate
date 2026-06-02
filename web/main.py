@@ -233,6 +233,19 @@ async def save_abrp_settings(request: Request):
     return HTMLResponse('<span style="color:#22c55e">✓ Settings saved</span>')
 
 
+@app.post("/api/settings/mqtt", response_class=HTMLResponse)
+async def save_mqtt_settings(request: Request):
+    form = await request.form()
+    db_reader.set_setting("mqtt_enabled", "1" if form.get("mqtt_enabled") else "0")
+    db_reader.set_setting("mqtt_discovery", "1" if form.get("mqtt_discovery") else "0")
+    db_reader.set_setting("mqtt_tls", "1" if form.get("mqtt_tls") else "0")
+    db_reader.set_setting("mqtt_tls_insecure", "1" if form.get("mqtt_tls_insecure") else "0")
+    for key in ["mqtt_broker", "mqtt_port", "mqtt_user", "mqtt_pass", "mqtt_prefix"]:
+        val = form.get(key, "").strip()
+        db_reader.set_setting(key, val)
+    return HTMLResponse('<span style="color:#22c55e">✓ Settings saved</span>')
+
+
 # ── HTMX partial ─────────────────────────────────────────────────────────────
 
 @app.get("/api/charging-live", response_class=HTMLResponse)
