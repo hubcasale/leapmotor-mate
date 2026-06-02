@@ -1,12 +1,8 @@
 """SQLite database layer. Switch DATABASE_URL to postgresql://... for production."""
 import logging
-import math
 import sqlite3
-import requests
 import time
-from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -376,9 +372,8 @@ class Database:
             except Exception as e:
                 log.warning("Elevation fetch failed: %s", e)
             
-            # Avoid hitting rate limits
-            if i + 100 < len(rows):
-                time.sleep(1)
+            # Avoid hitting rate limits (free API is 1 req/sec)
+            time.sleep(1.5)
 
     # ── Charge ───────────────────────────────────────────────────────────────
 

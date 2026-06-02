@@ -3,7 +3,6 @@ Leapmotor API client wrapper with B10 endpoint fix.
 leapmotor-api v0.1.4 bug: B10 uses /status/get/b10 but the international
 backend only exposes /status/get/c10 for this model.
 """
-import json
 import logging
 import os
 import types
@@ -139,7 +138,8 @@ class LeapmotorMateClient:
 
     def get_image(self) -> bytes | None:
         """Download the vehicle picture (PNG) from the cloud ZIP package."""
-        import io, zipfile
+        import io
+        import zipfile
         try:
             meta = self._api.get_car_picture(self._vehicle)
             key = (meta.get("data") or {}).get("key") if isinstance(meta, dict) else None
@@ -161,14 +161,18 @@ _GEAR_MAP = {0: "P", 1: "R", 2: "N", 3: "D"}
 
 def _sf(sig: dict, k: str):
     v = sig.get(k)
-    try:    return float(v) if v is not None else None
-    except (TypeError, ValueError): return None
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _si(sig: dict, k: str):
     v = sig.get(k)
-    try:    return int(v) if v is not None else None
-    except (TypeError, ValueError): return None
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 # Below this magnitude the charge current is just plugged-idle / sensor noise.
