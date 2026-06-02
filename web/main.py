@@ -221,6 +221,16 @@ async def save_prices(request: Request):
             except ValueError:
                 pass
     return HTMLResponse('<span style="color:#22c55e;font-size:13px">✓ Saved — costs recalculated</span>')
+    
+    
+@app.post("/api/settings/abrp", response_class=HTMLResponse)
+async def save_abrp_settings(request: Request):
+    form = await request.form()
+    enabled = "1" if form.get("abrp_enabled") else "0"
+    token = form.get("abrp_token", "").strip()
+    db_reader.set_setting("abrp_enabled", enabled)
+    db_reader.set_setting("abrp_token", token)
+    return HTMLResponse('<span style="color:#22c55e">✓ Settings saved</span>')
 
 
 # ── HTMX partial ─────────────────────────────────────────────────────────────

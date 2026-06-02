@@ -129,5 +129,40 @@
     </form>
   </div>
 
+  <!-- ABRP Integration -->
+  <div class="card">
+    <h2 class="font-semibold text-white mb-1">{{ t('abrp_section') }}</h2>
+    <p class="text-xs text-slate-400 mb-4">{{ t('abrp_desc') }}</p>
+
+    <form hx-post="api/settings/abrp"
+          hx-target="#abrp-feedback"
+          hx-swap="innerHTML">
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <label class="text-sm text-white" for="abrp_enabled">{{ t('abrp_enabled_label') }}</label>
+          <input type="checkbox" name="abrp_enabled" id="abrp_enabled" value="1"
+                 {% if settings.get('abrp_enabled') == '1' %}checked{% endif %}
+                 class="w-4 h-4 rounded border-slate-700 bg-slate-800 text-brand focus:ring-brand">
+        </div>
+
+        <div>
+          <label class="block text-sm text-white mb-1" for="abrp_token">{{ t('abrp_token_label') }}</label>
+          <input type="password" name="abrp_token" id="abrp_token"
+                 value="{{ settings.get('abrp_token', '') }}"
+                 placeholder="{{ t('abrp_token_ph') }}"
+                 class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:border-brand focus:ring-1 focus:ring-brand outline-none">
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between mt-6">
+        <div id="abrp-feedback" class="text-xs text-slate-500"></div>
+        <button type="submit"
+                class="bg-brand text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-brand-hover transition-colors">
+          {{ t('save_settings') }}
+        </button>
+      </div>
+    </form>
+  </div>
+
 </div>
 {% endblock %}
