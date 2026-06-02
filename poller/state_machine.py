@@ -89,9 +89,9 @@ class StateMachine:
         # Gear-based like HA: at a red light the gear stays D, so the trip is NOT
         # split — only a sustained gear P ends it (see DRIVING branch below).
         is_driving  = data.gear in ("D", "R", "N") or data.speed_kmh > 1
-        # Plug inserted OR charging active = charge session
-        # plug_connected alone is enough to close the trip immediately
-        is_charging = data.charging_status > 0 or data.plug_connected
+        # actively charging (energy flowing)
+        is_charging = data.charging_status > 0
+        is_plugged  = data.plug_connected
         fp          = data.fingerprint()
         fp_changed  = (self._prev_fp is not None) and (fp != self._prev_fp)
 
@@ -146,9 +146,12 @@ class StateMachine:
 
         # ── DRIVING ───────────────────────────────────────────────────────
         elif self.state == State.DRIVING:
-            if is_charging:
+            if is_charging or is_plugged:
                 self._parked_count = 0
-                events.append(self._go(State.CHARGING, data))
+                # If actually charging, go to CHARGING; otherwise PARKED_ACTIVE.
+                # Both will cause Recorder to finalize the trip immediately.
+                new_state = State.CHARGING if is_charging else State.PARKED_ACTIVE
+                events.append(self._go(new_state, data))
             elif data.gear == "P":
                 self._parked_count += 1
                 if self._parked_count >= PARKED_CONFIRM:
