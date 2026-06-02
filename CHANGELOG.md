@@ -3,6 +3,12 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] — 2026-06-02
+
+### Fixed
+- **Statistics**: the "Consumption trend (6 weeks)" chart legend showed week
+  dates as `MM-DD` (US-style); they are now formatted as `DD/MM`.
+
 ## [1.0.2] — 2026-06-02
 
 ### Added

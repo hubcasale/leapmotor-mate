@@ -16,7 +16,11 @@
   if (!el || typeof ApexCharts === 'undefined') return;
   if (el._chart) { try { el._chart.destroy(); } catch (e) {} }
   var data = {{ cr.weeks | map(attribute='ec') | list | tojson }};
-  var labels = {{ cr.weeks | map(attribute='start') | list | tojson }}.map(function (s) { return s ? s.slice(5) : ''; });
+  var labels = {{ cr.weeks | map(attribute='start') | list | tojson }}.map(function (s) {
+    if (!s) return '';
+    var p = s.split('-');
+    return p.length === 3 ? p[2] + '/' + p[1] : s.slice(5);
+  });
   el._chart = new ApexCharts(el, {
     chart: { type: 'area', height: 175, toolbar: { show: false }, zoom: { enabled: false },
              fontFamily: 'inherit', background: 'transparent', parentHeightOffset: 0 },
