@@ -37,6 +37,14 @@
           <div class="stat-label">{{ t('regen') }}</div>
           <div class="stat-value text-green-400">{{ "%.2f"|format(trip.regen_kwh or 0) }}<span class="text-base font-normal text-slate-400"> kWh</span></div>
         </div>
+        <div>
+          <div class="stat-label">{{ t('elevation_gain') }}</div>
+          <div class="stat-value text-blue-400">{{ "%.0f"|format(trip.elevation_gain or 0) }}<span class="text-base font-normal text-slate-400"> m</span></div>
+        </div>
+        <div>
+          <div class="stat-label">{{ t('elevation_loss') }}</div>
+          <div class="stat-value text-slate-300">{{ "%.0f"|format(trip.elevation_loss or 0) }}<span class="text-base font-normal text-slate-400"> m</span></div>
+        </div>
       </div>
     </div>
     <div class="card space-y-3 text-sm">
@@ -117,25 +125,89 @@
       </div>
       <canvas id="speed-bar" style="width:100%;height:40px;display:block"></canvas>
     </div>
+
+    <!-- Altitude & Regen bar -->
+    <div style="padding:12px 16px 14px; background:#1e293b; border-top:1px solid #334155">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em">{{ t('elevation_power') }}</span>
+        <span style="font-size:11px;color:#64748b">
+          <span style="color:#38bdf8">■</span> {{ t('quota') }} (m)
+          <span style="color:#22c55e;margin-left:8px">■</span> {{ t('regen') }}
+          <span style="color:#f43f5e;margin-left:8px">■</span> {{ t('discharge') }}
+        </span>
+      </div>
+      <canvas id="altitude-bar" style="width:100%;height:60px;display:block"></canvas>
+    </div>
+
     <script>
     (function() {
-      const canvas = document.getElementById('speed-bar');
-      canvas.width  = canvas.offsetWidth || 800;
-      canvas.height = 40;
-      const ctx  = canvas.getContext('2d');
+      // Speed profile
+      const sCanvas = document.getElementById('speed-bar');
+      sCanvas.width  = sCanvas.offsetWidth || 800;
+      sCanvas.height = 40;
+      const sCtx  = sCanvas.getContext('2d');
       const pts  = coords.filter(p => p.speed_kmh != null);
       if (!pts.length) return;
 
       const maxSpd = Math.max(...pts.map(p => p.speed_kmh), 1);
-      const w = canvas.width / pts.length;
+      const w = sCanvas.width / coords.length;
 
-      pts.forEach((p, i) => {
+      coords.forEach((p, i) => {
         const spd   = p.speed_kmh || 0;
         const color = spd > 80 ? '#e63946' : spd > 40 ? '#fbbf24' : '#22c55e';
-        const h     = Math.max(4, (spd / maxSpd) * canvas.height);
-        ctx.fillStyle = color;
-        ctx.fillRect(i * w, canvas.height - h, Math.ceil(w), h);
+        const h     = Math.max(4, (spd / maxSpd) * sCanvas.height);
+        sCtx.fillStyle = color;
+        sCtx.fillRect(i * w, sCanvas.height - h, Math.ceil(w), h);
       });
+
+      // Altitude & Power profile
+      const aCanvas = document.getElementById('altitude-bar');
+      aCanvas.width  = aCanvas.offsetWidth || 800;
+      aCanvas.height = 60;
+      const aCtx  = aCanvas.getContext('2d');
+
+      const altPts = coords.map(p => p.altitude || 0);
+      const minAlt = Math.min(...altPts);
+      const maxAlt = Math.max(...altPts);
+      const altRange = (maxAlt - minAlt) || 100;
+      const altPadding = 10;
+
+      const pwrPts = coords.map(p => p.power_kw || 0);
+      const maxPwr = Math.max(...pwrPts.map(Math.abs), 1);
+
+      coords.forEach((p, i) => {
+        const x = i * w;
+        const rectW = Math.ceil(w);
+
+        // 1. Altitude (background area)
+        if (p.altitude !== null) {
+          const altH = ((p.altitude - minAlt) / altRange) * (aCanvas.height - altPadding);
+          aCtx.fillStyle = '#38bdf822';
+          aCtx.fillRect(x, aCanvas.height - altH - 2, rectW, altH + 2);
+          aCtx.strokeStyle = '#38bdf8';
+          aCtx.lineWidth = 1;
+          aCtx.beginPath();
+          if (i === 0) aCtx.moveTo(x, aCanvas.height - altH);
+          else aCtx.lineTo(x, aCanvas.height - altH);
+          aCtx.stroke();
+        }
+
+        // 2. Power (vertical bars in the middle)
+        const pwr = p.power_kw || 0;
+        const pwrH = (Math.abs(pwr) / maxPwr) * (aCanvas.height / 2.5);
+        aCtx.fillStyle = pwr < 0 ? '#22c55e' : '#f43f5e';
+        if (pwr !== 0) {
+            aCtx.fillRect(x, (aCanvas.height / 2) - (pwr < 0 ? 0 : pwrH), rectW, pwrH);
+        }
+      });
+      
+      // Center line
+      aCtx.strokeStyle = '#334155';
+      aCtx.lineWidth = 1;
+      aCtx.beginPath();
+      aCtx.moveTo(0, aCanvas.height / 2);
+      aCtx.lineTo(aCanvas.width, aCanvas.height / 2);
+      aCtx.stroke();
     })();
     </script>
 

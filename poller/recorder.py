@@ -80,7 +80,11 @@ class Recorder:
         # on-road verification — gating this way stays conservative: at worst it counts 0,
         # never mistaking driving discharge for regen.
         if self._sm.state == State.DRIVING and self._active_trip_id:
-            self._db.add_trip_position(self._active_trip_id, data)
+            # Signed power: negative = regen (into pack), positive = discharge (driving)
+            # data.charge_power_kw is already absolute, we just need the sign from current.
+            signed_power = data.charge_power_kw if data.charge_current_a >= 0 else -data.charge_power_kw
+            self._db.add_trip_position(self._active_trip_id, data, power_kw=signed_power)
+            
             if not data.plug_connected and data.charge_current_a < -3.0:
                 self._regen_kwh += data.charge_power_kw * (10 / 3600)
 

@@ -2,6 +2,8 @@
 import logging
 import math
 import sqlite3
+import requests
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -83,7 +85,9 @@ CREATE TABLE IF NOT EXISTS trip_positions (
     latitude    REAL NOT NULL,
     longitude   REAL NOT NULL,
     speed_kmh   REAL,
-    soc         REAL
+    soc         REAL,
+    altitude    REAL,
+    power_kw    REAL
 );
 
 CREATE TABLE IF NOT EXISTS charges (
@@ -165,6 +169,14 @@ class Database:
             self._conn.execute("ALTER TABLE positions ADD COLUMN charge_voltage_v REAL DEFAULT NULL")
         if "charge_current_a" not in cols:
             self._conn.execute("ALTER TABLE positions ADD COLUMN charge_current_a REAL DEFAULT NULL")
+        
+        # migration: add altitude and power_kw to trip_positions
+        trip_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(trip_positions)").fetchall()}
+        if "altitude" not in trip_cols:
+            self._conn.execute("ALTER TABLE trip_positions ADD COLUMN altitude REAL DEFAULT NULL")
+        if "power_kw" not in trip_cols:
+            self._conn.execute("ALTER TABLE trip_positions ADD COLUMN power_kw REAL DEFAULT NULL")
+            
         self._conn.commit()
         log.info("Database ready: %s", path)
 
@@ -268,15 +280,15 @@ class Database:
         log.info("Trip #%d started — SOC %.1f%% @ (%.4f, %.4f)", trip_id, data.soc, data.latitude, data.longitude)
         return trip_id
 
-    def add_trip_position(self, trip_id: int, data) -> None:
+    def add_trip_position(self, trip_id: int, data, altitude: float = None, power_kw: float = None) -> None:
         # Skip missing GPS: a (0,0) point draws the route to the Gulf of Guinea and
         # breaks fitBounds on the map. Only record real fixes.
         if not data.latitude or not data.longitude:
             return
         self._conn.execute(
-            """INSERT INTO trip_positions (trip_id, recorded_at, latitude, longitude, speed_kmh, soc)
-               VALUES (?,?,?,?,?,?)""",
-            (trip_id, _now_iso(), data.latitude, data.longitude, data.speed_kmh, data.soc),
+            """INSERT INTO trip_positions (trip_id, recorded_at, latitude, longitude, speed_kmh, soc, altitude, power_kw)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (trip_id, _now_iso(), data.latitude, data.longitude, data.speed_kmh, data.soc, altitude, power_kw),
         )
         self._conn.commit()
 
@@ -316,6 +328,13 @@ class Database:
             trip_id, distance_km, start_soc, data.soc, duration_min,
             efficiency or 0,
         )
+        
+        # Fetch elevations in background (blocking for now, but trip is already finalized)
+        try:
+            self.fetch_trip_elevations(trip_id)
+        except Exception as e:
+            log.warning("Could not fetch elevations for trip #%d: %s", trip_id, e)
+            
         return distance_km
 
     def delete_trip(self, trip_id: int) -> None:
@@ -323,6 +342,43 @@ class Database:
         self._conn.execute("DELETE FROM trip_positions WHERE trip_id = ?", (trip_id,))
         self._conn.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
         self._conn.commit()
+
+    def fetch_trip_elevations(self, trip_id: int) -> None:
+        """Batch fetch elevations from OpenTopoData for all points in a trip."""
+        rows = self._conn.execute(
+            "SELECT id, latitude, longitude FROM trip_positions WHERE trip_id = ? AND altitude IS NULL ORDER BY id",
+            (trip_id,),
+        ).fetchall()
+        if not rows:
+            return
+
+        log.info("Fetching elevations for trip #%d (%d points)...", trip_id, len(rows))
+        
+        # Batch by 100 points
+        for i in range(0, len(rows), 100):
+            batch = rows[i:i+100]
+            locs = "|".join(f"{r['latitude']},{r['longitude']}" for r in batch)
+            url = f"https://api.opentopodata.org/v1/aster30m?locations={locs}"
+            try:
+                resp = requests.get(url, timeout=10)
+                if resp.status_code == 200:
+                    results = resp.json().get("results", [])
+                    for j, res in enumerate(results):
+                        alt = res.get("elevation")
+                        if alt is not None:
+                            self._conn.execute(
+                                "UPDATE trip_positions SET altitude = ? WHERE id = ?",
+                                (round(float(alt), 1), batch[j]["id"])
+                            )
+                    self._conn.commit()
+                else:
+                    log.warning("Elevation API error: %s", resp.text)
+            except Exception as e:
+                log.warning("Elevation fetch failed: %s", e)
+            
+            # Avoid hitting rate limits
+            if i + 100 < len(rows):
+                time.sleep(1)
 
     # ── Charge ───────────────────────────────────────────────────────────────
 

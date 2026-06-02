@@ -418,15 +418,34 @@ def get_trip_detail(trip_id: int) -> Optional[dict]:
     if not trip:
         return None
     positions = db.execute(
-        "SELECT latitude, longitude, speed_kmh, soc FROM trip_positions WHERE trip_id = ? ORDER BY id",
+        "SELECT latitude, longitude, speed_kmh, soc, altitude, power_kw FROM trip_positions WHERE trip_id = ? ORDER BY id",
         (trip_id,),
     ).fetchall()
     trip_d = dict(trip)
     trip_d["started_at"] = _local_iso(trip_d.get("started_at"))
     trip_d["ended_at"] = _local_iso(trip_d.get("ended_at"))
+
+    pos_list = [dict(p) for p in positions]
+    
+    # Calculate elevation gain/loss
+    gain = 0.0
+    loss = 0.0
+    last_alt = None
+    for p in pos_list:
+        alt = p.get("altitude")
+        if alt is not None:
+            if last_alt is not None:
+                diff = alt - last_alt
+                if diff > 0: gain += diff
+                else: loss += abs(diff)
+            last_alt = alt
+    
+    trip_d["elevation_gain"] = round(gain, 1)
+    trip_d["elevation_loss"] = round(loss, 1)
+
     return {
         **trip_d,
-        "positions": [dict(p) for p in positions],
+        "positions": pos_list,
     }
 
 
