@@ -14,6 +14,8 @@ import db_reader
 import command_client
 import i18n
 
+MATE_VERSION = "1.0.9"  # bump together with the git tag + add-on config.yaml at release
+
 app = FastAPI(title="LeapMotor Mate")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
@@ -55,7 +57,7 @@ def _ctx(**kwargs):
         if pos.get("charging"): return t("state_charging")
         if pos.get("speed_kmh", 0) > 1: return t("state_driving")
         return t("state_parked")
-    return {**kwargs, "lang": lang, "t": t,
+    return {**kwargs, "lang": lang, "t": t, "version": MATE_VERSION,
             "soc_color": _soc_color, "state_label": state_label, "state_color": _state_color}
 
 
