@@ -3,6 +3,47 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.7] — 2026-06-02
+
+### Added
+- **Language selector in Settings**. The language could previously only be chosen
+  in the initial setup wizard, so already-installed users had no way to switch.
+  Settings now has a language dropdown (🇬🇧 English / 🇮🇹 Italiano / 🇫🇷 Français);
+  changing it saves immediately and reloads the page in the new language.
+
+## [1.0.6] — 2026-06-02
+
+### Added
+- **French language** (🇫🇷). The setup wizard now offers three languages — English,
+  Italian and French — with three flag buttons and auto-detection of French
+  browsers. The whole app is translated: overview, trips, charges, commands,
+  statistics, the vehicle page, and both wizard steps (certificate + account login).
+
+### Fixed
+- Two certificate-step labels (`app.crt`, `app.key`) were hard-coded in English
+  regardless of the chosen language; they are now translated (this also fixes
+  Italian, where they were previously shown in English too).
+
+## [1.0.5] — 2026-06-02
+
+### Fixed
+- **Poller self-recovery**: if the account TLS certificate temp file vanished from
+  `/tmp` (every poll then failed with "Could not find the TLS certificate file"),
+  the poller stayed stuck in an error loop indefinitely. It now forces a fresh
+  login to re-create the certificate on cert/auth/token/connection errors (rate-
+  limited to ~once per minute). Also recovers from auth/token drops.
+
+## [1.0.4] — 2026-06-02
+
+### Fixed
+- **Local time in the UI**: trip/charge times were shown in UTC; they are now
+  converted to the local timezone (`TZ`, which Home Assistant passes to add-ons
+  automatically; standalone Docker sets `TZ` in compose). Added `tzdata`.
+- **Trip fragmentation**: a drive was split into many records because a trip ended
+  after just ~20s of zero speed. Trip detection is now gear-based and matches the
+  HA reference: a trip ends only when gear **P** is held ~1 min (red lights / brief
+  stops in gear D no longer split it), and movements **< 0.5 km** are discarded.
+
 ## [1.0.3] — 2026-06-02
 
 ### Fixed
