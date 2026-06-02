@@ -3,6 +3,19 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.8] — 2026-06-02
+
+### Added
+- **Charging-power chart** in the Charges page. Each session has an expandable
+  "Charging power" section that lazy-loads an inline chart of power over time
+  (with SOC on a second axis). Power is the same value as the official
+  charging-power reading (battery voltage × current) and is kept at full
+  precision so the real curve is visible — most useful on DC fast charging.
+
+### Changed
+- **Settings layout**: cards now use a masonry column layout, removing the empty
+  gap that appeared under shorter cards (e.g. Language) next to taller ones.
+
 ## [1.0.7] — 2026-06-02
 
 ### Added
