@@ -156,7 +156,7 @@ def _si(sig: dict, k: str):
 
 
 # Below this magnitude the charge current is just plugged-idle / sensor noise.
-_CHARGE_CURRENT_MIN_A = 3.0
+_CHARGE_CURRENT_MIN_A = 1.0
 
 
 def _charge_power_kw(sig: dict) -> float:

@@ -306,6 +306,11 @@ def get_latest_status() -> Optional[dict]:
             d["last_seen"] = f"{delta // 60}m ago"
         else:
             d["last_seen"] = f"{delta // 3600}h ago"
+        
+        # UI optimization: if we have power or recent charging flag, treat as charging
+        # even if the current signal is noisy.
+        if d.get("charge_power_kw", 0) > 0.5:
+            d["charging"] = 1
     except Exception:
         d["last_seen"] = "unknown"
     return d
