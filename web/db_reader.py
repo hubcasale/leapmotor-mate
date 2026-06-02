@@ -410,6 +410,41 @@ def get_trips_grouped() -> list[dict]:
     return list(years.values())
 
 
+def get_trips_summary() -> dict:
+    """Grand totals for the trips dashboard hero (no extra polling — pure SQL)."""
+    db = _get()
+    r = db.execute(
+        """SELECT COUNT(*)                                   AS n,
+                  COALESCE(SUM(distance_km), 0)              AS km,
+                  COALESCE(SUM(regen_kwh), 0)                AS regen,
+                  COALESCE(SUM(duration_min), 0)             AS mins,
+                  SUM(distance_km * efficiency_kwh_100km)    AS eff_wsum,
+                  SUM(CASE WHEN efficiency_kwh_100km IS NOT NULL
+                           THEN distance_km END)             AS eff_wdist
+           FROM trips WHERE ended_at IS NOT NULL"""
+    ).fetchone()
+    eff = round(r["eff_wsum"] / r["eff_wdist"], 1) if r["eff_wdist"] else None
+    return {
+        "count":    r["n"],
+        "km":       round(r["km"], 1),
+        "regen":    round(r["regen"], 1),
+        "hours":    round(r["mins"] / 60, 1) if r["mins"] else 0,
+        "avg_eff":  eff,
+    }
+
+
+def get_recent_trips(limit: int = 9) -> list[dict]:
+    """Most recent trips with timestamps rewritten to local time, for the card grid."""
+    trips = get_trips(limit)
+    for t in trips:
+        if t.get("started_at"):
+            dt = _local_dt(t["started_at"])
+            if dt:
+                t["started_at"] = dt.isoformat()
+        t["ended_at"] = _local_iso(t.get("ended_at"))
+    return trips
+
+
 def get_trip_detail(trip_id: int) -> Optional[dict]:
     db = _get()
     trip = db.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()

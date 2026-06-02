@@ -81,9 +81,12 @@ async def trips_page(request: Request, highlight: int = 0):
     vehicle, _ = db_reader.get_vehicle()
     grouped = db_reader.get_trips_grouped()
     total   = sum(y["count"] for y in grouped)
+    summary = db_reader.get_trips_summary()
+    recent  = db_reader.get_recent_trips(limit=9)
     return templates.TemplateResponse(request, "trips.html", _ctx(
         page="trips", vehicle=vehicle, grouped=grouped,
         total=total, highlight=highlight,
+        summary=summary, recent=recent,
     ))
 
 
