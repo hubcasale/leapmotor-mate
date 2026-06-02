@@ -141,7 +141,14 @@ def main():
                 discovery_enabled=db.get_setting("mqtt_discovery", "1") == "1"
             )
             mqtt_service.on_command = execute_mqtt_command
-            mqtt_service.connect()
+            if mqtt_service.connect():
+                # Store vehicle picture to be published with discovery
+                try:
+                    img = client.get_image()
+                    if img:
+                        mqtt_service.set_vehicle_image(img)
+                except Exception as e:
+                    log.error("Failed to fetch vehicle image for MQTT: %s", e)
 
     log.info("Polling VIN %s (vehicle_id=%d)", v.vin, vehicle_id)
 

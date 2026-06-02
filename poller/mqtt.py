@@ -21,6 +21,7 @@ class MqttService:
         self.client = None
         self.on_command = None
         self._discovery_sent = False
+        self._vehicle_image = None
 
     def connect(self):
         log.info("MQTT: Attempting connection to %s:%d (TLS: %s, Discovery: %s, Prefix: %s)...", 
@@ -111,6 +112,10 @@ class MqttService:
         if self.discovery_enabled and not self._discovery_sent:
             log.info("MQTT: Triggering Home Assistant Discovery...")
             self.publish_discovery(data)
+            if self._vehicle_image:
+                # Small delay to ensure HA has created the entity before receiving the image
+                time.sleep(1)
+                self.publish_image(data.vin, self._vehicle_image)
             self._discovery_sent = True
 
         # 1. Publish full JSON state
@@ -314,7 +319,31 @@ class MqttService:
         }
         self.client.publish(f"{disc_p}/device_tracker/{device_id}/config", json.dumps(tracker_config), retain=True)
 
+        # ── Vehicle Image ──────────────────────────────────────────────────
+        image_config = {
+            "name": "Vehicle Picture",
+            "unique_id": f"{device_id}_picture",
+            "image_topic": f"{prefix}/{vin}/picture",
+            "device": device_info,
+        }
+        self.client.publish(f"{disc_p}/image/{device_id}/picture/config", json.dumps(image_config), retain=True)
+
         log.info("MQTT: Discovery configs sent to topic %s/#", disc_p)
+
+    def publish_image(self, vin, image_bytes):
+        if not self.client or not self.client.is_connected():
+            log.warning("MQTT: Cannot publish image, client not connected")
+            return
+        if not image_bytes:
+            log.warning("MQTT: Image bytes are empty, skipping publish")
+            return
+        topic = f"{self.topic_prefix}/{vin}/picture"
+        log.info("MQTT: Publishing vehicle image to %s (%d bytes)", topic, len(image_bytes))
+        self.client.publish(topic, image_bytes, retain=True)
+
+    def set_vehicle_image(self, image_bytes):
+        self._vehicle_image = image_bytes
+        self._discovery_sent = False # Force resend discovery to include image
 
     @staticmethod
     def _build_payload(data) -> dict:
