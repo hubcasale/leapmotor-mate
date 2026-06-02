@@ -349,10 +349,7 @@ def get_latest_status() -> Optional[dict]:
 def get_trips(limit: int = 500) -> list[dict]:
     db = _get()
     rows = db.execute(
-        """SELECT * FROM trips
-           WHERE ended_at IS NOT NULL
-           ORDER BY started_at DESC
-           LIMIT ?""",
+        "SELECT * FROM trips ORDER BY started_at DESC LIMIT ?",
         (limit,),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -436,7 +433,7 @@ def get_trip_detail(trip_id: int) -> Optional[dict]:
 def get_charges(limit: int = 50) -> list[dict]:
     db = _get()
     rows = db.execute(
-        "SELECT * FROM charges WHERE ended_at IS NOT NULL ORDER BY started_at DESC LIMIT ?",
+        "SELECT * FROM charges ORDER BY started_at DESC LIMIT ?",
         (limit,),
     ).fetchall()
     out = []
@@ -623,7 +620,7 @@ def get_stats_summary() -> dict:
                COUNT(*)                         AS charge_count,
                ROUND(SUM(energy_added_kwh), 1)  AS total_kwh_charged,
                ROUND(SUM(cost), 2)              AS total_cost
-           FROM charges WHERE ended_at IS NOT NULL"""
+           FROM charges"""
     ).fetchone()
     t = dict(trips) if trips else {}
     c = dict(charges) if charges else {}
@@ -643,8 +640,7 @@ def get_charge_stats() -> dict:
                ROUND(SUM(cost), 2)                AS total_cost,
                ROUND(AVG(end_soc - start_soc), 1) AS avg_soc_delta,
                ROUND(MAX(max_power_kw), 1)        AS peak_power_kw
-           FROM charges
-           WHERE ended_at IS NOT NULL"""
+           FROM charges"""
     ).fetchone()
     return dict(row) if row else {}
 
@@ -654,7 +650,7 @@ def get_ac_dc_stats() -> dict:
     set) a measured peak power above 11 kW (AC tops out at ~11 kW; DC is faster)."""
     db = _get()
     rows = db.execute(
-        "SELECT charge_type, max_power_kw, energy_added_kwh FROM charges WHERE ended_at IS NOT NULL"
+        "SELECT charge_type, max_power_kw, energy_added_kwh FROM charges"
     ).fetchall()
     ac = {"count": 0, "kwh": 0.0}
     dc = {"count": 0, "kwh": 0.0}

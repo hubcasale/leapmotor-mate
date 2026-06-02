@@ -222,6 +222,9 @@ fetch('api/charge-plan').then(r => r.json()).then(d => {
                     <div class="text-white font-semibold text-sm">
                       {{ c.started_at[11:16] if c.started_at else '—' }}
                       <span class="text-slate-500 font-normal">→ {{ c.ended_at[11:16] if c.ended_at else '' }}</span>
+                      {% if not c.ended_at %}
+                      <span class="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-yellow-400 text-black uppercase tracking-wider animate-pulse">Live</span>
+                      {% endif %}
                     </div>
                     <div class="text-slate-500 text-xs mt-0.5">
                       ⏱ {% if dur_h > 0 %}{{ dur_h }}h {% endif %}{{ dur_m }}min

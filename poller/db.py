@@ -496,6 +496,30 @@ class Database:
             (vehicle_id,),
         ).fetchone()
 
+    def update_charge_progress(self, charge_id: int, data) -> None:
+        """Update ongoing charge stats (SOC, energy, duration) without closing it."""
+        row = self._conn.execute(
+            "SELECT start_soc, started_at FROM charges WHERE id = ?", (charge_id,)
+        ).fetchone()
+        if not row:
+            return
+
+        start_soc = row["start_soc"]
+        energy_added = max((data.soc - start_soc) / 100.0 * self.get_battery_capacity(), 0)
+
+        started_at = datetime.fromisoformat(row["started_at"])
+        # Ensure started_at is timezone-aware if it's not
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        duration_min = (datetime.now(timezone.utc) - started_at).total_seconds() / 60
+
+        self._conn.execute(
+            """UPDATE charges SET end_soc=?, energy_added_kwh=?, duration_min=?
+               WHERE id=?""",
+            (data.soc, round(energy_added, 2), round(duration_min, 1), charge_id),
+        )
+        self._conn.commit()
+
     def update_charge_max_power(self, charge_id: int, max_power_kw: float) -> None:
         """Persist the running peak power so it survives a poller restart mid-charge."""
         self._conn.execute(

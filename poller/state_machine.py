@@ -32,7 +32,8 @@ from client import VehicleData
 log = logging.getLogger(__name__)
 
 SLEEP_AFTER_S   = 1800   # 30 min without changes → PARKED_SLEEP
-ALERT_EXPIRES_S = 300    # 5 min in PARKED_ALERT without driving → back to ACTIVE
+ALERT_EXPIRES_S  = 300    # 5 min in PARKED_ALERT without driving → back to ACTIVE
+CHARGING_GRACE_S = 900    # 15 min without current before ending a charge session
 # End a trip only after the car has been in gear P for ~1 min — matches the HA
 # leapmotor_trip automation (gear → P, for: minutes: 1). At the 10s driving poll
 # that's 6 readings. Gear-based (not speed) so red lights / brief stops, where the
@@ -75,6 +76,7 @@ class StateMachine:
     _prev_fp: Optional[tuple]  = field(default=None,  repr=False)
     _last_change_ts: float     = field(default=0.0,   repr=False)
     _alert_start_ts: float     = field(default=0.0,   repr=False)
+    _charge_stop_ts: float     = field(default=0.0,   repr=False)
     _parked_count: int         = field(default=0,     repr=False)
     _error_count: int          = field(default=0,     repr=False)
 
@@ -158,8 +160,21 @@ class StateMachine:
 
         # ── CHARGING ──────────────────────────────────────────────────────
         elif self.state == State.CHARGING:
-            if not is_charging:
-                events.append(self._go(State.PARKED_ACTIVE, data))
+            if is_charging:
+                self._charge_stop_ts = 0.0  # reset timer if still charging
+            elif is_driving:
+                self._charge_stop_ts = 0.0
+                self._parked_count = 0
+                events.append(self._go(State.DRIVING, data))
+            else:
+                if self._charge_stop_ts == 0.0:
+                    self._charge_stop_ts = now
+                    log.info("Charging paused (Octopus Energy or similar) — starting 15m grace period")
+                
+                pause_duration = now - self._charge_stop_ts
+                if pause_duration >= CHARGING_GRACE_S:
+                    self._charge_stop_ts = 0.0
+                    events.append(self._go(State.PARKED_ACTIVE, data))
 
         return events
 
@@ -186,6 +201,10 @@ class StateMachine:
     def poll_interval(self) -> int:
         if self.state in (State.DRIVING, State.PARKED_ALERT):
             return self.poll_driving        # active / drive imminent → fast
+        if self.state == State.CHARGING:
+            # If we're in the grace period (paused), poll at 30s to catch the resume.
+            # Normal charging also polls at 30s (limited by poll_parked).
+            return min(self.poll_parked, 30)
         if self.state == State.OFFLINE:
             return OFFLINE_INTERVAL
         if self.state == State.UNKNOWN:

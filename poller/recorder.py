@@ -89,6 +89,7 @@ class Recorder:
             if data.charge_power_kw > self._max_charge_kw:
                 self._max_charge_kw = data.charge_power_kw
                 self._db.update_charge_max_power(self._active_charge_id, self._max_charge_kw)
+            self._db.update_charge_progress(self._active_charge_id, data)
 
     # HA's leapmotor_trip ignores movements shorter than 0.5 km ("spostamento breve
     # ignorato"). Match it: finalize the trip, then drop it if it was a short hop.
