@@ -422,10 +422,37 @@ def get_trip_detail(trip_id: int) -> Optional[dict]:
     trip_d = dict(trip)
     trip_d["started_at"] = _local_iso(trip_d.get("started_at"))
     trip_d["ended_at"] = _local_iso(trip_d.get("ended_at"))
+
+    # Speed stats derived from the GPS track (speed_kmh per point).
+    speeds = [p["speed_kmh"] for p in positions if p["speed_kmh"] is not None]
+    trip_d["max_speed_kmh"] = round(max(speeds)) if speeds else None
+    # Average over moving points only (>1 km/h) so long idle stretches don't skew it.
+    moving = [s for s in speeds if s > 1]
+    trip_d["avg_speed_kmh"] = round(sum(moving) / len(moving)) if moving else None
+
     return {
         **trip_d,
         "positions": [dict(p) for p in positions],
     }
+
+
+def get_trip_route(trip_id: int, max_points: int = 80) -> list[dict]:
+    """Lat/lon track for a single trip, downsampled to at most ``max_points``
+    points — used to draw the lightweight route thumbnail in the trips list."""
+    db = _get()
+    rows = db.execute(
+        "SELECT latitude, longitude FROM trip_positions "
+        "WHERE trip_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL "
+        "ORDER BY id",
+        (trip_id,),
+    ).fetchall()
+    pts = [dict(r) for r in rows]
+    if len(pts) <= max_points:
+        return pts
+    step = len(pts) / max_points
+    sampled = [pts[int(i * step)] for i in range(max_points)]
+    sampled[-1] = pts[-1]  # always keep the real end point
+    return sampled
 
 
 def get_charges(limit: int = 50) -> list[dict]:

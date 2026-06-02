@@ -89,6 +89,8 @@ _T: dict[str, dict[str, str]] = {
         "soc_used":             "SOC used",
         "start_odometer":       "Start odometer",
         "gps_points":           "GPS points",
+        "avg_speed":            "Avg speed",
+        "max_speed":            "Max speed",
         "speed_profile":        "Speed profile",
         "not_enough_gps":       "Not enough GPS points",
         # Charges
@@ -324,6 +326,8 @@ _T: dict[str, dict[str, str]] = {
         "soc_used":             "SOC consumato",
         "start_odometer":       "Odometro inizio",
         "gps_points":           "Punti GPS",
+        "avg_speed":            "Velocità media",
+        "max_speed":            "Velocità max",
         "speed_profile":        "Profilo velocità",
         "not_enough_gps":       "Punti GPS insufficienti",
         # Charges
@@ -559,6 +563,8 @@ _T: dict[str, dict[str, str]] = {
         "soc_used":             "SOC consommé",
         "start_odometer":       "Odomètre départ",
         "gps_points":           "Points GPS",
+        "avg_speed":            "Vitesse moy.",
+        "max_speed":            "Vitesse max",
         "speed_profile":        "Profil de vitesse",
         "not_enough_gps":       "Pas assez de points GPS",
         # Charges

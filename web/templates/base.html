@@ -55,6 +55,52 @@
       color: white;
     }
     .bg-slate-750 { background: rgb(36 49 65); }
+
+    /* ── Trips tree ─────────────────────────────────────────────── */
+    .tree-summary {
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; user-select: none; list-style: none;
+    }
+    .tree-summary::-webkit-details-marker { display: none; }
+    .tree-year  { padding: .75rem 1rem;   border-radius: .75rem; background: #1e293b; border: 1px solid #334155; }
+    .tree-month { padding: .625rem 1rem;  border-radius: .5rem;  background: #0f172a; border: 1px solid #1e293b; }
+    .tree-day   { padding: .5rem .75rem;  border-radius: .5rem;  background: #0a1628; border: 1px solid #1a2438; }
+    .chevron { transition: transform .2s; display: inline-block; color: rgb(100 116 139); }
+    details[open] > .tree-summary .chevron { transform: rotate(90deg); }
+
+    /* ── Trip row ───────────────────────────────────────────────── */
+    .trip-row {
+      display: flex; align-items: center; gap: .75rem;
+      padding: .5rem .75rem; border-radius: .5rem;
+      background: #060e1a; border: 1px solid #111c2e;
+      text-decoration: none; transition: background .15s, border-color .15s;
+    }
+    .trip-row:hover { background: rgba(51,65,85,.4); border-color: #334155; }
+    .trip-thumb {
+      width: 84px; height: 48px; flex-shrink: 0; border-radius: .375rem;
+      background: #0a1424; border: 1px solid #1a2438; object-fit: cover;
+    }
+
+    /* ── Efficiency pill ────────────────────────────────────────── */
+    .eff-pill {
+      display: inline-flex; align-items: center; gap: .2rem;
+      padding: .12rem .45rem; border-radius: 999px;
+      font-size: .72rem; font-weight: 600; line-height: 1; white-space: nowrap;
+    }
+    .eff-pill .unit { font-weight: 400; opacity: .7; font-size: .65rem; }
+    .eff-good { color: #4ade80; background: rgba(34,197,94,.12); }
+    .eff-mid  { color: #facc15; background: rgba(234,179,8,.12); }
+    .eff-bad  { color: #f87171; background: rgba(239,68,68,.12); }
+
+    /* ── SOC mini gauge (remaining vs used) ─────────────────────── */
+    .soc-mini {
+      position: relative; width: 64px; height: 7px; flex-shrink: 0;
+      border-radius: 999px; background: #1e293b; overflow: hidden;
+    }
+    .soc-mini i { position: absolute; top: 0; height: 100%; display: block; }
+    .soc-rem  { left: 0; background: #22c55e; }
+    .soc-used { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+
     .htmx-indicator { display: none; }
     .htmx-request .htmx-indicator { display: inline; }
     .htmx-request.htmx-indicator { display: inline; }

@@ -87,6 +87,55 @@ async def trips_page(request: Request, highlight: int = 0):
     ))
 
 
+def _route_svg(points: list[dict], w: int = 84, h: int = 48, pad: int = 6) -> str:
+    """Render a downsampled GPS track as a tiny, aspect-correct SVG thumbnail."""
+    import math
+    if not points or len(points) < 2:
+        # Single point / no track → small marker dot, keeps row layout stable.
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}">'
+                f'<circle cx="{w/2}" cy="{h/2}" r="3" fill="#e63946"/></svg>')
+
+    lats = [p["latitude"] for p in points]
+    lons = [p["longitude"] for p in points]
+    lat0 = sum(lats) / len(lats)
+    kx = math.cos(math.radians(lat0)) or 1e-6  # lon → lat distance correction
+
+    xs = [lon * kx for lon in lons]
+    ys = [-lat for lat in lats]               # flip so north is up
+    minx, maxx = min(xs), max(xs)
+    miny, maxy = min(ys), max(ys)
+    dx, dy = (maxx - minx) or 1e-9, (maxy - miny) or 1e-9
+    scale = min((w - 2 * pad) / dx, (h - 2 * pad) / dy)
+    ox = (w - dx * scale) / 2
+    oy = (h - dy * scale) / 2
+
+    def proj(x, y):
+        return (round((x - minx) * scale + ox, 1),
+                round((y - miny) * scale + oy, 1))
+
+    pts = [proj(x, y) for x, y in zip(xs, ys)]
+    d = "M" + " L".join(f"{px} {py}" for px, py in pts)
+    sx, sy = pts[0]
+    ex, ey = pts[-1]
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}">'
+        f'<path d="{d}" fill="none" stroke="#ffffff" stroke-width="3.5" '
+        f'stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>'
+        f'<path d="{d}" fill="none" stroke="#e63946" stroke-width="2" '
+        f'stroke-linecap="round" stroke-linejoin="round"/>'
+        f'<circle cx="{sx}" cy="{sy}" r="2.6" fill="#22c55e"/>'
+        f'<circle cx="{ex}" cy="{ey}" r="2.6" fill="#94a3b8"/>'
+        f'</svg>'
+    )
+
+
+@app.get("/trips/{trip_id}/route.svg")
+async def trip_route_svg(trip_id: int):
+    svg = _route_svg(db_reader.get_trip_route(trip_id))
+    return Response(content=svg, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/trips/{trip_id}", response_class=HTMLResponse)
 async def trip_detail(request: Request, trip_id: int):
     vehicle, _ = db_reader.get_vehicle()

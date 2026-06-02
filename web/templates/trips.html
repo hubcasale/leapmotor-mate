@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Trips — LeapMotor Mate{% endblock %}
 
+{# Efficiency → pill colour class #}
+{% macro eff_cls(e) %}{% if e < 18 %}eff-good{% elif e < 22 %}eff-mid{% else %}eff-bad{% endif %}{% endmacro %}
+
 {% block content %}
 <div class="mb-6">
   <h1 class="text-2xl font-bold text-white">{{ t('trips_title') }}</h1>
@@ -13,19 +16,17 @@
 
   <!-- YEAR -->
   <details id="y-{{ year.label }}" class="group">
-    <summary class="flex items-center justify-between px-4 py-3 rounded-xl cursor-pointer select-none"
-             style="background:#1e293b;border:1px solid #334155;list-style:none">
+    <summary class="tree-summary tree-year">
       <div class="flex items-center gap-3">
-        <span style="transition:transform .2s;display:inline-block"
-              class="group-open:rotate-90 text-slate-400">▶</span>
+        <span class="chevron text-slate-400">▶</span>
         <span class="text-white font-bold text-lg">{{ year.label }}</span>
       </div>
       <div class="flex items-center gap-4 text-sm">
-        <span class="text-slate-500">{{ year.count }} trips</span>
+        <span class="text-slate-500">{{ year.count }} {{ t('trips_plural') }}</span>
         <span class="text-white font-semibold">{{ year.km }} km</span>
         {% if year.avg_eff %}
-        <span class="{% if year.avg_eff < 18 %}text-green-400{% elif year.avg_eff < 22 %}text-yellow-400{% else %}text-red-400{% endif %} font-medium">
-          {{ year.avg_eff }} <span class="text-slate-500 font-normal text-xs">kWh/100km</span>
+        <span class="eff-pill {{ eff_cls(year.avg_eff) }}">
+          {{ year.avg_eff }} <span class="unit">kWh/100</span>
         </span>
         {% endif %}
       </div>
@@ -36,19 +37,17 @@
 
       <!-- MONTH -->
       <details id="m-{{ month.label|replace(' ','_') }}" class="group/month">
-        <summary class="flex items-center justify-between px-4 py-2.5 rounded-lg cursor-pointer select-none"
-                 style="background:#0f172a;border:1px solid #1e293b;list-style:none">
+        <summary class="tree-summary tree-month">
           <div class="flex items-center gap-3">
-            <span style="transition:transform .2s;display:inline-block"
-                  class="group-open/month:rotate-90 text-slate-500 text-sm">▶</span>
+            <span class="chevron text-slate-500 text-sm">▶</span>
             <span class="text-slate-200 font-semibold">{{ month.label }}</span>
           </div>
           <div class="flex items-center gap-4 text-xs">
-            <span class="text-slate-500">{{ month.count }} trips</span>
+            <span class="text-slate-500">{{ month.count }} {{ t('trips_plural') }}</span>
             <span class="text-slate-200 font-semibold">{{ month.km }} km</span>
             {% if month.avg_eff %}
-            <span class="{% if month.avg_eff < 18 %}text-green-400{% elif month.avg_eff < 22 %}text-yellow-400{% else %}text-red-400{% endif %} font-medium">
-              {{ month.avg_eff }} <span class="text-slate-600 font-normal">kWh/100</span>
+            <span class="eff-pill {{ eff_cls(month.avg_eff) }}">
+              {{ month.avg_eff }} <span class="unit">kWh/100</span>
             </span>
             {% endif %}
           </div>
@@ -59,19 +58,17 @@
 
           <!-- DAY -->
           <details id="d-{{ day.label|replace(' ','_') }}" class="group/day">
-            <summary class="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer select-none"
-                     style="background:#0a1628;border:1px solid #1a2438;list-style:none">
+            <summary class="tree-summary tree-day">
               <div class="flex items-center gap-2">
-                <span style="transition:transform .2s;display:inline-block"
-                      class="group-open/day:rotate-90 text-slate-600 text-xs">▶</span>
+                <span class="chevron text-slate-600 text-xs">▶</span>
                 <span class="text-slate-300 text-sm font-medium">{{ day.label }}</span>
                 <span class="text-slate-600 text-xs">— {{ day.count }} {{ t('trips_plural') if day.count > 1 else t('trip_singular') }}</span>
               </div>
               <div class="flex items-center gap-3 text-xs">
                 <span class="text-slate-400 font-medium">{{ day.km }} km</span>
                 {% if day.avg_eff %}
-                <span class="{% if day.avg_eff < 18 %}text-green-400{% elif day.avg_eff < 22 %}text-yellow-400{% else %}text-red-400{% endif %}">
-                  {{ day.avg_eff }} <span class="text-slate-600">kWh/100</span>
+                <span class="eff-pill {{ eff_cls(day.avg_eff) }}">
+                  {{ day.avg_eff }} <span class="unit">kWh/100</span>
                 </span>
                 {% endif %}
               </div>
@@ -80,41 +77,45 @@
             <!-- TRIPS inside the day -->
             <div class="ml-4 mt-1 space-y-1">
             {% for trip in day.trips %}
+            {% set used = (trip.start_soc or 0) - (trip.end_soc or 0) %}
             <a href="trips/{{ trip.id }}"
                data-trip-id="{{ trip.id }}"
-               class="trip-row flex items-center justify-between px-4 py-2.5 rounded-lg hover:bg-slate-700/40 transition-colors"
-               style="background:#060e1a;border:1px solid #111c2e;text-decoration:none">
+               class="trip-row">
+
+              <!-- Route thumbnail (browser-lazy, served as SVG) -->
+              <img class="trip-thumb" loading="lazy" alt=""
+                   src="trips/{{ trip.id }}/route.svg">
 
               <!-- Time + duration -->
-              <div class="flex items-center gap-3 min-w-0">
-                <div style="width:4px;height:32px;background:#e63946;border-radius:2px;flex-shrink:0"></div>
-                <div>
-                  <div class="text-white text-sm font-medium">
-                    {{ trip.started_at[11:16] if trip.started_at else '—' }}
-                    <span class="text-slate-500 font-normal text-xs ml-1">
-                      → {{ trip.ended_at[11:16] if trip.ended_at else '' }}
-                    </span>
-                  </div>
-                  <div class="text-slate-500 text-xs">{{ "%.0f"|format(trip.duration_min or 0) }} min</div>
+              <div class="min-w-0 flex-1">
+                <div class="text-white text-sm font-medium">
+                  {{ trip.started_at[11:16] if trip.started_at else '—' }}
+                  <span class="text-slate-500 font-normal text-xs ml-1">
+                    → {{ trip.ended_at[11:16] if trip.ended_at else '' }}
+                  </span>
+                </div>
+                <div class="text-slate-500 text-xs">{{ "%.0f"|format(trip.duration_min or 0) }} min</div>
+              </div>
+
+              <!-- SOC mini gauge -->
+              <div class="hidden sm:flex flex-col items-end gap-1 flex-shrink-0">
+                <div class="soc-mini" title="{{ '%.0f'|format(trip.start_soc or 0) }}% → {{ '%.0f'|format(trip.end_soc or 0) }}%">
+                  <i class="soc-rem"  style="width:{{ trip.end_soc or 0 }}%"></i>
+                  <i class="soc-used" style="left:{{ trip.end_soc or 0 }}%;width:{{ used if used > 0 else 0 }}%"></i>
+                </div>
+                <div class="text-slate-500 text-[11px]">
+                  {{ "%.0f"|format(trip.start_soc or 0) }}→{{ "%.0f"|format(trip.end_soc or 0) }}%
                 </div>
               </div>
 
               <!-- Stats -->
-              <div class="flex items-center gap-5 text-right flex-shrink-0">
-                <div>
-                  <div class="text-white text-sm font-bold">{{ "%.1f"|format(trip.distance_km or 0) }} km</div>
-                  <div class="text-slate-500 text-xs">
-                    {% if trip.efficiency_kwh_100km %}
-                    <span class="{% if trip.efficiency_kwh_100km < 18 %}text-green-400{% elif trip.efficiency_kwh_100km < 22 %}text-yellow-400{% else %}text-red-400{% endif %}">
-                      {{ "%.1f"|format(trip.efficiency_kwh_100km) }}
-                    </span> kWh/100
-                    {% endif %}
-                  </div>
-                </div>
-                <div class="text-right">
-                  <div class="text-slate-400 text-xs">{{ "%.0f"|format(trip.start_soc or 0) }}→{{ "%.0f"|format(trip.end_soc or 0) }}%</div>
-                  <div class="text-brand text-xs">{{ t('map_arrow') }}</div>
-                </div>
+              <div class="text-right flex-shrink-0" style="min-width:84px">
+                <div class="text-white text-sm font-bold">{{ "%.1f"|format(trip.distance_km or 0) }} km</div>
+                {% if trip.efficiency_kwh_100km %}
+                <span class="eff-pill {{ eff_cls(trip.efficiency_kwh_100km) }} mt-0.5">
+                  {{ "%.1f"|format(trip.efficiency_kwh_100km) }} <span class="unit">kWh/100</span>
+                </span>
+                {% endif %}
               </div>
 
             </a>

@@ -19,3 +19,6 @@ scripts/import_ha_history.py
 
 # Dev-only compose override (bind-mounts source) — not for distribution
 docker-compose.override.yml
+
+# local trips-redesign backups (not for VCS)
+web/templates/_backup_trips_*/
