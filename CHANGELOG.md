@@ -3,6 +3,17 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.2] — 2026-06-04
+
+### Fixed
+- **Tyre pressures were shown on the wrong wheels.** The B10 signal→wheel mapping is
+  corrected per markoceri/leapmotor-api's documented signal table — the pressure and
+  its low-pressure alarm now refer to the same (correct) wheel.
+- **Removed the bogus "outside temperature".** That signal (2101) is actually the
+  driver-seat ventilation level; no ambient-temperature signal exists, so the value
+  was meaningless. Dropped from the Vehicle page, the MQTT sensors and ABRP
+  telemetry (battery/cabin/AC-target temperatures were already correct).
+
 ## [1.3.1] — 2026-06-04
 
 ### Changed
