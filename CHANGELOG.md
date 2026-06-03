@@ -3,6 +3,16 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.1] — 2026-06-04
+
+### Fixed
+- **Poller regression (since 1.5.1).** The configurable charge-detection setting
+  was applied with a wrong call that raised an error on every poll cycle, so the
+  poller stopped collecting data. Fixed — polling, trip and charge detection work
+  again. **Update strongly recommended if you're on 1.5.1 or 1.6.0.**
+- **Setup PIN field said "6-digit".** The Leapmotor operation PIN is **4 digits** —
+  the placeholder/hint and the input length now say 4.
+
 ## [1.6.0] — 2026-06-04
 
 ### Added

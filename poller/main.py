@@ -7,7 +7,7 @@ import time
 _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 
 import abrp
-from client import LeapmotorMateClient
+from client import LeapmotorMateClient, set_charge_current_min
 from db import Database
 from mqtt import MqttService
 from recorder import Recorder
@@ -159,7 +159,7 @@ def main():
                     int(db.get_setting("poll_parked", "30") or 30),
                     int(db.get_setting("poll_driving", "10") or 10),
                 )
-                client.set_charge_current_min(float(db.get_setting("charge_detect_min_a", "2.0") or 2.0))
+                set_charge_current_min(float(db.get_setting("charge_detect_min_a", "2.0") or 2.0))
             except (TypeError, ValueError):
                 pass
             data = client.get_status()
