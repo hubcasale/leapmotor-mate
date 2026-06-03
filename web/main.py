@@ -259,7 +259,16 @@ async def settings_page(request: Request):
     prices = db_reader.get_charge_prices()
     settings = {**settings, **prices,
                 "abrp_enabled": db_reader.get_setting("abrp_enabled", "0"),
-                "abrp_token": db_reader.get_setting("abrp_token", "")}
+                "abrp_token": db_reader.get_setting("abrp_token", ""),
+                "mqtt_enabled": db_reader.get_setting("mqtt_enabled", "0"),
+                "mqtt_broker": db_reader.get_setting("mqtt_broker", ""),
+                "mqtt_port": db_reader.get_setting("mqtt_port", "1883"),
+                "mqtt_user": db_reader.get_setting("mqtt_user", ""),
+                "mqtt_pass": db_reader.get_setting("mqtt_pass", ""),
+                "mqtt_prefix": db_reader.get_setting("mqtt_prefix", "leapmotor"),
+                "mqtt_tls": db_reader.get_setting("mqtt_tls", "0"),
+                "mqtt_tls_insecure": db_reader.get_setting("mqtt_tls_insecure", "0"),
+                "mqtt_discovery": db_reader.get_setting("mqtt_discovery", "1")}
     return templates.TemplateResponse(request, "settings.html", _ctx(
         page="settings", vehicle=vehicle, settings=settings,
         charge_types=db_reader.CHARGE_TYPES,
@@ -580,6 +589,22 @@ async def save_abrp(request: Request):
         db_reader.set_setting("abrp_token", (form.get("abrp_token") or "").strip())
     t = i18n.get_t(db_reader.get_language())
     return HTMLResponse(f'<span style="color:#22c55e;font-size:13px">{t("abrp_saved")}</span>')
+
+
+@app.post("/api/settings/mqtt", response_class=HTMLResponse)
+async def save_mqtt(request: Request):
+    """Save the MQTT bridge config (broker + options). Opt-in via the enable flag."""
+    form = await request.form()
+    def flag(name): return "1" if form.get(name) in ("1", "on", "true") else "0"
+    db_reader.set_setting("mqtt_enabled", flag("mqtt_enabled"))
+    db_reader.set_setting("mqtt_discovery", flag("mqtt_discovery"))
+    db_reader.set_setting("mqtt_tls", flag("mqtt_tls"))
+    db_reader.set_setting("mqtt_tls_insecure", flag("mqtt_tls_insecure"))
+    for key in ("mqtt_broker", "mqtt_port", "mqtt_user", "mqtt_pass", "mqtt_prefix"):
+        if key in form:
+            db_reader.set_setting(key, (form.get(key) or "").strip())
+    t = i18n.get_t(db_reader.get_language())
+    return HTMLResponse(f'<span style="color:#22c55e;font-size:13px">{t("mqtt_saved")}</span>')
 
 
 @app.post("/api/settings/language")

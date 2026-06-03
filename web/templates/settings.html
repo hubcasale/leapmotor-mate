@@ -254,6 +254,65 @@
       {% endif %}
     </div>
 
+    <!-- MQTT → Home Assistant -->
+    <div class="card">
+      <h2 class="font-semibold text-white mb-1">{{ t('mqtt_section') }}</h2>
+      <p class="text-xs text-slate-400 mb-4">{{ t('mqtt_desc') }}</p>
+      <form hx-post="api/settings/mqtt" hx-target="#mqtt-feedback" hx-swap="innerHTML" class="space-y-3">
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <span class="text-sm text-white">{{ t('mqtt_enable') }}</span>
+          <input type="checkbox" name="mqtt_enabled" value="1"
+                 {% if settings.get('mqtt_enabled') == '1' %}checked{% endif %}
+                 class="w-5 h-5 accent-brand cursor-pointer flex-shrink-0">
+        </label>
+
+        {% set inp = "w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm focus:outline-none focus:border-brand" %}
+        <div class="grid grid-cols-3 gap-2">
+          <div class="col-span-2">
+            <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_broker') }}</label>
+            <input type="text" name="mqtt_broker" value="{{ settings.get('mqtt_broker', '') }}"
+                   placeholder="192.168.1.10" autocomplete="off" class="{{ inp }} font-mono">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_port') }}</label>
+            <input type="text" name="mqtt_port" value="{{ settings.get('mqtt_port', '1883') }}" class="{{ inp }} font-mono">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_user') }}</label>
+            <input type="text" name="mqtt_user" value="{{ settings.get('mqtt_user', '') }}" autocomplete="off" class="{{ inp }}">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_pass') }}</label>
+            <input type="password" name="mqtt_pass" value="{{ settings.get('mqtt_pass', '') }}" autocomplete="off" class="{{ inp }}">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_prefix') }}</label>
+          <input type="text" name="mqtt_prefix" value="{{ settings.get('mqtt_prefix', 'leapmotor') }}" class="{{ inp }} font-mono">
+        </div>
+        <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" name="mqtt_discovery" value="1"
+                   {% if settings.get('mqtt_discovery', '1') == '1' %}checked{% endif %} class="accent-brand"> {{ t('mqtt_discovery') }}</label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" name="mqtt_tls" value="1"
+                   {% if settings.get('mqtt_tls') == '1' %}checked{% endif %} class="accent-brand"> TLS</label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" name="mqtt_tls_insecure" value="1"
+                   {% if settings.get('mqtt_tls_insecure') == '1' %}checked{% endif %} class="accent-brand"> {{ t('mqtt_tls_insecure') }}</label>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <div id="mqtt-feedback" class="text-xs"></div>
+          <button type="submit"
+                  class="bg-brand text-white text-sm font-semibold rounded-lg px-4 py-2 flex-shrink-0">
+            {{ t('mqtt_save') }}
+          </button>
+        </div>
+      </form>
+    </div>
+
   </div>
 
 </div>

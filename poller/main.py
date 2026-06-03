@@ -9,6 +9,7 @@ _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 import abrp
 from client import LeapmotorMateClient
 from db import Database
+from mqtt import MqttService
 from recorder import Recorder
 
 logging.basicConfig(
@@ -17,6 +18,52 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("leapmotor_mate")
+
+
+def _handle_mqtt_command(client, vin: str, cmd: str, value):
+    """Execute a remote command received over MQTT. B10 commands that the cloud
+    accepts-but-ignores (e.g. full A/C off) are simply best-effort."""
+    api = client._api
+    try:
+        if cmd == "lock":          api.lock_vehicle(vin)
+        elif cmd == "unlock":      api.unlock_vehicle(vin)
+        elif cmd == "open_trunk":  api.open_trunk(vin)
+        elif cmd == "close_trunk": api.close_trunk(vin)
+        elif cmd == "find_car":    api._remote_control(vin=vin, action="find_car")
+        elif cmd == "climate":
+            if value == "ON":
+                api.ac_switch(vin)   # A/C off isn't reliable on the B10 → on only
+        else:
+            return
+        log.info("MQTT: executed command %s %s", cmd, value or "")
+    except Exception as exc:  # noqa: BLE001
+        log.error("MQTT: command %s failed: %s", cmd, exc)
+
+
+def _mqtt_tick(db, client, data, service):
+    """Manage the MQTT bridge each poll cycle: (dis)connect on the enable flag,
+    then publish the current state. Returns the (possibly new/None) service."""
+    if db.get_setting("mqtt_enabled") != "1" or not db.get_setting("mqtt_broker"):
+        if service:
+            service.disconnect()
+        return None
+    if service is None:
+        service = MqttService(
+            broker=db.get_setting("mqtt_broker"),
+            port=db.get_setting("mqtt_port", "1883"),
+            username=db.get_setting("mqtt_user") or None,
+            password=db.get_setting("mqtt_pass") or None,
+            topic_prefix=db.get_setting("mqtt_prefix", "leapmotor"),
+            use_tls=db.get_setting("mqtt_tls") == "1",
+            tls_insecure=db.get_setting("mqtt_tls_insecure") == "1",
+            discovery_enabled=db.get_setting("mqtt_discovery", "1") == "1",
+        )
+        service.on_command = lambda vin, cmd, val: _handle_mqtt_command(client, vin, cmd, val)
+    try:
+        service.publish_status(data)
+    except Exception as exc:  # noqa: BLE001
+        log.error("MQTT: publish failed: %s", exc)
+    return service
 
 
 def load_config(db: "Database") -> dict:
@@ -102,6 +149,7 @@ def main():
     log.info("Polling VIN %s (vehicle_id=%d)", v.vin, vehicle_id)
 
     last_relogin = 0.0   # rate-limit guard for session recovery
+    mqtt_service = None   # optional MQTT → HA bridge, created lazily when enabled
 
     while True:
         try:
@@ -119,6 +167,9 @@ def main():
             # ABRP live telemetry (opt-in, off by default)
             if db.get_setting("abrp_enabled") == "1":
                 abrp.send(db.get_setting("abrp_token"), data)
+
+            # MQTT → Home Assistant bridge (opt-in, off by default)
+            mqtt_service = _mqtt_tick(db, client, data, mqtt_service)
 
             interval = recorder.poll_interval
             # Boost window (set via POST /api/boost, e.g. an iPhone BT shortcut relayed

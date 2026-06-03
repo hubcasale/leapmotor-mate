@@ -1,0 +1,210 @@
+"""Optional MQTT bridge — publishes the car to Home Assistant via MQTT Discovery
+(native sensors, binary sensors, GPS tracker) and accepts remote commands.
+
+Off unless enabled in Settings with a broker configured. Best-effort: connection
+or publish errors are logged, never raised to the poller loop.
+"""
+import json
+import logging
+from datetime import datetime, timezone
+
+import paho.mqtt.client as mqtt
+
+log = logging.getLogger(__name__)
+
+_DISC = "homeassistant"  # HA discovery prefix
+
+
+class MqttService:
+    def __init__(self, broker, port, username=None, password=None, topic_prefix="leapmotor",
+                 use_tls=False, tls_insecure=False, discovery_enabled=True):
+        self.broker = broker
+        self.port = int(port) if port else (8883 if use_tls else 1883)
+        self.username = username
+        self.password = password
+        self.topic_prefix = topic_prefix or "leapmotor"
+        self.use_tls = use_tls
+        self.tls_insecure = tls_insecure
+        self.discovery_enabled = discovery_enabled
+        self.client = None
+        self.on_command = None          # callback(vin, command_or_entity, value)
+        self._discovery_sent = False
+
+    def connect(self) -> bool:
+        log.info("MQTT: connecting to %s:%d (TLS=%s, discovery=%s, prefix=%s)",
+                 self.broker, self.port, self.use_tls, self.discovery_enabled, self.topic_prefix)
+        try:
+            try:  # paho-mqtt 2.0+ requires an explicit callback API version
+                from paho.mqtt.enums import CallbackAPIVersion
+                self.client = mqtt.Client(CallbackAPIVersion.VERSION1)
+            except ImportError:
+                self.client = mqtt.Client()
+            if self.username:
+                self.client.username_pw_set(self.username, self.password)
+            if self.use_tls:
+                self.client.tls_set()
+                if self.tls_insecure:
+                    self.client.tls_insecure_set(True)
+            self.client.on_connect = self._on_connect
+            self.client.on_message = self._on_message
+            self.client.connect(self.broker, self.port, keepalive=60)
+            self.client.loop_start()
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log.error("MQTT: connection failed: %s", exc)
+            self.client = None
+            return False
+
+    def _on_connect(self, client, userdata, flags, rc):
+        if rc == 0:
+            log.info("MQTT: connected")
+            self.client.subscribe(f"{self.topic_prefix}/+/command")
+            self.client.subscribe(f"{self.topic_prefix}/+/+/set")
+            self._discovery_sent = False  # resend discovery after a reconnect
+        else:
+            log.error("MQTT: connect refused (code %d)", rc)
+
+    def _on_message(self, client, userdata, msg):
+        try:
+            parts = msg.topic.split("/")
+            payload = msg.payload.decode()
+            if len(parts) < 3 or not self.on_command:
+                return
+            vin = parts[1]
+            if msg.topic.endswith("/command"):
+                self.on_command(vin, payload, None)            # button → payload is the command
+            elif msg.topic.endswith("/set"):
+                self.on_command(vin, parts[2], payload)        # switch → entity + ON/OFF
+        except Exception as exc:  # noqa: BLE001
+            log.error("MQTT: message error: %s", exc)
+
+    def disconnect(self):
+        if self.client:
+            try:
+                self.client.loop_stop()
+                self.client.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            self.client = None
+
+    # ── Publishing ────────────────────────────────────────────────────────────
+
+    def publish_status(self, data):
+        if not self.client:
+            if not self.connect():
+                return
+        if not self.client.is_connected():
+            return  # still (re)connecting — try again next cycle
+        if self.discovery_enabled and not self._discovery_sent:
+            self.publish_discovery(data)
+            self._discovery_sent = True
+        self._publish_sensors(data)
+
+    def _publish_sensors(self, data):
+        base = f"{self.topic_prefix}/{data.vin}"
+
+        def pub(sub, val):
+            if isinstance(val, bool):
+                v = "ON" if val else "OFF"
+            else:
+                v = "" if val is None else str(val)
+            self.client.publish(f"{base}/{sub}", v, retain=True)
+
+        pub("soc", data.soc);                  pub("range", data.range_km)
+        pub("odometer", data.odometer_km);     pub("speed", data.speed_kmh)
+        pub("gear", data.gear);                pub("state", data.vehicle_state)
+        pub("charging", data.charging_status > 0)
+        pub("charge_power", data.charge_power_kw)
+        pub("charge_voltage", data.charge_voltage_v)
+        pub("charge_current", data.charge_current_a)
+        pub("charge_time_remaining", data.remaining_charge_min)
+        pub("battery_temp", data.battery_min_temp)
+        pub("outside_temp", data.outside_temp); pub("inside_temp", data.inside_temp)
+        pub("ac_target_temp", data.climate_target_temp)
+        pub("locked", data.is_locked);          pub("climate_on", data.climate_on)
+        pub("plug_connected", data.plug_connected)
+        pub("tire_fl", data.tire_fl_bar);       pub("tire_fr", data.tire_fr_bar)
+        pub("tire_rl", data.tire_rl_bar);       pub("tire_rr", data.tire_rr_bar)
+        pub("any_door_open", data.any_door_open); pub("trunk_open", data.trunk_open)
+        pub("windows_open", data.windows_open); pub("sunshade_open", data.sunshade_open)
+        pub("door_driver", data.door_driver_open);       pub("door_passenger", data.door_passenger_open)
+        pub("door_rear_left", data.door_rear_left_open); pub("door_rear_right", data.door_rear_right_open)
+        pub("window_fl", data.window_fl_open);  pub("window_fr", data.window_fr_open)
+        pub("window_rl", data.window_rl_open);  pub("window_rr", data.window_rr_open)
+        pub("last_seen", datetime.now(timezone.utc).isoformat())
+        self.client.publish(f"{base}/location",
+                            json.dumps({"latitude": data.latitude, "longitude": data.longitude}),
+                            retain=True)
+
+    def publish_discovery(self, data):
+        vin = data.vin
+        prefix = self.topic_prefix
+        device_id = f"leapmotor_mate_{vin.lower()}"
+        device = {"identifiers": [device_id], "name": f"Leapmotor Mate {vin[-6:]}",
+                  "manufacturer": "Leapmotor", "model": "Vehicle", "sw_version": "Mate"}
+
+        def cfg(component, key, conf):
+            conf.update({"unique_id": f"{device_id}_{key}", "device": device})
+            self.client.publish(f"{_DISC}/{component}/{device_id}/{key}/config",
+                                json.dumps(conf), retain=True)
+
+        sensors = [
+            ("soc", "Battery", {"dc": "battery", "unit": "%"}),
+            ("range", "Range", {"unit": "km", "icon": "mdi:map-marker-distance"}),
+            ("odometer", "Odometer", {"dc": "distance", "unit": "km", "icon": "mdi:counter"}),
+            ("speed", "Speed", {"dc": "speed", "unit": "km/h"}),
+            ("outside_temp", "Outside Temp", {"dc": "temperature", "unit": "°C"}),
+            ("inside_temp", "Inside Temp", {"dc": "temperature", "unit": "°C"}),
+            ("ac_target_temp", "AC Target", {"dc": "temperature", "unit": "°C"}),
+            ("battery_temp", "Battery Temp", {"dc": "temperature", "unit": "°C"}),
+            ("charge_power", "Charge Power", {"dc": "power", "unit": "kW"}),
+            ("charge_voltage", "Charge Voltage", {"dc": "voltage", "unit": "V"}),
+            ("charge_current", "Charge Current", {"dc": "current", "unit": "A"}),
+            ("charge_time_remaining", "Charge Time Remaining", {"dc": "duration", "unit": "min"}),
+            ("tire_fl", "Tyre FL", {"dc": "pressure", "unit": "bar", "icon": "mdi:tire"}),
+            ("tire_fr", "Tyre FR", {"dc": "pressure", "unit": "bar", "icon": "mdi:tire"}),
+            ("tire_rl", "Tyre RL", {"dc": "pressure", "unit": "bar", "icon": "mdi:tire"}),
+            ("tire_rr", "Tyre RR", {"dc": "pressure", "unit": "bar", "icon": "mdi:tire"}),
+            ("gear", "Gear", {"icon": "mdi:car-shift-pattern"}),
+            ("state", "State", {"icon": "mdi:car-info"}),
+            ("last_seen", "Last Seen", {"dc": "timestamp", "icon": "mdi:clock-outline"}),
+        ]
+        for key, name, extra in sensors:
+            c = {"name": name, "state_topic": f"{prefix}/{vin}/{key}"}
+            if "unit" in extra: c["unit_of_measurement"] = extra["unit"]
+            if "dc" in extra: c["device_class"] = extra["dc"]
+            if "icon" in extra: c["icon"] = extra["icon"]
+            cfg("sensor", key, c)
+
+        binaries = [
+            ("charging", "Charging", "battery_charging"), ("locked", "Locked", "lock"),
+            ("plug_connected", "Plug Connected", "plug"), ("climate_on", "Climate", "power"),
+            ("door_driver", "Door Driver", "door"), ("door_passenger", "Door Passenger", "door"),
+            ("door_rear_left", "Door Rear Left", "door"), ("door_rear_right", "Door Rear Right", "door"),
+            ("trunk_open", "Trunk", "door"),
+            ("window_fl", "Window Front Left", "window"), ("window_fr", "Window Front Right", "window"),
+            ("window_rl", "Window Rear Left", "window"), ("window_rr", "Window Rear Right", "window"),
+            ("sunshade_open", "Sunshade", "window"),
+            ("any_door_open", "Any Door", "door"), ("windows_open", "Any Window", "window"),
+        ]
+        for key, name, dc in binaries:
+            cfg("binary_sensor", key, {"name": name, "state_topic": f"{prefix}/{vin}/{key}",
+                                       "payload_on": "ON", "payload_off": "OFF", "device_class": dc})
+
+        for key, name, icon in [
+            ("lock", "Lock", "mdi:lock"), ("unlock", "Unlock", "mdi:lock-open"),
+            ("open_trunk", "Open Trunk", "mdi:car-back"), ("close_trunk", "Close Trunk", "mdi:car-back"),
+            ("find_car", "Find Car", "mdi:car-search"),
+        ]:
+            cfg("button", key, {"name": name, "command_topic": f"{prefix}/{vin}/command",
+                                "payload_press": key, "icon": icon})
+
+        cfg("switch", "climate", {"name": "Climate", "command_topic": f"{prefix}/{vin}/climate/set",
+                                  "state_topic": f"{prefix}/{vin}/climate_on",
+                                  "payload_on": "ON", "payload_off": "OFF", "icon": "mdi:air-conditioner"})
+        cfg("device_tracker", "location", {"name": "Location",
+                                           "json_attributes_topic": f"{prefix}/{vin}/location",
+                                           "state_topic": f"{prefix}/{vin}/location",
+                                           "value_template": "{{ 'home' if value_json.latitude else 'not_home' }}",
+                                           "source_type": "gps"})
+        log.info("MQTT: Home Assistant discovery published for %s", device_id)
