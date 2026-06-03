@@ -23,7 +23,7 @@
       </div>
     </div>
     <!-- Language toggle -->
-    <div class="flex justify-center gap-2 mb-6">
+    <div class="flex flex-wrap justify-center gap-2 mb-6">
       <button type="button" onclick="setLang('en')" id="btn-en"
               class="px-4 py-1.5 rounded-full text-sm font-medium border transition-all cursor-pointer">
         🇬🇧 English
@@ -35,6 +35,10 @@
       <button type="button" onclick="setLang('fr')" id="btn-fr"
               class="px-4 py-1.5 rounded-full text-sm font-medium border transition-all cursor-pointer">
         🇫🇷 Français
+      </button>
+      <button type="button" onclick="setLang('de')" id="btn-de"
+              class="px-4 py-1.5 rounded-full text-sm font-medium border transition-all cursor-pointer">
+        🇩🇪 Deutsch
       </button>
     </div>
     <h1 id="setup-title" class="text-2xl font-bold text-white mb-1">Welcome to LeapMotor Mate</h1>
@@ -280,6 +284,38 @@ const strings = {
     certCrtLabel:  "app.crt (certificat)",
     certKeyLabel:  "app.key (clé privée)",
   },
+  de: {
+    title:         "Willkommen bei LeapMotor Mate",
+    subtitle:      "Richten Sie die Verbindung zu Ihrem Fahrzeug ein, um zu starten",
+    email:         "E-Mail des Leapmotor-Kontos",
+    emailPh:       "sie@beispiel.com",
+    password:      "Passwort",
+    pin:           "Bedien-PIN",
+    pinPh:         "6-stellige PIN",
+    detectBtn:     "🔍 Mein Auto erkennen",
+    detecting:     "⏳ Erkennung…",
+    detected:      "Auto erkannt",
+    carLine:       (model, vin) => `Leapmotor ${model} · VIN ···${vin.slice(-6)}`,
+    batteryLabel:  "Batteriepaket",
+    batteryHint:   "Wählen Sie Ihre Batterievariante",
+    batteryAutoSet:"Batterie erkannt (EU-Spezifikation)",
+    detectFail:    "Fahrzeug konnte nicht erkannt werden",
+    manualEntry:   "Batteriekapazität manuell eingeben (kWh)",
+    manualHint:    "B10 Pro: 56.2 · B10 Pro Max: 67.1 · T03: 37.3 · C10 RWD: 69.9 · C10 AWD: 81.9",
+    submit:        "Verbinden & starten",
+    required:      "E-Mail, Passwort und PIN sind erforderlich.",
+    noBattery:     "Bitte wählen Sie zuerst eine Batterievariante.",
+    certTitle:     "Schritt 1 — App-Zertifikat",
+    certDesc:      "Mate benötigt das TLS-Zertifikat der Leapmotor-App (für alle gleich, nicht Ihr Konto). Laden Sie die beiden Dateien app.crt und app.key herunter von:",
+    certBtn:       "Zertifikat speichern",
+    certSaving:    "⏳ Speichern…",
+    certToPaste:   "Stattdessen PEM-Text einfügen",
+    certToFile:    "Stattdessen Dateien hochladen",
+    certBoth:      "app.crt und app.key sind beide erforderlich.",
+    certSaved:     "✓ Zertifikat gespeichert",
+    certCrtLabel:  "app.crt (Zertifikat)",
+    certKeyLabel:  "app.key (privater Schlüssel)",
+  },
 };
 
 let currentLang = 'en';
@@ -362,6 +398,7 @@ function setLang(lang) {
   document.getElementById('btn-en').className = lang === 'en' ? active : inactive;
   document.getElementById('btn-it').className = lang === 'it' ? active : inactive;
   document.getElementById('btn-fr').className = lang === 'fr' ? active : inactive;
+  document.getElementById('btn-de').className = lang === 'de' ? active : inactive;
 }
 
 // ── Battery selector ──────────────────────────────────────────────────────────
@@ -559,7 +596,8 @@ function toggleVisibility(inputId, btn) {
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 const initLang = navigator.language.startsWith('it') ? 'it'
-               : navigator.language.startsWith('fr') ? 'fr' : 'en';
+               : navigator.language.startsWith('fr') ? 'fr'
+               : navigator.language.startsWith('de') ? 'de' : 'en';
 setLang('{{ prefill.language if prefill else "" }}' || initLang);
 
 // Show the cert step first unless the certificate is already present.

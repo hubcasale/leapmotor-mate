@@ -16,7 +16,7 @@ import command_client
 import i18n
 import ha_client
 
-MATE_VERSION = "1.3.2"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.4.0"  # bump together with the git tag + add-on config.yaml at release
 
 app = FastAPI(title="LeapMotor Mate")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -420,6 +420,7 @@ def _wallbox_sessions_grouped() -> list:
     """Charges-with-power nested year → month → day, each session carrying the
     AC-vs-DC kWh comparison; node totals + efficiency rolled up."""
     from collections import OrderedDict
+    lang = db_reader.get_language()
     years: "OrderedDict" = OrderedDict()
     for r in db_reader.charges_with_power():
         dt = db_reader._local_dt(r["started_at"])
@@ -427,7 +428,7 @@ def _wallbox_sessions_grouped() -> list:
             continue
         e = _session_energy(db_reader.get_charge_power_curve(r["id"]))
         sess = {"id": r["id"], "time": dt.strftime("%H:%M"), **e}
-        yr, mo, day = dt.strftime("%Y"), dt.strftime("%B %Y"), dt.strftime("%d %b %Y")
+        yr, mo, day = dt.strftime("%Y"), i18n.fmt_month_year(lang, dt), i18n.fmt_day_month_year(lang, dt)
         Y = years.setdefault(yr, {"label": yr, "ac": 0.0, "dc": 0.0, "months": OrderedDict()})
         M = Y["months"].setdefault(mo, {"label": mo, "ac": 0.0, "dc": 0.0, "days": OrderedDict()})
         D = M["days"].setdefault(day, {"label": day, "ac": 0.0, "dc": 0.0, "sessions": []})
@@ -613,7 +614,7 @@ async def set_language(request: Request):
     (HX-Refresh) so every server-rendered string switches to the new language."""
     form = await request.form()
     lang = form.get("language", "en")
-    db_reader.set_setting("language", lang if lang in ("en", "it", "fr") else "en")
+    db_reader.set_setting("language", lang if lang in ("en", "it", "fr", "de") else "en")
     return Response(status_code=204, headers={"HX-Refresh": "true"})
 
 
@@ -847,7 +848,7 @@ async def run_command(name: str, background_tasks: BackgroundTasks):
     remaining = _CMD_COOLDOWN_S - (time.time() - _last_command_at)
     if remaining > 0:
         wait = int(remaining) + 1
-        _wait_labels = {"it": "Attendi", "fr": "Patientez"}
+        _wait_labels = {"it": "Attendi", "fr": "Patientez", "de": "Warten"}
         label = _wait_labels.get(db_reader.get_language(), "Wait")
         return HTMLResponse(f'<span style="color:#fbbf24">⏳ {label} {wait}s</span>')
     _last_command_at = time.time()
@@ -994,6 +995,7 @@ async def setup_submit(request: Request):
         _req_errors = {
             "it": "Email, password e PIN sono obbligatori.",
             "fr": "E-mail, mot de passe et PIN sont obligatoires.",
+            "de": "E-Mail, Passwort und PIN sind erforderlich.",
         }
         return templates.TemplateResponse(request, "setup.html", {
             "error": _req_errors.get(lang, "Email, password and PIN are required."),
@@ -1009,7 +1011,7 @@ async def setup_submit(request: Request):
     db_reader.set_setting("leapmotor_pass", pwd)
     db_reader.set_setting("leapmotor_pin", pin)
     db_reader.set_setting("battery_capacity_kwh", str(battery_kwh))
-    db_reader.set_setting("language", lang if lang in ("en", "it", "fr") else "en")
+    db_reader.set_setting("language", lang if lang in ("en", "it", "fr", "de") else "en")
 
     # Pre-populate vehicles table so the UI shows model info before the first poller run
     if vin and car_type:

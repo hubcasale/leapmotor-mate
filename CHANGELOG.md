@@ -3,6 +3,21 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-06-04
+
+### Added
+- **German (Deutsch) UI language.** Full translation of the web interface — nav,
+  Overview, Trips, Charges, Statistics, Commands, Vehicle, Wallbox, Settings and the
+  first-run Setup wizard. Selectable from Settings and the setup screen, and
+  auto-detected from the browser language. Requested by the community on GitHub.
+
+### Fixed
+- **Month names in the history trees are now localized.** The year → month → day
+  breakdowns on the Trips, Charges, Statistics and Wallbox-comparison pages built
+  their labels with `strftime("%B"/"%b")`, which is always English regardless of the
+  selected language. Month names (full and abbreviated) are now translated for all
+  languages (it/fr/de/en) without relying on system locales.
+
 ## [1.3.2] — 2026-06-04
 
 ### Fixed

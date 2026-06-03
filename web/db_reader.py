@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Optional
 import os
 
+import i18n
+
 # Timestamps are stored in UTC (poller uses datetime.now(timezone.utc)). The UI
 # must show local time. TZ comes from the environment (Home Assistant passes the
 # system timezone to add-ons automatically); standalone Docker sets it in compose.
@@ -373,6 +375,7 @@ def get_trips_grouped() -> list[dict]:
         if node["_eff_wdist"] > 0:
             node["avg_eff"] = round(node["_eff_wsum"] / node["_eff_wdist"], 1)
 
+    lang = get_language()
     years: dict = OrderedDict()
     for t in trips:
         if not t.get("started_at"):
@@ -385,8 +388,8 @@ def get_trips_grouped() -> list[dict]:
         t["ended_at"] = _local_iso(t.get("ended_at"))
 
         yr  = dt.strftime("%Y")
-        mo  = dt.strftime("%B %Y")
-        day = dt.strftime("%d %b %Y")
+        mo  = i18n.fmt_month_year(lang, dt)
+        day = i18n.fmt_day_month_year(lang, dt)
 
         years.setdefault(yr, {**_node(yr), "months": OrderedDict()})
         years[yr]["months"].setdefault(mo, {**_node(mo), "days": OrderedDict()})
@@ -607,17 +610,18 @@ def get_stats_grouped() -> list[dict]:
         ORDER BY started_at DESC
     """).fetchall()
 
+    lang = get_language()
     years: dict = OrderedDict()
     for r in rows:
         d = dict(r)
         yr, mo_key, day_key = d["year"], d["month_key"], d["day_key"]
 
-        # Format labels in Python (SQLite %B/%b not supported)
+        # Localize labels in Python (SQLite %B/%b not supported; strftime is English-only)
         try:
             mo_dt  = datetime.strptime(mo_key, "%Y-%m")
-            mo_label = mo_dt.strftime("%B %Y")
+            mo_label = i18n.fmt_month_year(lang, mo_dt)
             day_dt   = datetime.strptime(day_key, "%Y-%m-%d")
-            d["day_label"] = day_dt.strftime("%d %b %Y")
+            d["day_label"] = i18n.fmt_day_month_year(lang, day_dt)
         except Exception:
             mo_label = mo_key
             d["day_label"] = day_key
@@ -707,6 +711,7 @@ def get_charges_grouped() -> list[dict]:
     def _day_node(label):
         return {"label": label, "count": 0, "kwh": 0.0, "cost": 0.0, "has_cost": False, "charges": []}
 
+    lang = get_language()
     years: dict = OrderedDict()
     for c in charges:
         if not c.get("started_at"):
@@ -718,8 +723,8 @@ def get_charges_grouped() -> list[dict]:
         c["ended_at"] = _local_iso(c.get("ended_at"))
 
         yr  = dt.strftime("%Y")
-        mo  = dt.strftime("%B %Y")
-        day = dt.strftime("%d %b %Y")
+        mo  = i18n.fmt_month_year(lang, dt)
+        day = i18n.fmt_day_month_year(lang, dt)
 
         years.setdefault(yr, _node(yr))
         years[yr]["months"].setdefault(mo, {**_node(mo), "days": OrderedDict()})
