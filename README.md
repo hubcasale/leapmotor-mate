@@ -8,11 +8,13 @@ Supported models: **B10 · C10 · T03** (European spec).
 
 ## Screenshots
 
-| Overview | Charges |
+| Overview | Trips |
 |---|---|
-| ![Overview](docs/screenshots/overview.png) | ![Charges](docs/screenshots/charges.png) |
-| **Statistics** | **Settings** |
-| ![Statistics](docs/screenshots/statistics.png) | ![Settings](docs/screenshots/settings.png) |
+| ![Overview](docs/screenshots/overview.png) | ![Trips](docs/screenshots/trips.png) |
+| **Charges** | **Wallbox** |
+| ![Charges](docs/screenshots/charges.png) | ![Wallbox](docs/screenshots/wallbox.png) |
+| **Statistics** | **Commands** |
+| ![Statistics](docs/screenshots/statistics.png) | ![Commands](docs/screenshots/commands.png) |
 
 ---
 
@@ -144,11 +146,13 @@ Modelli supportati: **B10 · C10 · T03** (spec. europea).
 
 ## Schermate
 
-| Panoramica | Ricariche |
+| Panoramica | Viaggi |
 |---|---|
-| ![Panoramica](docs/screenshots/overview.png) | ![Ricariche](docs/screenshots/charges.png) |
-| **Statistiche** | **Impostazioni** |
-| ![Statistiche](docs/screenshots/statistics.png) | ![Impostazioni](docs/screenshots/settings.png) |
+| ![Panoramica](docs/screenshots/overview.png) | ![Viaggi](docs/screenshots/trips.png) |
+| **Ricariche** | **Wallbox** |
+| ![Ricariche](docs/screenshots/charges.png) | ![Wallbox](docs/screenshots/wallbox.png) |
+| **Statistiche** | **Comandi** |
+| ![Statistiche](docs/screenshots/statistics.png) | ![Comandi](docs/screenshots/commands.png) |
 
 ## Funzionalità
 
