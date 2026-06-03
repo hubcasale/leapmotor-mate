@@ -321,6 +321,21 @@ async def wallbox_test(request: Request):
     return HTMLResponse(_ha_test_html())
 
 
+@app.get("/api/wallbox/status", response_class=HTMLResponse)
+async def wallbox_status(request: Request):
+    """A small live connection dot — green when HA actually answers, red otherwise.
+    Works for both add-on (Supervisor) and standalone (URL+token)."""
+    t = i18n.get_t(db_reader.get_language())
+    ok = ha_client.test_connection().get("ok")
+    if ok:
+        return HTMLResponse(
+            '<span class="inline-flex items-center gap-1.5 text-xs text-emerald-400">'
+            '<span class="w-2 h-2 rounded-full bg-emerald-400"></span>' + t("ha_status_ok") + '</span>')
+    return HTMLResponse(
+        '<span class="inline-flex items-center gap-1.5 text-xs text-red-400">'
+        '<span class="w-2 h-2 rounded-full bg-red-400"></span>' + t("ha_status_ko") + '</span>')
+
+
 @app.get("/api/wallbox/entities", response_class=HTMLResponse)
 async def wallbox_entities(request: Request):
     """Lazy-loaded entity picker: discovered HA entities + role selects,
