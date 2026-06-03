@@ -57,9 +57,14 @@ def _soc_color(soc: float) -> str:
     if soc >= 20: return "#f59e0b"
     return "#ef4444"
 
+def _driving(pos: dict) -> bool:
+    """Active drive = any gear other than Park (so a stop in traffic with gear D
+    still reads as driving, not 'Parked'); speed is a fallback if the gear lags."""
+    return (pos.get("gear") or "P") != "P" or pos.get("speed_kmh", 0) > 1
+
 def _state_color(pos: dict) -> str:
     if pos.get("charging"): return "text-yellow-400"
-    if pos.get("speed_kmh", 0) > 1: return "text-blue-400"
+    if _driving(pos): return "text-blue-400"
     return "text-green-400"
 
 def _ctx(**kwargs):
@@ -68,7 +73,7 @@ def _ctx(**kwargs):
     t = i18n.get_t(lang)
     def state_label(pos: dict) -> str:
         if pos.get("charging"): return t("state_charging")
-        if pos.get("speed_kmh", 0) > 1: return t("state_driving")
+        if _driving(pos): return t("state_driving")
         return t("state_parked")
     return {**kwargs, "lang": lang, "t": t, "version": MATE_VERSION,
             "wallbox_enabled": db_reader.get_setting("wallbox_enabled", "0") == "1",
