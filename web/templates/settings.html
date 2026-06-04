@@ -339,6 +339,35 @@
       </form>
     </div>
 
+    <!-- Database / maintenance -->
+    <div class="card">
+      <h2 class="font-semibold text-white mb-1">{{ t('db_section') }}</h2>
+      <p class="text-xs text-slate-400 mb-4">{{ t('db_size_label') }}:
+        <span class="text-slate-200 font-mono">{{ settings.get('db_size_mb', 0) }} MB</span></p>
+      <form hx-post="api/settings/retention" hx-target="#retention-feedback" hx-swap="innerHTML" class="space-y-3">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">{{ t('retention_label') }}</label>
+          {% set rd = settings.get('positions_retention_days', '0') %}
+          <select name="positions_retention_days"
+                  class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white
+                         text-sm focus:outline-none focus:border-brand cursor-pointer">
+            <option value="0"   {% if rd == '0' %}selected{% endif %}>{{ t('retention_off') }}</option>
+            <option value="180" {% if rd == '180' %}selected{% endif %}>6</option>
+            <option value="365" {% if rd == '365' %}selected{% endif %}>12</option>
+            <option value="545" {% if rd == '545' %}selected{% endif %}>18</option>
+            <option value="730" {% if rd == '730' %}selected{% endif %}>24</option>
+          </select>
+          <div class="text-[11px] text-slate-500 mt-1">{{ t('retention_hint') }}</div>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <div id="retention-feedback" class="text-xs"></div>
+          <button type="submit" class="bg-brand text-white text-sm font-semibold rounded-lg px-4 py-2 flex-shrink-0">
+            {{ t('retention_save') }}
+          </button>
+        </div>
+      </form>
+    </div>
+
   </div>
 
 </div>

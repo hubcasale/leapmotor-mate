@@ -3,7 +3,7 @@ import logging
 import math
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -224,6 +224,26 @@ class Database:
                           "/data/secret.key. Restore the key together with the database, "
                           "or re-run setup to re-enter credentials.", key)
                 return
+
+    def prune_positions(self, retention_days: int) -> int:
+        """Delete non-charging GPS samples older than retention_days (0/None = keep
+        forever). Charging rows are kept so charge power curves survive; trips and their
+        trip_positions are a separate table and are never touched. VACUUMs when rows were
+        actually removed. Returns the number of rows deleted."""
+        if not retention_days or retention_days <= 0:
+            return 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+        cur = self._conn.execute(
+            "DELETE FROM positions WHERE recorded_at < ? AND COALESCE(charging, 0) = 0",
+            (cutoff,),
+        )
+        self._conn.commit()
+        deleted = cur.rowcount or 0
+        if deleted > 0:
+            self._conn.execute("VACUUM")
+            log.info("Pruned %d old positions rows (retention %dd) and reclaimed space",
+                     deleted, retention_days)
+        return deleted
 
     def get_or_create_device_id(self) -> str:
         """One stable device_id for this Mate install, shared by poller and web.

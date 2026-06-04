@@ -12,11 +12,23 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   your own via the `MATE_SECRET_KEY` env var). Existing installs migrate transparently
   on the next start — no re‑login needed. Keep `secret.key` with your backups: a
   database restored without it will ask you to re‑enter the credentials.
+- **Optional database pruning** (Settings → Database). Cap raw GPS‑sample storage to
+  6/12/18/24 months; the poller prunes old non‑charging samples daily and reclaims
+  space — trips and charge curves are always kept. Off by default. The page also shows
+  the current database size.
+- **Health endpoint** `GET /healthz` (+ Docker HEALTHCHECK): reports whether the poll
+  loop is alive, so a wedged poller is visible instead of data silently stopping.
 
 ### Changed
 - **Faster charge/Wallbox history at scale.** Added a partial index on the telemetry
   table so the charge‑power, time‑of‑use cost and Wallbox queries stay fast as the
   database grows over the years.
+
+### Fixed
+- **Regen energy** now scales with the configured driving poll interval instead of a
+  hardcoded 10 s.
+- **Trip efficiency** is no longer stored as a negative kWh/100km when the battery SOC
+  rose over a trip (regen / a cloud SOC blip) — it's withheld instead.
 
 ### Security & hardening
 - **Secrets are no longer rendered back into the Settings page.** The ABRP / MQTT /

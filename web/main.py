@@ -377,7 +377,9 @@ async def settings_page(request: Request):
                 "mqtt_tls_insecure": db_reader.get_setting("mqtt_tls_insecure", "0"),
                 "mqtt_discovery": db_reader.get_setting("mqtt_discovery", "1"),
                 "geocoder_provider": db_reader.get_setting("geocoder_provider", ""),
-                "geocoder_key_set": bool(db_reader.get_setting("geocoder_key", ""))}
+                "geocoder_key_set": bool(db_reader.get_setting("geocoder_key", "")),
+                "positions_retention_days": db_reader.get_setting("positions_retention_days", "0"),
+                "db_size_mb": round(db_reader.get_db_size_bytes() / 1048576, 1)}
     return templates.TemplateResponse(request, "settings.html", _ctx(
         page="settings", vehicle=vehicle, settings=settings,
         charge_types=db_reader.CHARGE_TYPES,
@@ -756,6 +758,20 @@ async def save_geocoder(request: Request):
         db_reader.set_secret("geocoder_key", gkey)
     t = i18n.get_t(db_reader.get_language())
     return HTMLResponse(f'<span style="color:#22c55e;font-size:13px">{t("geocoder_saved")}</span>')
+
+
+@app.post("/api/settings/retention", response_class=HTMLResponse)
+async def save_retention(request: Request):
+    """Save GPS-sample retention (positions_retention_days; 0 = keep forever). The poller
+    prunes old non-charging samples daily; trips and charge curves are always kept."""
+    form = await request.form()
+    try:
+        days = max(0, int(form.get("positions_retention_days") or 0))
+    except (TypeError, ValueError):
+        days = 0
+    db_reader.set_setting("positions_retention_days", str(days))
+    t = i18n.get_t(db_reader.get_language())
+    return HTMLResponse(f'<span style="color:#22c55e;font-size:13px">{t("retention_saved")}</span>')
 
 
 @app.post("/api/settings/mqtt", response_class=HTMLResponse)

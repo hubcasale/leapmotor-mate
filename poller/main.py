@@ -303,6 +303,15 @@ def main():
         except Exception:  # noqa: BLE001
             pass
 
+        # Daily DB pruning — opt-in via Settings (positions_retention_days; 0 = keep forever)
+        try:
+            ret = int(db.get_setting("positions_retention_days", "0") or 0)
+            if ret > 0 and time.time() - float(db.get_setting("last_prune_ts", "0") or 0) > 86400:
+                db.prune_positions(ret)
+                db.set_setting("last_prune_ts", str(time.time()))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("DB prune skipped: %s", exc)
+
         # Interruptible sleep: while parked we may be sleeping for minutes, so check the
         # boost flag every few seconds and wake immediately if one is requested.
         deadline = time.time() + interval

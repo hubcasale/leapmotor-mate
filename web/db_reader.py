@@ -108,6 +108,17 @@ def set_setting(key: str, value: str) -> None:
     db.commit()
 
 
+def get_db_size_bytes() -> int:
+    """Total on-disk size of the SQLite DB (main file + WAL/SHM sidecars)."""
+    total = 0
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            total += os.path.getsize(DB_PATH + suffix)
+        except OSError:
+            pass
+    return total
+
+
 def get_secret(key: str, default: str = "") -> str:
     """Read a secret setting, decrypting transparently (plaintext passes through)."""
     return crypto.decrypt(get_setting(key, default))
