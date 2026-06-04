@@ -136,6 +136,18 @@ class MqttService:
                             json.dumps({"latitude": data.latitude, "longitude": data.longitude}),
                             retain=True)
 
+    def publish_state(self, vin, key, value):
+        """Publish a single retained state topic — used for an optimistic update the
+        moment a command succeeds, so the HA entity flips without waiting for the
+        next full status publish. Same value encoding as _publish_sensors."""
+        if not self.client or not self.client.is_connected():
+            return
+        if isinstance(value, bool):
+            v = "ON" if value else "OFF"
+        else:
+            v = "" if value is None else str(value)
+        self.client.publish(f"{self.topic_prefix}/{vin}/{key}", v, retain=True)
+
     def publish_discovery(self, data):
         vin = data.vin
         prefix = self.topic_prefix
