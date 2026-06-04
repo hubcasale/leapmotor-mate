@@ -7,7 +7,7 @@ import time
 _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 
 import abrp
-from client import LeapmotorMateClient, set_charge_current_min
+from client import LeapmotorMateClient, set_charge_current_min, EmptyStatusError
 from db import Database
 from mqtt import MqttService
 from recorder import Recorder
@@ -181,6 +181,7 @@ def main():
 
     last_relogin = 0.0   # rate-limit guard for session recovery
     mqtt_service = None   # optional MQTT → HA bridge, created lazily when enabled
+    empty_status_count = 0  # consecutive "no live signals" responses (car asleep)
 
     while True:
         try:
@@ -222,9 +223,27 @@ def main():
                 " (boost)" if boosting else "",
             )
             recorder.mark_online()
+            empty_status_count = 0
         except KeyboardInterrupt:
             log.info("Stopped by user")
             break
+        except EmptyStatusError:
+            # Car asleep / not reporting live data (or a brief cloud hiccup) — NOT a
+            # real failure. Retry at the normal cadence a couple of times in case it's
+            # transient, then back off like any offline state. Recovers on its own once
+            # the car reports again. (This used to surface as a scary "Poll error:
+            # 'signal'" KeyError.)
+            empty_status_count += 1
+            if empty_status_count >= 3:
+                recorder.mark_offline()
+                interval = recorder.poll_interval
+                log.warning("Vehicle still not reporting live data after %d tries — backing "
+                            "off %ds (car asleep or temporarily unavailable)",
+                            empty_status_count, interval)
+            else:
+                interval = recorder.poll_interval
+                log.info("Vehicle returned no live data (asleep or briefly unavailable) — "
+                         "retry %d/3", empty_status_count)
         except Exception as exc:
             log.error("Poll error: %s", exc)
             recorder.mark_offline()

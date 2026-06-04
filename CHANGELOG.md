@@ -3,6 +3,17 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.7.1] — 2026-06-04
+
+### Fixed
+- **Scary `Poll error: 'signal'` when the car is asleep.** When the Leapmotor cloud
+  returned a status without the live signal block — the car in deep sleep / briefly
+  not reporting, or a transient cloud hiccup — the poller raised a bare `KeyError`
+  and logged it as an `ERROR`, which looked like a crash. It's now handled cleanly:
+  the poller logs a clear "vehicle not reporting (asleep/unavailable)" message,
+  retries a couple of times, then backs off — and recovers on its own once the car
+  reports again. (#9)
+
 ## [1.7.0] — 2026-06-04
 
 ### Added

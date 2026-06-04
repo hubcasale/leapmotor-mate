@@ -92,6 +92,12 @@ def _b10_patched_get_vehicle_raw_status(self, vehicle):
     return self._parse_api_body(response["status_code"], response["body"], "vehicle status")
 
 
+class EmptyStatusError(Exception):
+    """The cloud returned a vehicle status with no live `signal` block — the car is
+    asleep / not reporting, or the response was incomplete. Transient: back off and
+    retry rather than treating it as a hard failure."""
+
+
 class LeapmotorMateClient:
     def __init__(self, username: str, password: str, pin: str, cert_path: str, key_path: str,
                  device_id: str | None = None):
@@ -136,7 +142,13 @@ class LeapmotorMateClient:
 
     def get_status(self) -> VehicleData:
         raw = self._api.get_vehicle_raw_status(self._vehicle)
-        return _parse_signal(self._vehicle.vin, raw["data"]["signal"])
+        sig = ((raw or {}).get("data") or {}).get("signal")
+        if not sig:
+            # Car asleep / not reporting (or a brief cloud hiccup): the status has no
+            # live signals. Surface a clear, transient error instead of a bare
+            # KeyError so the poller can back off cleanly and retry.
+            raise EmptyStatusError("vehicle status has no live signals (car asleep or not reporting)")
+        return _parse_signal(self._vehicle.vin, sig)
 
     def close(self):
         self._api.close()
