@@ -43,6 +43,10 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   restored without its `secret.key`), instead of an obscure later login failure.
 - Added a `.dockerignore` so the local database, `secret.key`, backups and caches can
   never be baked into a built image.
+- **Optional login for standalone** (set `MATE_AUTH_PASSWORD`): a password gate with a
+  signed, HttpOnly, SameSite=strict session cookie. Off by default and ignored when
+  running as a Home Assistant add-on (ingress already authenticates). When enabled it
+  also closes the previously open re-`POST /setup` path.
 
 ## [1.8.1] — 2026-06-04
 

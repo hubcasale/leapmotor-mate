@@ -213,6 +213,11 @@
       <a href="settings" class="nav-link {% if page=='settings' %}active{% endif %}">
         <span class="text-lg">⚙️</span> {{ t('nav_settings') }}
       </a>
+      {% if auth_enabled %}
+      <a href="logout" class="nav-link">
+        <span class="text-lg">🚪</span> {{ t('logout') }}
+      </a>
+      {% endif %}
     </div>
   </aside>
 

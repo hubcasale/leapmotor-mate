@@ -17,6 +17,7 @@ import i18n
 import ha_client
 import geocode
 import mqtt_test
+import auth
 
 MATE_VERSION = "1.8.2"  # bump together with the git tag + add-on config.yaml at release
 
@@ -58,10 +59,19 @@ app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")
 @app.middleware("http")
 async def setup_check(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/setup") or path.startswith("/api/") or path.startswith("/static/") or path == "/healthz":
+    # Always-public: static assets, the liveness probe, and the login page/handler.
+    if path.startswith("/static/") or path == "/healthz" or path.startswith("/login"):
         return await call_next(request)
-    # If env vars are set, skip wizard (dev mode)
-    if os.environ.get("LEAPMOTOR_USER"):
+    # Optional standalone auth (no-op as an add-on behind HA ingress). Applies to
+    # everything else — including /setup and /api — so nothing is reachable unauthenticated.
+    if auth.enabled() and not auth.valid(request.cookies.get(auth.COOKIE, "")):
+        if path.startswith("/api/"):
+            return Response("authentication required", status_code=401)
+        return RedirectResponse(request.headers.get("x-ingress-path", "") + "/login")
+    # Setup wizard gate (unchanged).
+    if path.startswith("/setup") or path.startswith("/api/"):
+        return await call_next(request)
+    if os.environ.get("LEAPMOTOR_USER"):  # env-var dev mode skips the wizard
         return await call_next(request)
     if not db_reader.is_setup_complete():
         # Honor the HA ingress path so the redirect stays inside the add-on panel
@@ -96,7 +106,7 @@ def _ctx(**kwargs):
         return t("state_parked")
     return {**kwargs, "lang": lang, "t": t, "version": MATE_VERSION,
             "wallbox_enabled": db_reader.get_setting("wallbox_enabled", "0") == "1",
-            "currency": db_reader.get_currency(),
+            "currency": db_reader.get_currency(), "auth_enabled": auth.enabled(),
             "soc_color": _soc_color, "state_label": state_label, "state_color": _state_color}
 
 
@@ -121,6 +131,35 @@ async def healthz():
          "last_poll_age_s": round(age) if ts else None},
         status_code=200 if healthy else 503,
     )
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    if not auth.enabled() or auth.valid(request.cookies.get(auth.COOKIE, "")):
+        return RedirectResponse(request.headers.get("x-ingress-path", "") + "/")
+    return templates.TemplateResponse(request, "login.html", _ctx(page="login", error=False))
+
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_submit(request: Request):
+    form = await request.form()
+    ingress = request.headers.get("x-ingress-path", "")
+    if not auth.enabled():
+        return RedirectResponse(ingress + "/", status_code=303)
+    if auth.check_password(form.get("password") or ""):
+        resp = RedirectResponse(ingress + "/", status_code=303)
+        resp.set_cookie(auth.COOKIE, auth.make_token(), max_age=auth.TTL,
+                        httponly=True, samesite="strict", path="/")
+        return resp
+    return templates.TemplateResponse(request, "login.html",
+                                      _ctx(page="login", error=True), status_code=401)
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    resp = RedirectResponse(request.headers.get("x-ingress-path", "") + "/login", status_code=303)
+    resp.delete_cookie(auth.COOKIE, path="/")
+    return resp
 
 
 @app.get("/", response_class=HTMLResponse)
