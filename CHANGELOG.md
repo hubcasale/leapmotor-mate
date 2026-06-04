@@ -3,6 +3,37 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] — 2026-06-04
+
+### Added
+- **Charge Prices page with time-of-use tariffs.** A dedicated *Charge Prices*
+  page replaces the single price field in Settings. Choose **flat (24h)** pricing
+  or **time-of-use bands**: add one or more time windows, pick which **days of the
+  week** each applies to (with All / Weekdays / Weekend shortcuts), and set a price
+  per **charge type** (Home/AC/DC/HPC) for each. Leave a cell blank to use the base
+  price, or enter `0` for free. Each session's cost is computed by splitting its
+  energy across the bands it spans using the real power curve. Cost changes apply to
+  **new charges only** — a charge's cost is frozen when you confirm its type, so
+  later price/band edits never alter past sessions. (Requested in #7.)
+- **MQTT "Test connection" button** (Settings → MQTT) — check the
+  broker/port/credentials/TLS before saving.
+
+### Fixed
+- **MQTT state out of sync after a command.** Lock/unlock/trunk/climate commands
+  sent over MQTT executed, but the published state only refreshed on the next poll
+  (up to 30 s when parked), so Home Assistant showed stale values. Mate now
+  publishes the expected state immediately and triggers a fast re-poll to confirm —
+  the same approach the web UI already uses.
+- **Inverted lock state in Home Assistant.** A locked car showed up as "Unlocked"
+  (Home Assistant's `lock` binary-sensor class is inverted). The lock entity now
+  displays correctly; the published topic value is unchanged.
+
+### Changed
+- **MQTT topic prefix now scopes the Home Assistant device.** You can run a second
+  instance (e.g. a test poller alongside the production add-on, same car) on a
+  different prefix without it overwriting the same entities. The default prefix is
+  unchanged, so existing installs are unaffected.
+
 ## [1.6.3] — 2026-06-04
 
 ### Changed

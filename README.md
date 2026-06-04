@@ -23,6 +23,7 @@ Supported models: **B10 · C10 · T03** (European spec).
 - **Overview** — live status, battery, range, location map, vehicle picture.
 - **Trips** — automatic trip detection with route map, distance, energy, efficiency and regen.
 - **Charges** — charge sessions with AC/DC detection, energy added, power and a distribution chart.
+- **🆕 Charge prices** — flat 24h pricing or **time-of-use bands**: set prices per time window, per **day of the week** and per charge type, and each session is costed correctly (energy split across the bands it spans by the real power curve).
 - **Wallbox (optional)** — pair a wallbox already in Home Assistant to see live charging power/status, set the max charging current, and compare **AC delivered by the wallbox** vs **DC into the battery** per session, with charging efficiency.
 - **ABRP (optional)** — forward live telemetry to **A Better Route Planner** for live route planning (enable it with your ABRP token).
 - **MQTT → Home Assistant (optional)** — publish the car to Home Assistant via **MQTT Discovery** as native entities (sensors, binary sensors, GPS tracker) plus command buttons.
@@ -97,8 +98,17 @@ That's it — the poller starts and data begins to appear.
 Everything is configured from the web UI (**Settings**), no YAML needed:
 
 - **Polling interval** — parked (default 30 s) and driving (default 10 s). Faster catches trips/charges sooner; slower means fewer API calls. Polling the cloud does not wake or drain the car.
-- **Charge price** — for cost estimates.
-- **Language** — English / Italiano.
+- **Charge prices** — flat or time-of-use, on the dedicated *Charge Prices* page (see below).
+- **Language** — English / Italiano / Français / Deutsch.
+
+### Charge prices
+
+Set what each kWh costs on the dedicated **Charge Prices** page (💰 in the sidebar), so Mate prices your sessions. Two modes:
+
+- **Fixed (24h)** — one price per charge type (Home / AC / DC / HPC).
+- **Time-of-use bands** — add one or more time windows, choose the **days of the week** each applies to (All / Weekdays / Weekend shortcuts), and set a price per charge type for every band. Leave a price blank to fall back to the base price, or enter `0` if it's free in that band. A session spanning two bands is split by its real power curve, and one crossing midnight on a Sat→Sun boundary is priced per day correctly.
+
+Cost changes apply to **new charges only**: a charge's cost is frozen when you confirm its type, so editing prices or bands later never changes past sessions.
 
 ### Optional: boost from Home Assistant
 
@@ -126,7 +136,7 @@ Forward the car's live data to **A Better Route Planner** for live route plannin
 
 ### MQTT → Home Assistant
 
-Publish the car to Home Assistant as **native entities** (in parallel to the Mate UI), via MQTT Discovery. In **Settings → MQTT**, enable it and enter your broker (host, port, username/password; TLS optional). Home Assistant then auto‑creates a *Leapmotor Mate* device with sensors (SOC, range, individual tyres, temperatures, charge…), binary sensors (doors/windows/lock/charging), a GPS tracker, command buttons (lock/unlock, trunk, find car) and a climate switch. Works with any MQTT broker (e.g. the Mosquitto add‑on).
+Publish the car to Home Assistant as **native entities** (in parallel to the Mate UI), via MQTT Discovery. In **Settings → MQTT**, enable it and enter your broker (host, port, username/password; TLS optional). Home Assistant then auto‑creates a *Leapmotor Mate* device with sensors (SOC, range, individual tyres, temperatures, charge…), binary sensors (doors/windows/lock/charging), a GPS tracker, command buttons (lock/unlock, trunk, find car) and a climate switch. Works with any MQTT broker (e.g. the Mosquitto add‑on). Use **Test connection** to verify the broker before saving. After a command the state now updates in Home Assistant immediately (no waiting for the next poll), and the **topic prefix** scopes the device — so you can run a second instance on a different prefix without it clashing with the first.
 
 ---
 
@@ -171,6 +181,7 @@ Modelli supportati: **B10 · C10 · T03** (spec. europea).
 - **Panoramica** — stato live, batteria, autonomia, mappa posizione, immagine del veicolo.
 - **Viaggi** — rilevamento automatico con mappa del percorso, distanza, energia, efficienza e regen.
 - **Ricariche** — sessioni con rilevamento AC/DC, energia aggiunta, potenza e grafico di distribuzione.
+- **🆕 Prezzi di ricarica** — prezzo fisso 24h o **fasce orarie**: prezzi per fascia, per **giorno della settimana** e per tipo di ricarica, e ogni sessione viene calcolata correttamente (energia ripartita tra le fasce attraversate dalla curva di potenza reale).
 - **Wallbox (opzionale)** — abbina una wallbox già presente in Home Assistant per vedere potenza/stato di carica live, impostare la corrente max e confrontare l'**AC erogato dalla wallbox** con il **DC entrato in batteria** per sessione, col rendimento di carica.
 - **ABRP (opzionale)** — invia la telemetria live ad **A Better Route Planner** per la pianificazione dei percorsi (attivala col tuo token ABRP).
 - **MQTT → Home Assistant (opzionale)** — pubblica l'auto a Home Assistant via **MQTT Discovery** come entità native (sensori, binary sensor, tracker GPS) più pulsanti comando.
@@ -239,8 +250,17 @@ Fatto — il poller parte e i dati iniziano a comparire.
 Tutto si configura dalla UI web (**Impostazioni**), senza YAML:
 
 - **Intervallo di polling** — parcheggiata (default 30 s) e in marcia (default 10 s). Più veloce rileva prima viaggi/ricariche; più lento riduce le chiamate. Interrogare il cloud non sveglia né scarica l'auto.
-- **Prezzo ricarica** — per la stima dei costi.
-- **Lingua** — Italiano / English.
+- **Prezzi di ricarica** — fisso o a fasce orarie, dalla pagina dedicata *Prezzi di ricarica* (vedi sotto).
+- **Lingua** — Italiano / English / Français / Deutsch.
+
+### Prezzi di ricarica
+
+Imposta quanto costa ogni kWh dalla pagina dedicata **Prezzi di ricarica** (💰 nella barra laterale), così Mate calcola il costo delle ricariche. Due modalità:
+
+- **Fisso (24h)** — un prezzo per tipo di ricarica (Home / AC / DC / HPC).
+- **Fasce orarie** — aggiungi una o più fasce, scegli i **giorni della settimana** in cui valgono (scorciatoie Tutti / Feriali / Weekend) e imposta un prezzo per tipo di ricarica per ogni fascia. Lascia un prezzo vuoto per usare il prezzo base, oppure metti `0` se in quella fascia è gratis. Una sessione a cavallo di due fasce viene ripartita dalla sua curva di potenza reale, e una che attraversa la mezzanotte sab→dom è tariffata per giorno correttamente.
+
+Le modifiche ai costi valgono solo per le **ricariche future**: il costo si congela alla conferma del tipo, quindi cambiare prezzi o fasce non altera le sessioni già fatte.
 
 ### Opzionale: boost da Home Assistant
 
@@ -268,7 +288,7 @@ Invia i dati live dell'auto ad **A Better Route Planner** per la pianificazione 
 
 ### MQTT → Home Assistant
 
-Pubblica l'auto a Home Assistant come **entità native** (in parallelo all'interfaccia di Mate), via MQTT Discovery. In **Impostazioni → MQTT**, attivala e inserisci il tuo broker (host, porta, utente/password; TLS opzionale). Home Assistant crea automaticamente un dispositivo *Leapmotor Mate* con sensori (SOC, autonomia, gomme singole, temperature, carica…), binary sensor (porte/finestrini/serratura/ricarica), un tracker GPS, pulsanti comando (lock/unlock, baule, trova auto) e uno switch clima. Funziona con qualsiasi broker MQTT (es. l'add‑on Mosquitto).
+Pubblica l'auto a Home Assistant come **entità native** (in parallelo all'interfaccia di Mate), via MQTT Discovery. In **Impostazioni → MQTT**, attivala e inserisci il tuo broker (host, porta, utente/password; TLS opzionale). Home Assistant crea automaticamente un dispositivo *Leapmotor Mate* con sensori (SOC, autonomia, gomme singole, temperature, carica…), binary sensor (porte/finestrini/serratura/ricarica), un tracker GPS, pulsanti comando (lock/unlock, baule, trova auto) e uno switch clima. Funziona con qualsiasi broker MQTT (es. l'add‑on Mosquitto). Usa **Prova connessione** per verificare il broker prima di salvare. Dopo un comando lo stato ora si aggiorna in Home Assistant all'istante (senza aspettare il polling successivo), e il **prefisso topic** delimita il dispositivo — così puoi far girare una seconda istanza con un prefisso diverso senza che entri in conflitto con la prima.
 
 ## Note e disclaimer
 
