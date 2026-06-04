@@ -148,6 +148,12 @@ Publish the car to Home Assistant as **native entities** (in parallel to the Mat
 - This is an **unofficial** project, not affiliated with Leapmotor. It relies on reverse‑engineered cloud APIs and may break if Leapmotor changes them. Use at your own risk.
 - Built on the [`leapmotor-api`](https://github.com/markoceri/leapmotor-api) Python client.
 
+## ☕ Support
+
+LeapMotor Mate is free and open-source, developed in my spare time. If it's useful to you, you can support its development with a coffee — thank you! ☕
+
+<a href="https://www.buymeacoffee.com/protossblaster" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48"></a>
+
 ## Credits
 
 - [`kerniger/leapmotor-ha`](https://github.com/kerniger/leapmotor-ha) — original Leapmotor cloud API reverse-engineering / Home Assistant integration.
@@ -299,6 +305,12 @@ Pubblica l'auto a Home Assistant come **entità native** (in parallelo all'inter
 - Usa un **account Leapmotor dedicato** (vedi Requisiti).
 - Progetto **non ufficiale**, non affiliato a Leapmotor. Usa API cloud ricavate per reverse‑engineering e può smettere di funzionare se Leapmotor le cambia. Usalo a tuo rischio.
 - Basato sul client Python [`leapmotor-api`](https://github.com/markoceri/leapmotor-api).
+
+## ☕ Sostieni il progetto
+
+LeapMotor Mate è gratuito e open-source, sviluppato nel tempo libero. Se ti è utile, puoi sostenerne lo sviluppo con un caffè — grazie! ☕
+
+<a href="https://www.buymeacoffee.com/protossblaster" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48"></a>
 
 ## Licenza
 
