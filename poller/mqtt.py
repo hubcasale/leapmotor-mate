@@ -207,8 +207,14 @@ class MqttService:
             ("any_door_open", "Any Door", "door"), ("windows_open", "Any Window", "window"),
         ]
         for key, name, dc in binaries:
-            cfg("binary_sensor", key, {"name": name, "state_topic": f"{prefix}/{vin}/{key}",
-                                       "payload_on": "ON", "payload_off": "OFF", "device_class": dc})
+            conf = {"name": name, "state_topic": f"{prefix}/{vin}/{key}",
+                    "payload_on": "ON", "payload_off": "OFF", "device_class": dc}
+            if key == "locked":
+                # HA's `lock` device_class is inverted (on = unlocked, off = locked).
+                # We publish ON = locked, so swap the payloads → a locked car shows
+                # "Locked" (not "Unlocked"). The published topic value is unchanged.
+                conf["payload_on"], conf["payload_off"] = "OFF", "ON"
+            cfg("binary_sensor", key, conf)
 
         for key, name, icon in [
             ("lock", "Lock", "mdi:lock"), ("unlock", "Unlock", "mdi:lock-open"),
