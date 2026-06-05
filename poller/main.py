@@ -104,8 +104,13 @@ def _write_comfort_state(db, data):
     in settings, so the web UI — which reads the positions row, not raw signals — can show
     them read-only. The matching remote commands are broken on the B10, but these states are
     real and reflect manual activation. Written only when the value changes."""
-    state = {"seat_heat": data.seat_heat, "seat_vent": data.seat_vent,
-             "steering_heat": data.steering_heat, "mirror_heat": data.mirror_heat}
+    state = {"seat_heat_driver": data.seat_heat_driver,
+             "seat_heat_passenger": data.seat_heat_passenger,
+             "seat_vent_driver": data.seat_vent_driver,
+             "seat_vent_passenger": data.seat_vent_passenger,
+             "steering_heat": data.steering_heat,
+             "mirror_heat_left": data.mirror_heat_left,
+             "mirror_heat_right": data.mirror_heat_right}
     blob = json.dumps(state, separators=(",", ":"))
     if _last_comfort.get(data.vin) == blob:
         return

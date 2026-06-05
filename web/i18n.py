@@ -4,10 +4,13 @@ _T: dict[str, dict[str, str]] = {
     "en": {
         # Comfort — read-only state sensors (work on B10 even where the command doesn't)
         "comfort_section":       "Comfort",
-        "comfort_seat_heat":     "Seat heating",
-        "comfort_seat_vent":     "Seat ventilation",
-        "comfort_steering_heat": "Steering wheel heating",
-        "comfort_mirror_heat":   "Mirror heating",
+        "comfort_seat_heat_driver":      "Driver seat heating",
+        "comfort_seat_heat_passenger":   "Passenger seat heating",
+        "comfort_seat_vent_driver":      "Driver seat ventilation",
+        "comfort_seat_vent_passenger":   "Passenger seat ventilation",
+        "comfort_steering_heat":         "Steering wheel heating",
+        "comfort_mirror_heat_left":      "Left mirror heating",
+        "comfort_mirror_heat_right":     "Right mirror heating",
         # Nav
         "nav_overview":    "Overview",
         "nav_map":         "Map",
@@ -441,10 +444,13 @@ _T: dict[str, dict[str, str]] = {
     "it": {
         # Comfort — sensori di stato in sola lettura
         "comfort_section":       "Comfort",
-        "comfort_seat_heat":     "Riscaldamento sedile",
-        "comfort_seat_vent":     "Ventilazione sedile",
-        "comfort_steering_heat": "Riscaldamento volante",
-        "comfort_mirror_heat":   "Riscaldamento specchietti",
+        "comfort_seat_heat_driver":      "Riscaldamento sedile guida",
+        "comfort_seat_heat_passenger":   "Riscaldamento sedile passeggero",
+        "comfort_seat_vent_driver":      "Ventilazione sedile guida",
+        "comfort_seat_vent_passenger":   "Ventilazione sedile passeggero",
+        "comfort_steering_heat":         "Riscaldamento volante",
+        "comfort_mirror_heat_left":      "Riscaldamento specchietto sx",
+        "comfort_mirror_heat_right":     "Riscaldamento specchietto dx",
         # Nav
         "nav_overview":    "Panoramica",
         "nav_map":         "Mappa",
@@ -878,10 +884,13 @@ _T: dict[str, dict[str, str]] = {
     "fr": {
         # Comfort — capteurs d'état en lecture seule
         "comfort_section":       "Confort",
-        "comfort_seat_heat":     "Chauffage siège",
-        "comfort_seat_vent":     "Ventilation siège",
-        "comfort_steering_heat": "Chauffage volant",
-        "comfort_mirror_heat":   "Chauffage rétroviseurs",
+        "comfort_seat_heat_driver":      "Chauffage siège conducteur",
+        "comfort_seat_heat_passenger":   "Chauffage siège passager",
+        "comfort_seat_vent_driver":      "Ventilation siège conducteur",
+        "comfort_seat_vent_passenger":   "Ventilation siège passager",
+        "comfort_steering_heat":         "Chauffage volant",
+        "comfort_mirror_heat_left":      "Chauffage rétroviseur gauche",
+        "comfort_mirror_heat_right":     "Chauffage rétroviseur droit",
         # Nav
         "nav_overview":    "Aperçu",
         "nav_map":         "Carte",
@@ -1315,10 +1324,13 @@ _T: dict[str, dict[str, str]] = {
     "de": {
         # Comfort — schreibgeschützte Zustandssensoren
         "comfort_section":       "Komfort",
-        "comfort_seat_heat":     "Sitzheizung",
-        "comfort_seat_vent":     "Sitzbelüftung",
-        "comfort_steering_heat": "Lenkradheizung",
-        "comfort_mirror_heat":   "Spiegelheizung",
+        "comfort_seat_heat_driver":      "Sitzheizung Fahrer",
+        "comfort_seat_heat_passenger":   "Sitzheizung Beifahrer",
+        "comfort_seat_vent_driver":      "Sitzbelüftung Fahrer",
+        "comfort_seat_vent_passenger":   "Sitzbelüftung Beifahrer",
+        "comfort_steering_heat":         "Lenkradheizung",
+        "comfort_mirror_heat_left":      "Spiegelheizung links",
+        "comfort_mirror_heat_right":     "Spiegelheizung rechts",
         # Nav
         "nav_overview":    "Übersicht",
         "nav_map":         "Karte",

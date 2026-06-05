@@ -301,7 +301,18 @@ async def map_page(request: Request):
     ))
 
 
-_COMFORT_KEYS = ("seat_heat", "seat_vent", "steering_heat", "mirror_heat")
+# Comfort tiles to display: (comfort_state key, capability feature that gates it, i18n label, icon).
+# Seats are shown per-side (driver/passenger), mirrors per-side (left/right); gating is at the
+# feature level (e.g. both seat-heat tiles hide together if seat_heat is broken on this car).
+_COMFORT_ROWS = (
+    ("seat_heat_driver",     "seat_heat",     "comfort_seat_heat_driver",     "🔥"),
+    ("seat_heat_passenger",  "seat_heat",     "comfort_seat_heat_passenger",  "🔥"),
+    ("seat_vent_driver",     "seat_vent",     "comfort_seat_vent_driver",     "💨"),
+    ("seat_vent_passenger",  "seat_vent",     "comfort_seat_vent_passenger",  "💨"),
+    ("steering_heat",        "steering_heat", "comfort_steering_heat",        "🛞"),
+    ("mirror_heat_left",     "mirror_heat",   "comfort_mirror_heat_left",     "🪞"),
+    ("mirror_heat_right",    "mirror_heat",   "comfort_mirror_heat_right",     "🪞"),
+)
 
 
 def _comfort_rows(vin):
@@ -316,11 +327,11 @@ def _comfort_rows(vin):
     except ValueError:
         state = {}
     rows = []
-    for k in _COMFORT_KEYS:
-        if not capability_profile.is_shown(vin, k):
+    for skey, feat, label_key, icon in _COMFORT_ROWS:
+        if not capability_profile.is_shown(vin, feat):
             continue
-        v = int(state.get(k) or 0)
-        rows.append({"key": k, "label_key": f"comfort_{k}", "value": v, "on": v > 0})
+        v = int(state.get(skey) or 0)
+        rows.append({"icon": icon, "label_key": label_key, "value": v, "on": v > 0})
     return rows
 
 
