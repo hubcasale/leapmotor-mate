@@ -8,7 +8,7 @@
 
 <div class="max-w-6xl flex flex-col lg:flex-row gap-5 items-start">
 
-  <!-- ── Column 1: Language, Vehicle, Battery, Polling ───────────────── -->
+  <!-- ── Column 1: Vehicle & driving (Language, Vehicle, Battery, Polling, Charge) ─ -->
   <div class="flex-1 w-full space-y-5">
 
     <!-- Language & Currency -->
@@ -128,7 +128,7 @@
 
   </div>
 
-  <!-- ── Column 2: ABRP, Geocoder ────────────────────────────────────── -->
+  <!-- ── Column 2: Integrations & services (ABRP, Geocoder, Wallbox) ──── -->
   <div class="flex-1 w-full space-y-5">
 
     <!-- ABRP (A Better Route Planner) -->
@@ -196,11 +196,7 @@
       </form>
     </div>
 
-  </div>
-
-  <!-- ── Column 3: Wallbox (minimal when off, expandable sensors when on) ─ -->
-  <div class="flex-1 w-full space-y-5">
-
+    <!-- Wallbox -->
     <div class="card">
       <h2 class="font-semibold text-white mb-4">{{ t('wallbox_section') }}</h2>
       <form hx-post="api/settings/wallbox" hx-trigger="change">
@@ -270,6 +266,11 @@
       </div>
       {% endif %}
     </div>
+
+  </div>
+
+  <!-- ── Column 3: Home Assistant & data (MQTT, Database, Export) ──────── -->
+  <div class="flex-1 w-full space-y-5">
 
     <!-- MQTT → Home Assistant -->
     <div class="card">
