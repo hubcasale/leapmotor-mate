@@ -980,11 +980,10 @@ _COMMANDS = {
     "battery_preheat":   command_client.battery_preheat,
     "open_sunshade":     command_client.open_sunshade,
     "close_sunshade":    command_client.close_sunshade,
-    # New in 0.3.1 (gated in the UI by the vehicle's rights):
-    "ac_off":            command_client.ac_off,
+    # Staged for 0.3.1 but NOT surfaced in any UI button — the B10 accepts these yet
+    # doesn't actuate them (like A/C off). Kept wired so they can be exposed instantly
+    # if a future leapmotor-api / vehicle update makes them work on the B10.
     "battery_preheat_off": command_client.battery_preheat_off,
-    "open_sunroof":      command_client.open_sunroof,
-    "close_sunroof":     command_client.close_sunroof,
     "unlock_charger":    command_client.unlock_charger,
     "sentry_on":         command_client.sentry_on,
     "sentry_off":        command_client.sentry_off,
@@ -1142,8 +1141,9 @@ _OPTIMISTIC = {
     "close_sunshade":{"sunshade_open": 0},
 }
 
-# Climate tiles: a tile that's ON is turned off by sending ac_off() (dedicated off
-# command in leapmotor-api 0.3.1); a tile that's OFF sends its own mode command.
+# Climate tiles: a tile that's ON is turned off by sending ac_switch (best-effort —
+# the B10 doesn't honour a real A/C-off via the API); a tile that's OFF sends its own
+# mode command.
 # Direction is decided from the real signal state. NO optimistic overlay — climate
 # state is read from signals (2669 cool / 2681 heat / 1945 defrost / 1938 on), so the
 # UI never shows a fake value. Frontend is unchanged; this is backend logic only.
@@ -1210,15 +1210,16 @@ async def run_command(name: str, background_tasks: BackgroundTasks):
         return HTMLResponse(f'<span style="color:#fbbf24">⏳ {label} {wait}s</span>')
     _last_command_at = time.time()
 
-    # Climate: decide direction from the real state. A tile that's on → ac_off()
-    # (dedicated off command in leapmotor-api 0.3.1); a tile that's off → its own
-    # command. No optimistic overlay.
+    # Climate: decide direction from the real state. A tile that's on → ac_switch
+    # (best-effort climate off — the B10 can't fully turn the A/C off via the API; even
+    # 0.3.1's ac_off()/operate=close only changes the setpoint, so we keep the toggle);
+    # a tile that's off → its own command. No optimistic overlay.
     overrides = dict(_OPTIMISTIC.get(name) or {})
     field = _CLIMATE_TILES.get(name)
     if field:
         cur = db_reader.get_latest_status() or {}
         if cur.get(field):                      # currently on → turn off
-            fn = command_client.ac_off          # dedicated A/C off (no toggle guard)
+            fn = command_client.ac_on           # ac_switch toggle (best-effort off)
         overrides = {}                          # never fake climate state
 
     import asyncio

@@ -61,9 +61,12 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
             elif cmd == "climate_defrost":
                 api.windshield_defrost(vin); optimistic = ("climate_on", True)
             elif cmd == "climate_off":
-                # leapmotor-api 0.3.1 has a dedicated ac_off() (operate=close), so no more
-                # toggle-guard hack — this reliably turns the climate off.
-                api.ac_off(vin);             optimistic = ("climate_on", False)
+                # Best-effort: the B10 can't fully turn the A/C off via the API (0.3.1's
+                # ac_off()/operate=close only changes the setpoint), so we keep the
+                # ac_switch toggle, guarded so an "A/C Off" press can't switch it ON.
+                if getattr(service, "last_climate_on", None) is False:
+                    return
+                api.ac_switch(vin);          optimistic = ("climate_on", False)
             else:
                 return
         log.info("MQTT: executed command %s %s", cmd, value or "")

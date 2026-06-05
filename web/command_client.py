@@ -333,7 +333,10 @@ def open_trunk():        return _session.execute(lambda api, vin: api.open_trunk
 def close_trunk():       return _session.execute(lambda api, vin: api.close_trunk(vin))
 def find_car():          return _session.execute(lambda api, vin: api.find_vehicle(vin))
 def ac_on():             return _session.execute(lambda api, vin: api.ac_switch(vin))
-def ac_off():            return _session.execute(lambda api, vin: api.ac_off(vin))
+# NB: leapmotor-api 0.3.1 has ac_off() (operate=close) but on the B10 it only changes
+# the setpoint to 26°, it does NOT turn the A/C off — so we don't use it. The B10 has no
+# working remote A/C-off via this API (the official app uses an undisclosed mechanism);
+# climate-off stays best-effort via ac_switch. Revisit if markoceri/kerniger expose it.
 def quick_cool():        return _session.execute(lambda api, vin: api.quick_cool(vin))
 def quick_heat():        return _session.execute(lambda api, vin: api.quick_heat(vin))
 def windshield_defrost():return _session.execute(lambda api, vin: api.windshield_defrost(vin))
@@ -343,9 +346,11 @@ def battery_preheat():   return _session.execute(lambda api, vin: api.battery_pr
 def battery_preheat_off():return _session.execute(lambda api, vin: api.battery_preheat_off(vin))
 def open_sunshade():     return _session.execute(lambda api, vin: api.open_sunshade(vin))
 def close_sunshade():    return _session.execute(lambda api, vin: api.close_sunshade(vin))
-# New in 0.3.1 — gated in the UI by the vehicle's rights (see /commands).
-def open_sunroof():      return _session.execute(lambda api, vin: api.open_sunroof(vin))
-def close_sunroof():     return _session.execute(lambda api, vin: api.close_sunroof(vin))
+# Staged for 0.3.1 but NOT exposed in any UI: live testing showed the B10 ACCEPTS these
+# (cloud returns OK) but does NOT actuate them — same behaviour as A/C off — so they'd be
+# misleading "Done" buttons. Kept ready so they can be wired up instantly if a future
+# leapmotor-api / vehicle update makes them work on the B10. (No sunroof: the existing
+# open/close "sunshade" already operates the B10's panoramic roof.)
 def unlock_charger():    return _session.execute(lambda api, vin: api.unlock_charger(vin))
 def sentry_on():         return _session.execute(lambda api, vin: api.sentry_mode_on(vin))
 def sentry_off():        return _session.execute(lambda api, vin: api.sentry_mode_off(vin))
