@@ -154,6 +154,14 @@
       spdArr.forEach(function (v) { if (v != null && v > spdMax) spdMax = v; });
       spdMax = Math.ceil(spdMax / 10) * 10;
 
+      // Zoom the SoC axis to the trip's own range (it usually only drops a few %),
+      // otherwise a 96→90% drive looks flat pinned to the top of a 0–100 axis.
+      var socVals = socArr.filter(function (v) { return v != null; });
+      var sMin = Math.min.apply(null, socVals), sMax = Math.max.apply(null, socVals);
+      var socLo = Math.max(0, Math.floor(sMin - 1));
+      var socHi = Math.min(100, Math.ceil(sMax + 1));
+      if (socHi - socLo < 4) { socLo = Math.max(0, socHi - 4); }   // keep a sane minimum span
+
       // Mirrors the proven charge-power chart config: plain-array data + categories +
       // seriesName-bound y-axes (multi-axis needs the binding or nothing draws).
       el._c = new ApexCharts(el, {
@@ -172,7 +180,7 @@
                  labels: { style: { colors: '#64748b', fontSize: '10px' }, rotate: 0, hideOverlappingLabels: true },
                  axisBorder: { show: false }, axisTicks: { show: false } },
         yaxis: [
-          { seriesName: nmSoc, min: 0, max: 100, forceNiceScale: true,
+          { seriesName: nmSoc, min: socLo, max: socHi, forceNiceScale: true,
             labels: { style: { colors: '#22c55e', fontSize: '10px' }, formatter: function (v) { return v != null ? v.toFixed(0) : ''; } },
             title: { text: 'SoC %', style: { color: '#22c55e', fontSize: '10px' } } },
           { opposite: true, seriesName: nmSpd, min: 0, max: spdMax,
