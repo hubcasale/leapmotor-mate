@@ -25,9 +25,12 @@
       attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    // Each trip as its own connected polyline — never joined across trips.
+    // Each trip as its own connected polyline — never joined across trips. A white
+    // casing under a blue line keeps the route legible over any road colour (OSM
+    // motorways/primaries are red/orange/yellow, so a plain red line blended in).
     segments.forEach(function (s) {
-      L.polyline(s, { color: '#e63946', weight: 2.5, opacity: 0.55, lineJoin: 'round' }).addTo(map);
+      L.polyline(s, { color: '#ffffff', weight: 5,   opacity: 0.7, lineJoin: 'round', lineCap: 'round' }).addTo(map);
+      L.polyline(s, { color: '#2563eb', weight: 2.5, opacity: 0.9, lineJoin: 'round', lineCap: 'round' }).addTo(map);
     });
 
     // Frequent places: bubble sized by visit count, on top of the routes.
@@ -45,7 +48,7 @@
 </div>
 
 <div class="mt-4 flex items-center gap-x-5 gap-y-1 flex-wrap text-xs text-slate-500">
-  <span><span style="color:#e63946">—</span> {{ t('map_routes') }} ({{ track|length }})</span>
+  <span><span style="color:#2563eb">—</span> {{ t('map_routes') }} ({{ track|length }})</span>
   {% if places %}<span><span style="color:#14b8a6">●</span> {{ t('map_frequent_places') }} ({{ places|length }})</span>{% endif %}
   <span><span id="map-pts">—</span> {{ t('map_points') }}</span>
 </div>
