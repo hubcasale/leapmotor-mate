@@ -66,6 +66,7 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
             elif cmd == "open_trunk":  api.open_trunk(vin)
             elif cmd == "close_trunk": api.close_trunk(vin)
             elif cmd == "find_car":    api.find_vehicle(vin)
+            elif cmd == "unlock_charger": api.unlock_charger(vin)
             elif cmd == "climate_cool":
                 api.quick_cool(vin);         optimistic = ("climate_on", True)
             elif cmd == "climate_heat":

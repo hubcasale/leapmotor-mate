@@ -246,6 +246,7 @@ class MqttService:
             ("lock", "Lock", "mdi:lock"), ("unlock", "Unlock", "mdi:lock-open"),
             ("open_trunk", "Open Trunk", "mdi:car-back"), ("close_trunk", "Close Trunk", "mdi:car-back"),
             ("find_car", "Find Car", "mdi:car-search"),
+            ("unlock_charger", "Unlock Charge Cable", "mdi:ev-plug-type2"),
             # Climate is exposed as momentary buttons (not a switch): the API has no
             # single on/off toggle, only distinct mode commands + ac_switch to deactivate.
             ("climate_cool", "Quick Cool", "mdi:snowflake"),

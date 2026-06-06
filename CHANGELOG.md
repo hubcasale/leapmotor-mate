@@ -6,8 +6,9 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [1.11.5] — 2026-06-07
 
 ### Added
-- **Unlock charge cable** button (B10 charge-port unlock, `unlock_charger`, right 192) — promised on
-  #19. Lives in the new **Quick actions** card, with a confirm prompt. i18n in en/it/fr/de.
+- **Unlock charge cable** — unlock the B10 charge port (`unlock_charger`, right 192), promised on #19.
+  Exposed both in the **web UI** (new **Quick actions** card, with a confirm prompt) and over **MQTT**
+  (Home Assistant discovery button + command handler). i18n in en/it/fr/de.
 
 ### Changed
 - **Commands page restyle.** A full pass over the page's look & layout:
@@ -22,11 +23,6 @@ This project adheres to [Semantic Versioning](https://semver.org/).
     Collapses to a single column on mobile (vehicle controls first).
   - **Consistent card headers** (icon + title) on every card, including Vehicle.
   - Merged the old Find Car + Battery cards into **Quick actions**; "Preheat" → "Preheat battery".
-
-### Note
-- Local/test build — **not released**. Pending on-car verification that the B10 actually actuates
-  `unlock_charger` (an earlier staging note flagged it as possibly accepted-but-not-actuated, like the
-  old A/C-off); pull the button if it proves a no-op.
 
 ## [1.11.4] — 2026-06-06
 
