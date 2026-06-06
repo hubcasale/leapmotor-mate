@@ -3,12 +3,24 @@
 {% else %}
 
 {# ── Slate tile (matches the rest of the app): icon + label + value ── #}
-{% macro tile(icon, label, value, value_class='text-white') %}
+{% macro tile(icon, label, value, value_class='text-white', icon_class='text-slate-300') %}
 <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 flex items-center gap-3">
-  <span class="flex-shrink-0 text-slate-300">{{ icon|safe }}</span>
+  <span class="flex-shrink-0 {{ icon_class }}">{{ icon|safe }}</span>
   <div class="min-w-0">
     <div class="text-[11px] uppercase tracking-wide text-slate-400 leading-tight">{{ label }}</div>
     <div class="text-base font-bold {{ value_class }} leading-tight truncate">{{ value }}</div>
+  </div>
+</div>
+{% endmacro %}
+
+{# Tyre tile: bar value on line 1, colour-coded status word on line 2 (no truncation). #}
+{% macro tyre_tile(icon, label, val, status, status_class) %}
+<div class="bg-slate-800 rounded-xl p-4 border border-slate-700 flex items-center gap-3">
+  <span class="flex-shrink-0 {{ status_class }}">{{ icon|safe }}</span>
+  <div class="min-w-0">
+    <div class="text-[11px] uppercase tracking-wide text-slate-400 leading-tight">{{ label }}</div>
+    <div class="text-base font-bold text-white leading-tight">{{ val }}</div>
+    {% if status %}<div class="text-xs font-medium {{ status_class }} leading-tight mt-0.5">{{ status }}</div>{% endif %}
   </div>
 </div>
 {% endmacro %}
@@ -26,31 +38,45 @@
 {% set IC_BATTERY = "M4 3v3H1v14h22V6h-3V3h-6v3h-4V3zM3 8h18v10H3zm12 2v2h-2v2h2v2h2v-2h2v-2h-2v-2zM5 12v2h6v-2z" %}
 
 {# ── Open/closed state tile: value colour carries the meaning ── #}
-{% macro state_tile(icon, label, st, open_class='text-red-400') %}
-  {% if st is none %}{{ tile(icon, label, t('no_data'), 'text-slate-500') }}
-  {% elif st %}{{ tile(icon, label, t('open_state'), open_class) }}
-  {% else %}{{ tile(icon, label, t('closed_state'), 'text-green-400') }}
+{% macro state_tile(icon, label, st, open_class='text-sky-400') %}
+  {% if st is none %}{{ tile(icon, label, t('no_data'), 'text-slate-500', 'text-slate-500') }}
+  {% elif st %}{{ tile(icon, label, t('open_state'), open_class, open_class) }}
+  {% else %}{{ tile(icon, label, t('closed_state'), 'text-green-400', 'text-green-400') }}
   {% endif %}
 {% endmacro %}
 
 {# ── Window tile with open/closed icon variants ── #}
 {% macro win_tile(label, st) %}
-  {% if st is none %}{{ tile(mdi(IC_WIN_CLOSED), label, t('no_data'), 'text-slate-500') }}
-  {% elif st %}{{ tile(mdi(IC_WIN_OPEN), label, t('open_state'), 'text-red-400') }}
-  {% else %}{{ tile(mdi(IC_WIN_CLOSED), label, t('closed_state'), 'text-green-400') }}
+  {% if st is none %}{{ tile(mdi(IC_WIN_CLOSED), label, t('no_data'), 'text-slate-500', 'text-slate-500') }}
+  {% elif st %}{{ tile(mdi(IC_WIN_OPEN), label, t('open_state'), 'text-sky-400', 'text-sky-400') }}
+  {% else %}{{ tile(mdi(IC_WIN_CLOSED), label, t('closed_state'), 'text-green-400', 'text-green-400') }}
   {% endif %}
 {% endmacro %}
 
 <div class="space-y-5">
 
-  <!-- Tyre pressure -->
+  <!-- Tyre pressure — per-wheel tile with a status word -->
+  {# Bands: red = TPMS low warning OR <2.0 (too low) / >3.3 (too high); amber = 2.0–2.29 (low)
+     / 3.0–3.3 (high); green = 2.3–3.0 (normal). Low uses the car's own TPMS flag; high has no
+     signal so it's threshold-based. #}
   <div class="card">
     <h2 class="font-semibold text-white mb-4 flex items-center gap-2">{{ mdi(IC_TIRE) }} {{ t('tyre_pressure') }}</h2>
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       {% for tp, label in [(vs.tyres.fl, t('tyre_fl')), (vs.tyres.fr, t('tyre_fr')), (vs.tyres.rl, t('tyre_rl')), (vs.tyres.rr, t('tyre_rr'))] %}
         {% set val = ('%.2f'|format(tp.bar) ~ ' bar') if tp.bar is not none else '—' %}
-        {% if tp.low %}{{ tile(mdi(IC_TIRE_LOW), label, val ~ ' · ' ~ t('tyre_low'), 'text-red-400') }}
-        {% else %}{{ tile(mdi(IC_TIRE), label, val) }}{% endif %}
+        {% if tp.bar is none %}
+          {{ tyre_tile(mdi(IC_TIRE), label, val, '', 'text-slate-400') }}
+        {% elif tp.low or tp.bar < 2.0 %}
+          {{ tyre_tile(mdi(IC_TIRE_LOW), label, val, t('tyre_too_low'), 'text-red-400') }}
+        {% elif tp.bar < 2.3 %}
+          {{ tyre_tile(mdi(IC_TIRE_LOW), label, val, t('tyre_low'), 'text-amber-400') }}
+        {% elif tp.bar <= 3.0 %}
+          {{ tyre_tile(mdi(IC_TIRE), label, val, t('tyre_normal'), 'text-emerald-400') }}
+        {% elif tp.bar <= 3.3 %}
+          {{ tyre_tile(mdi(IC_TIRE), label, val, t('tyre_high'), 'text-amber-400') }}
+        {% else %}
+          {{ tyre_tile(mdi(IC_TIRE), label, val, t('tyre_too_high'), 'text-red-400') }}
+        {% endif %}
       {% endfor %}
     </div>
   </div>
@@ -75,7 +101,7 @@
       {{ win_tile(t('win_fr'), vs.windows.fr) }}
       {{ win_tile(t('win_rl'), vs.windows.rl) }}
       {{ win_tile(t('win_rr'), vs.windows.rr) }}
-      {{ state_tile(mdi(IC_ROOF), t('win_sunshade'), vs.windows.sunshade, open_class='text-amber-400') }}
+      {{ state_tile(mdi(IC_ROOF), t('win_sunshade'), vs.windows.sunshade, open_class='text-sky-400') }}
     </div>
   </div>
 

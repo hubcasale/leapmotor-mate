@@ -3,6 +3,18 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.11.4] — Unreleased
+
+### Changed
+- **Tyre pressure — status label per wheel.** Each wheel tile on the Vehicle page now shows a
+  colour-coded **status**: *normal* (green), *low* / *high* (amber), *too low* / *too high* (red),
+  next to the bar value. Adds **high-pressure** warnings (the view previously only flagged low). Low
+  still uses the vehicle's own TPMS warning (plus a < 2.0 bar floor); high is threshold-based
+  (> 3.0 bar high, > 3.3 too high). Translated in EN/IT/FR/DE.
+- **Colour-coded icons for doors, windows & roof.** On the Vehicle page the tile **icon** (not just the
+  text) now carries the state: **closed = green**, **open = sky-blue** (doors, trunk, windows and the
+  panoramic roof) — blue reads as "open", not as an alarm.
+
 ## [1.11.3] — 2026-06-06
 
 ### Added
