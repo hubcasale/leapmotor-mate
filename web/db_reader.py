@@ -1011,10 +1011,52 @@ def get_monthly_stats() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _charge_active_window(db, started_at, ended_at):
+    """First & last sample with REAL charging power (positions.charging=1, which is set only when power
+    flows — NOT on plug-in) inside the session window. Returns (start_utc_iso, end_utc_iso), or
+    (None, None) when there are no power samples (e.g. pruned/old charges)."""
+    if not started_at:
+        return None, None
+    row = db.execute(
+        "SELECT MIN(recorded_at) AS s, MAX(recorded_at) AS e FROM positions "
+        "WHERE charging = 1 AND recorded_at >= ? AND recorded_at <= ?",
+        (started_at, ended_at or started_at),
+    ).fetchone()
+    return (row["s"], row["e"]) if (row and row["s"]) else (None, None)
+
+
+def _charge_window_display(db, raw_start, raw_end) -> dict:
+    """For the charges list: surface the REAL charging window (first→last power) only when it differs
+    from the plug-in→unplug session window by more than a threshold — i.e. a delayed/scheduled charge
+    or a long idle tail. For a normal charge the two coincide → {differs: False} (no extra clutter).
+    Returns {differs: False} or {differs: True, real_start, real_end} (HH:MM, local)."""
+    rs, re = _charge_active_window(db, raw_start, raw_end)
+    if not rs:
+        return {"differs": False}
+    import datetime
+
+    def _p(x):
+        try:
+            return datetime.datetime.fromisoformat(x)
+        except Exception:
+            return None
+
+    s0, e0, rs0, re0 = _p(raw_start), _p(raw_end), _p(rs), _p(re)
+    THRESH = 300  # seconds — below this the windows are "the same" (just poll granularity)
+    differs = bool((s0 and rs0 and (rs0 - s0).total_seconds() > THRESH)
+                   or (e0 and re0 and (e0 - re0).total_seconds() > THRESH))
+    if not differs:
+        return {"differs": False}
+    return {"differs": True,
+            "real_start": (_local_iso(rs) or "")[11:16],
+            "real_end": (_local_iso(re) or "")[11:16]}
+
+
 def get_charges_grouped() -> list[dict]:
     """Return charges nested as year → month → day."""
     charges = get_charges()
     from collections import OrderedDict
+    db = _get()
 
     def _node(label):
         return {"label": label, "count": 0, "kwh": 0.0, "cost": 0.0, "has_cost": False, "months": OrderedDict()}
@@ -1030,6 +1072,9 @@ def get_charges_grouped() -> list[dict]:
         dt = _local_dt(c["started_at"])
         if dt is None:
             continue
+        # Real charging window (first→last power) vs the plug-in→unplug session — compute on the RAW
+        # UTC timestamps BEFORE we localize them below.
+        c["active_window"] = _charge_window_display(db, c.get("started_at"), c.get("ended_at"))
         c["started_at"] = dt.isoformat()
         c["ended_at"] = _local_iso(c.get("ended_at"))
 
