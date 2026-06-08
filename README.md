@@ -130,6 +130,19 @@ Enable it in **Settings → Wallbox present**, then connect to Home Assistant. H
 
 Then expand **Entity mapping** and assign the wallbox sensors (power, energy, status, max current, charging speed, max available power). Mate pre‑selects them automatically and only lists your wallbox device's own entities, so you don't have to scroll through every Home Assistant sensor.
 
+**What each setting means** — all optional (Mate auto‑detects them; override one only if auto‑mapping picks the wrong entity, e.g. foreign‑language names):
+
+| Setting | What it is |
+| --- | --- |
+| **Power** | The power the wallbox is delivering **right now** (AC). Drives the live "charging" indicator and the **AC** side of the AC‑vs‑DC comparison. W is auto‑converted to kW. |
+| **Status** | The wallbox's own state text from Home Assistant (e.g. *Charging / Connected / Idle / Error*). |
+| **Session energy** | Energy delivered in the session (kWh; Wh auto‑converted). This is the **AC kWh** Mate bills home charges on (you pay the wallbox AC, conversion losses included) and uses for the efficiency figure. |
+| **Power control** | The **only writable** setting (a `number` entity): sets the wallbox **max charging current** (A) from the Wallbox page. Your own HA load‑balancing automations may override what you set. |
+| **Charging speed** | Your wallbox's own "charging speed" reading, if it exposes one (shown live). |
+| **Max available power** | The maximum power currently available to the wallbox (e.g. after dynamic load balancing or a tariff cap), if exposed. |
+
+Only **Power control** writes to the wallbox; everything else is read‑only.
+
 What you get on the new **Wallbox** page:
 - a **live panel** (power, status, session energy, charging speed, max available power) plus the session cost (reused from your home charges);
 - a **max‑current control** to set the wallbox charging current — note your own HA load‑balancing automations may override it;
@@ -295,6 +308,19 @@ Attivala in **Impostazioni → Wallbox presente**, poi connettiti a Home Assista
 - **Come Docker standalone** — inserisci l'URL di HA (es. `http://192.168.1.10:8123`) e un **Long‑Lived Access Token** (HA → tuo profilo → *Sicurezza* → *Token di accesso Long‑Lived* → *Crea token*). L'HTTPS locale, anche con certificato self‑signed, funziona.
 
 Poi espandi **Mappatura entità** e assegna i sensori della wallbox (potenza, energia, stato, corrente max, velocità di carica, potenza max disponibile). Mate li pre‑seleziona da solo e mostra solo le entità del tuo dispositivo wallbox, così non devi scorrere tutti i sensori di Home Assistant.
+
+**Cosa significa ogni impostazione** — tutte opzionali (Mate le rileva da solo; sovrascrivi una voce solo se la mappatura automatica sceglie l'entità sbagliata, es. nomi in altra lingua):
+
+| Impostazione | Cos'è |
+| --- | --- |
+| **Potenza** | La potenza che la wallbox eroga **in questo momento** (AC). Pilota l'indicatore "in carica" live e il lato **AC** del confronto AC‑vs‑DC. I W vengono convertiti automaticamente in kW. |
+| **Stato** | Il testo di stato della wallbox da Home Assistant (es. *In carica / Connessa / Inattiva / Errore*). |
+| **Energia sessione** | Energia erogata nella sessione (kWh; i Wh sono convertiti). È l'**energia AC in kWh** con cui Mate addebita le ricariche di casa (paghi l'AC della wallbox, perdite di conversione incluse) e calcola il rendimento. |
+| **Controllo potenza** | L'**unica** impostazione scrivibile (entità `number`): imposta la **corrente di carica massima** (A) della wallbox dalla pagina Wallbox. Le tue automazioni HA di bilanciamento del carico potrebbero sovrascrivere il valore impostato. |
+| **Velocità di carica** | La lettura "velocità di carica" della tua wallbox, se la espone (mostrata live). |
+| **Potenza max disponibile** | La potenza massima attualmente disponibile per la wallbox (es. dopo bilanciamento dinamico o limite tariffario), se esposta. |
+
+Solo **Controllo potenza** scrive sulla wallbox; tutto il resto è in sola lettura.
 
 Cosa ottieni nella nuova pagina **Wallbox**:
 - un **pannello live** (potenza, stato, energia sessione, velocità di carica, potenza max disponibile) più il costo sessione (riusato dalle tue ricariche home);
