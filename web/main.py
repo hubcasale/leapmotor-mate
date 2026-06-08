@@ -21,7 +21,7 @@ import geocode
 import mqtt_check
 import auth
 
-MATE_VERSION = "1.11.16"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.11.17"  # bump together with the git tag + add-on config.yaml at release
 
 log = logging.getLogger("mate.web")
 
@@ -716,10 +716,16 @@ async def wallbox_live(request: Request):
 
 
 def _integrate_kwh(points: list) -> float:
-    """Trapezoidal integral of (epoch_seconds, kW) points → kWh."""
+    """Trapezoidal integral of (epoch_seconds, kW) points → kWh. Skips non-positive and
+    >15min gaps so a charger pause / poll miss inside one window is never integrated as a
+    phantom interval — keeps the AC/DC comparison energy (and the HOME cost billed on the AC
+    energy) consistent with compute_cost's split and _integrate_charge_energy_kwh, which both
+    already skip multi-hour gaps."""
     e = 0.0
     for i in range(1, len(points)):
         dt = (points[i][0] - points[i - 1][0]) / 3600.0
+        if dt <= 0 or dt > 0.25:
+            continue
         e += (points[i][1] + points[i - 1][1]) / 2 * dt
     return e
 
@@ -762,8 +768,18 @@ def _session_energy(curve: dict) -> dict:
                           if p is not None and ha_client.epoch(t) is not None]
                 if len(ac_pts) > 1:
                     ac = round(_integrate_kwh(ac_pts), 2)
-    if dc and ac and ac > 0:
-        eff = round(100 * dc / ac, 1)
+    if ac and ac > 0:
+        # Defensive plausibility guard. AC from the wall must be ≥ DC into the battery, and a real
+        # onboard charger is well above 50% efficient — so AC more than ~2× DC, OR any AC we cannot
+        # validate because DC is zero/missing, is never physical. It means a leaked/over-wide window
+        # OR a mis-mapped wallbox entity (e.g. a cumulative kWh meter mapped as the power sensor:
+        # FB report — 10889 kWh AC, 0.1% efficiency). Keep AC only when a positive DC validates it;
+        # otherwise discard it rather than show an absurd comparison or bill HOME cost on it
+        # (compute_cost then falls back to the DC/SOC energy).
+        if dc and ac <= dc * 2:
+            eff = round(100 * dc / ac, 1)
+        else:
+            ac = None
     return {"dc_kwh": dc, "ac_kwh": ac, "eff": eff}
 
 

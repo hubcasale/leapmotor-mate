@@ -61,6 +61,35 @@ def test_window_capped_at_next_charge_start():
     assert (rs2, re2) == ("2026-06-08T08:05:00+00:00", "2026-06-08T08:13:00+00:00")
 
 
+def test_power_curve_capped_at_next_charge_start(monkeypatch):
+    # GitHub #24: the per-sample power curve (which feeds the AC-vs-DC comparison and the HOME
+    # cost's AC energy) must also be capped at the next charge's start — an orphan whose ended_at
+    # bled past a later charge would otherwise integrate that charge's wallbox AC → absurd cost.
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.execute("CREATE TABLE charges (id INT, started_at TEXT, ended_at TEXT)")
+    con.executemany("INSERT INTO charges (id, started_at, ended_at) VALUES (?,?,?)", [
+        (1, "2026-06-07T20:00:00+00:00", "2026-06-08T08:25:00+00:00"),   # A: ended_at bleeds past B
+        (2, "2026-06-08T08:00:00+00:00", "2026-06-08T08:30:00+00:00"),   # B
+    ])
+    con.execute("CREATE TABLE positions (recorded_at TEXT, charging INT, "
+                "charge_voltage_v REAL, charge_current_a REAL, soc REAL)")
+    con.executemany("INSERT INTO positions VALUES (?,?,?,?,?)", [
+        ("2026-06-07T21:35:00+00:00", 1, 230, 21.7, 40),   # A
+        ("2026-06-07T23:00:00+00:00", 1, 230, 21.7, 55),   # A
+        ("2026-06-08T08:05:00+00:00", 1, 230, 21.7, 60),   # B (belongs to charge 2)
+        ("2026-06-08T08:13:00+00:00", 1, 230, 21.7, 62),   # B
+    ])
+    con.commit()
+    monkeypatch.setattr(db_reader, "_get", lambda: con)
+    # A's curve must stop before B's samples (08:05/08:13 are excluded by the cap)
+    assert db_reader.get_charge_power_curve(1)["times"] == [
+        "2026-06-07T21:35:00+00:00", "2026-06-07T23:00:00+00:00"]
+    # B sees only its own samples (no charge after it → uncapped, unchanged behaviour)
+    assert db_reader.get_charge_power_curve(2)["times"] == [
+        "2026-06-08T08:05:00+00:00", "2026-06-08T08:13:00+00:00"]
+
+
 def test_window_without_charges_table_is_unclamped():
     # Isolated DB with no charges table → no cap, original behaviour (backward compatible).
     con = sqlite3.connect(":memory:")

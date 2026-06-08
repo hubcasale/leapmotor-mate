@@ -867,10 +867,18 @@ def get_charge_power_curve(charge_id: int) -> dict:
         return {"labels": [], "power": [], "soc": []}
     start, end = ch["started_at"], ch["ended_at"]
     if end:
+        # Cap the upper bound at the next charge's start so an orphan/overlapping charge
+        # (whose ended_at bled past a later charge — see close_orphan_charges) cannot absorb
+        # the next charge's power samples into its curve. That leak would inflate BOTH the
+        # AC-vs-DC wallbox comparison AND the HOME cost (which bills the AC energy derived from
+        # this curve) — GitHub #24. Mirrors _charge_active_window / compute_cost. For a normal
+        # charge the next charge starts after ended_at → no cap, identical behaviour.
+        lo, hi, excl = _power_window_bounds(db, start, end)
         rows = db.execute(
             "SELECT recorded_at, charge_voltage_v, charge_current_a, soc FROM positions "
-            "WHERE charging = 1 AND recorded_at >= ? AND recorded_at <= ? ORDER BY recorded_at",
-            (start, end),
+            "WHERE charging = 1 AND recorded_at >= ? AND recorded_at " + ("<" if excl else "<=")
+            + " ? ORDER BY recorded_at",
+            (lo, hi),
         ).fetchall()
     else:  # charge still in progress — open upper bound
         rows = db.execute(
@@ -1257,10 +1265,14 @@ def _integrate_charge_energy_kwh(db, start: str, end: str | None) -> float:
     estimate of usable pack capacity that actually tracks battery ageing (unlike the
     stored energy_added_kwh, which is SoC × nominal capacity and would be circular)."""
     if end:
+        # Cap at the next charge's start (same leak guard as get_charge_power_curve / compute_cost)
+        # so an overlapping orphan charge can't inflate the integrated DC energy / SoH estimate.
+        lo, hi, excl = _power_window_bounds(db, start, end)
         rows = db.execute(
             "SELECT recorded_at, charge_voltage_v, charge_current_a FROM positions "
-            "WHERE charging = 1 AND recorded_at >= ? AND recorded_at <= ? ORDER BY recorded_at",
-            (start, end),
+            "WHERE charging = 1 AND recorded_at >= ? AND recorded_at " + ("<" if excl else "<=")
+            + " ? ORDER BY recorded_at",
+            (lo, hi),
         ).fetchall()
     else:
         rows = db.execute(
