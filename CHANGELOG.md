@@ -3,6 +3,11 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.11.18] — 2026-06-08
+
+### Added
+- **Automatic charging station lookup for recorded sessions.** When a finished charge has GPS coordinates, Mate now tries to detect a nearby public charger POI and save its name/operator. If multiple distinct stations are found nearby, the session is marked ambiguous and the UI asks for manual confirmation.
+
 ## [1.11.17] — 2026-06-08
 
 ### Fixed

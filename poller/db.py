@@ -103,7 +103,10 @@ CREATE TABLE IF NOT EXISTS charges (
     charge_type      TEXT DEFAULT 'AC',        -- AC / DC (from power level)
     location_type    TEXT DEFAULT NULL,         -- HOME / AC / FAST / HPC (user-set)
     max_power_kw     REAL,
-    cost             REAL
+    cost             REAL,
+    station_name     TEXT DEFAULT NULL,
+    station_operator TEXT DEFAULT NULL,
+    station_ambiguous INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_positions_vehicle ON positions(vehicle_id, recorded_at);
@@ -196,6 +199,14 @@ class Database:
             self._conn.execute("ALTER TABLE positions ADD COLUMN charge_current_a REAL DEFAULT NULL")
         if "ready" not in cols:
             self._conn.execute("ALTER TABLE positions ADD COLUMN ready INTEGER DEFAULT NULL")
+        if self._conn.execute("PRAGMA table_info(charges)").fetchone() is not None:
+            ccols = {r[1] for r in self._conn.execute("PRAGMA table_info(charges)").fetchall()}
+            if "station_name" not in ccols:
+                self._conn.execute("ALTER TABLE charges ADD COLUMN station_name TEXT DEFAULT NULL")
+            if "station_operator" not in ccols:
+                self._conn.execute("ALTER TABLE charges ADD COLUMN station_operator TEXT DEFAULT NULL")
+            if "station_ambiguous" not in ccols:
+                self._conn.execute("ALTER TABLE charges ADD COLUMN station_ambiguous INTEGER DEFAULT 0")
         self._conn.commit()
         self._repair_odometer_trips()
         self.migrate_secrets()

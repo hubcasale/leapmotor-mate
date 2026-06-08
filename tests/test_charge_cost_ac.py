@@ -82,6 +82,26 @@ def test_session_energy_discards_ac_when_dc_zero(monkeypatch):
     assert out["eff"] is None
 
 
+def test_auto_confirm_home_charges(monkeypatch):
+    monkeypatch.setattr(db_reader, "get_setting",
+                        lambda k, d=None: "1" if k == "wallbox_enabled" else d)
+    monkeypatch.setattr(main.ha_client, "is_configured", lambda: True)
+    monkeypatch.setattr(main.ha_client, "get_mapping", lambda: {"power": "sensor.wb"})
+    monkeypatch.setattr(main.ha_client, "epoch", lambda t: float(t))
+    monkeypatch.setattr(main.ha_client, "get_history", lambda e, a, b: _hold(5.9))
+    monkeypatch.setattr(db_reader, "get_unconfirmed_charge_ids", lambda limit=None: [1])
+    monkeypatch.setattr(db_reader, "get_charge_power_curve", lambda charge_id: CURVE)
+    updated = []
+    def fake_update(charge_id, location_type, ac_kwh=None):
+        updated.append((charge_id, location_type, ac_kwh))
+        return {"id": charge_id, "location_type": location_type}
+    monkeypatch.setattr(db_reader, "update_charge_type", fake_update)
+
+    confirmed = main._wallbox_auto_confirm_home_charges()
+    assert confirmed == 1
+    assert updated == [(1, "HOME", 5.9)]
+
+
 def test_integrate_kwh_skips_long_gap():
     # 5 kW held across a 15-min step is counted; held across a 2-hour gap is a phantom → skipped.
     assert round(main._integrate_kwh([(0.0, 5.0), (900.0, 5.0)]), 3) == 1.25   # 0.25h → 1.25 kWh

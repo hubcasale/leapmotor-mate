@@ -855,6 +855,35 @@ def get_charges(limit: int = 50) -> list[dict]:
     return out
 
 
+def get_charge(charge_id: int) -> dict | None:
+    db = _get()
+    row = db.execute("SELECT * FROM charges WHERE id = ?", (charge_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_charges_for_station_lookup(limit: int = 10) -> list[dict]:
+    db = _get()
+    rows = db.execute(
+        "SELECT id, latitude, longitude, max_power_kw FROM charges "
+        "WHERE ended_at IS NOT NULL AND latitude IS NOT NULL AND longitude IS NOT NULL "
+        "AND station_ambiguous = 0 AND station_name IS NULL AND station_operator IS NULL "
+        "ORDER BY started_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_charge_station(charge_id: int, station_name: str | None, station_operator: str | None, ambiguous: bool = False) -> dict:
+    db = _conn_rw()
+    db.execute(
+        "UPDATE charges SET station_name = ?, station_operator = ?, station_ambiguous = ? WHERE id = ?",
+        (station_name, station_operator, 1 if ambiguous else 0, charge_id),
+    )
+    db.commit()
+    row = db.execute("SELECT * FROM charges WHERE id = ?", (charge_id,)).fetchone()
+    return dict(row) if row else {}
+
+
 def get_charge_power_curve(charge_id: int) -> dict:
     """Per-sample charging power for one session, for the expandable power chart.
     Power = |pack_voltage(1177) x pack_current(1178)| / 1000 — the same value as the
@@ -944,6 +973,18 @@ def unconfirmed_charges_count() -> int:
         "SELECT COUNT(*) n FROM charges WHERE location_type IS NULL AND ended_at IS NOT NULL"
     ).fetchone()
     return row["n"] if row else 0
+
+
+def get_unconfirmed_charge_ids(limit: int | None = None) -> list[int]:
+    """IDs of finished charges with no confirmed location_type yet."""
+    db = _get()
+    sql = "SELECT id FROM charges WHERE location_type IS NULL AND ended_at IS NOT NULL ORDER BY started_at DESC"
+    args: tuple = ()
+    if limit is not None:
+        sql += " LIMIT ?"
+        args = (limit,)
+    rows = db.execute(sql, args).fetchall()
+    return [r["id"] for r in rows]
 
 
 def latest_home_charge_cost():

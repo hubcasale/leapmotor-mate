@@ -1,0 +1,35 @@
+<div id="station-{{ charge.id }}">
+{% if charge.station_name or charge.station_operator %}
+  <div class="text-slate-400 text-xs mt-2 space-y-1">
+    <div class="inline-flex flex-wrap gap-2 items-center">
+      <span class="text-slate-500">⚡ {{ t('station_label') }}:</span>
+      <span class="font-medium text-slate-100">{{ charge.station_name or t('station_unknown') }}</span>
+      {% if charge.station_operator %}
+      <span class="text-slate-400">· {{ t('station_operator_label') }}: {{ charge.station_operator }}</span>
+      {% endif %}
+    </div>
+  </div>
+{% elif charge.station_ambiguous %}
+  <div class="rounded-xl bg-orange-500/10 border border-orange-500/20 px-3 py-3 text-xs text-orange-200 mt-2">
+    <div class="font-medium">{{ t('station_ambiguous') }}</div>
+    <div class="text-slate-400 mt-2">{{ t('station_manual_hint') }}</div>
+    <form hx-post="api/charges/{{ charge.id }}/station"
+          hx-target="#station-{{ charge.id }}"
+          hx-swap="outerHTML"
+          class="mt-3 grid gap-2">
+      <input name="station_name" type="text"
+             placeholder="{{ t('station_name_ph') }}"
+             class="w-full rounded-lg border border-slate-600 bg-slate-900/70 px-3 py-2 text-sm text-white focus:outline-none focus:border-brand"
+             autocomplete="off">
+      <input name="station_operator" type="text"
+             placeholder="{{ t('station_operator_ph') }}"
+             class="w-full rounded-lg border border-slate-600 bg-slate-900/70 px-3 py-2 text-sm text-white focus:outline-none focus:border-brand"
+             autocomplete="off">
+      <button type="submit"
+              class="w-full rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand/90 transition">
+        {{ t('station_save') }}
+      </button>
+    </form>
+  </div>
+{% endif %}
+</div>

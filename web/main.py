@@ -15,13 +15,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 import db_reader
 import capability_profile
 import command_client
+import charger_locator
 import i18n
 import ha_client
 import geocode
 import mqtt_check
 import auth
 
-MATE_VERSION = "1.11.17"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.11.18"  # bump together with the git tag + add-on config.yaml at release
 
 log = logging.getLogger("mate.web")
 
@@ -268,6 +269,8 @@ async def delete_trip(request: Request, trip_id: int):
 
 @app.get("/charges", response_class=HTMLResponse)
 async def charges_page(request: Request, highlight: int = 0):
+    _wallbox_auto_confirm_home_charges()
+    _charge_station_lookup()
     vehicle, _ = db_reader.get_vehicle()
     grouped = db_reader.get_charges_grouped()
     stats   = db_reader.get_charge_stats()
@@ -705,6 +708,7 @@ async def save_wallbox_keywords(request: Request):
 
 @app.get("/api/wallbox/live", response_class=HTMLResponse)
 async def wallbox_live(request: Request):
+    _wallbox_auto_confirm_home_charges()
     wb = ha_client.get_live()
     wb["cost"] = db_reader.latest_home_charge_cost()  # cost comes from Mate's charges, not HA
     status = db_reader.get_latest_status()
@@ -781,6 +785,42 @@ def _session_energy(curve: dict) -> dict:
         else:
             ac = None
     return {"dc_kwh": dc, "ac_kwh": ac, "eff": eff}
+
+
+def _wallbox_auto_confirm_home_charges() -> int:
+    """Auto-assign completed wallbox charges as HOME when HA wallbox data is available."""
+    if db_reader.get_setting("wallbox_enabled", "0") != "1":
+        return 0
+    if not ha_client.is_configured():
+        return 0
+    mapping = ha_client.get_mapping()
+    if not mapping.get("power"):
+        return 0
+
+    confirmed = 0
+    for charge_id in db_reader.get_unconfirmed_charge_ids():
+        curve = db_reader.get_charge_power_curve(charge_id)
+        e = _session_energy(curve)
+        ac_kwh = e.get("ac_kwh")
+        if ac_kwh and ac_kwh > 0:
+            db_reader.update_charge_type(charge_id, "HOME", ac_kwh=ac_kwh)
+            confirmed += 1
+    return confirmed
+
+
+def _charge_station_lookup(limit: int = 10) -> int:
+    """Find a nearby charging station for recent finished charges without station metadata."""
+    updated = 0
+    for charge in db_reader.get_charges_for_station_lookup(limit):
+        guess = charger_locator.guess_station(charge["latitude"], charge["longitude"], charge.get("max_power_kw"))
+        if guess is None:
+            continue
+        if guess.get("ambiguous"):
+            db_reader.update_charge_station(charge["id"], None, None, ambiguous=True)
+            continue
+        db_reader.update_charge_station(charge["id"], guess.get("station_name"), guess.get("station_operator"), ambiguous=False)
+        updated += 1
+    return updated
 
 
 def _wallbox_sessions_grouped() -> list:
@@ -922,6 +962,15 @@ async def set_charge_type(request: Request, charge_id: int):
         "cost_oob": True,         # also refresh the cost cell (it changes with the type/basis)
         "cost_title": cost_title,
     })
+
+
+@app.post("/api/charges/{charge_id}/station", response_class=HTMLResponse)
+async def set_charge_station(request: Request, charge_id: int):
+    form = await request.form()
+    station_name = (form.get("station_name") or "").strip() or None
+    station_operator = (form.get("station_operator") or "").strip() or None
+    charge = db_reader.update_charge_station(charge_id, station_name, station_operator, ambiguous=False)
+    return templates.TemplateResponse(request, "partials/charge_station.html", _ctx(charge=charge))
 
 
 def _wallbox_overlay(curve: dict, charge_id: int) -> list | None:

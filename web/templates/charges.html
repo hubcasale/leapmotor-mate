@@ -249,6 +249,7 @@ fetch('api/charge-plan').then(r => r.json()).then(d => {
                       {% set is_dc = c.charge_type == 'DC' or (c.charge_type is none and (c.max_power_kw or 0) > 11) %}
                       · <span style="color:{% if is_dc %}#fb923c{% else %}#38bdf8{% endif %};font-weight:700">{% if is_dc %}DC{% else %}AC{% endif %}</span>
                     </div>
+                    {% include "partials/charge_station.html" with context %}
                   </div>
                 </div>
                 <!-- Charge type selector (HTMX) -->
