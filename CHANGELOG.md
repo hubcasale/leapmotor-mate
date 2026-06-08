@@ -3,6 +3,14 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.11.13] — 2026-06-08
+
+### Fixed
+- **"Charged" (actual charging window) showed the wrong start time.** The real charging window added in
+  1.11.12 compared the charge timestamps (which arrive in local time) against the UTC position log, so the
+  start could be shifted by the timezone offset (e.g. 20:48 instead of 18:48) and the line could even appear
+  on normal charges. The window bounds are now normalized to UTC before the lookup. (Regression in 1.11.12.)
+
 ## [1.11.12] — 2026-06-08
 
 ### Changed

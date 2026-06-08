@@ -1011,16 +1011,34 @@ def get_monthly_stats() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _iso_to_utc(x):
+    """Normalize any ISO timestamp to a UTC (+00:00) string so it compares correctly against
+    positions.recorded_at (stored in UTC). get_charges() hands us LOCAL-offset timestamps, and a raw
+    string compare of differently-offset ISO values is wrong — so always convert to UTC first."""
+    if not x:
+        return x
+    import datetime
+    try:
+        dt = datetime.datetime.fromisoformat(x)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.astimezone(datetime.timezone.utc).isoformat()
+    except Exception:
+        return x
+
+
 def _charge_active_window(db, started_at, ended_at):
     """First & last sample with REAL charging power (positions.charging=1, which is set only when power
     flows — NOT on plug-in) inside the session window. Returns (start_utc_iso, end_utc_iso), or
-    (None, None) when there are no power samples (e.g. pruned/old charges)."""
+    (None, None) when there are no power samples (e.g. pruned/old charges). Bounds are normalized to UTC
+    because positions.recorded_at is UTC while the charge timestamps may arrive localized."""
     if not started_at:
         return None, None
+    s = _iso_to_utc(started_at)
     row = db.execute(
         "SELECT MIN(recorded_at) AS s, MAX(recorded_at) AS e FROM positions "
         "WHERE charging = 1 AND recorded_at >= ? AND recorded_at <= ?",
-        (started_at, ended_at or started_at),
+        (s, _iso_to_utc(ended_at) or s),
     ).fetchone()
     return (row["s"], row["e"]) if (row and row["s"]) else (None, None)
 
