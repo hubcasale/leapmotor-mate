@@ -46,6 +46,9 @@ def test_v2c_solar_and_house_power_are_never_charging_metrics():
 
 
 def test_v2c_entities_pass_the_wallbox_filter_keyword():
-    # the "evse"/"v2c"/"trydan" keywords mean these surface without "Show all"
-    kws = ha_client.get_wallbox_keywords()
-    assert any(k in "sensor.evse_v2c_trydan_local_potenza_di_carica" for k in kws)
+    # the "evse"/"v2c"/"trydan" DEFAULT keywords mean these surface without "Show all".
+    # Match the entity id (language-independent), not the localized friendly_name.
+    # Use _WB_KEYWORDS directly so the test never touches the settings DB (absent in CI).
+    assert "v2c" in ha_client._WB_KEYWORDS
+    assert any(k in "sensor.evse_v2c_trydan_local_potenza_di_carica"
+               for k in ha_client._WB_KEYWORDS)
