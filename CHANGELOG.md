@@ -3,6 +3,15 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.16.2] — 2026-06-10
+
+### Fixed
+- **No more pointless “are you sure?” prompt when a control is blocked by motion.** Pressing lock / boot /
+  windows / sunshade **while driving** used to ask for confirmation first and only *then* show the “vehicle
+  in motion — disabled” notice. Now, while moving, the press goes straight to the notice. **Parked behaviour
+  is unchanged** — those controls still ask for confirmation, so an accidental tap can’t open a parked car
+  you’re not standing next to.
+
 ## [1.16.1] — 2026-06-10
 
 ### Fixed
