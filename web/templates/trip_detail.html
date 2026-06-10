@@ -6,7 +6,7 @@
   <a href="trips?highlight={{ trip.id }}" class="text-slate-400 hover:text-white text-sm">{{ t('back_trips') }}</a>
   <span class="text-slate-600">/</span>
   <h1 class="text-xl font-bold text-white">
-    {{ trip.started_at[:10] if trip.started_at else 'Trip' }}
+    {{ trip.started_at | localdate if trip.started_at else 'Trip' }}
     <span class="text-slate-400 font-normal text-base ml-1">{{ trip.started_at[11:16] if trip.started_at else '' }}</span>
   </h1>
   <a href="trips/{{ trip.id }}/route.gpx" download

@@ -77,6 +77,15 @@ def _money(x) -> str:
 
 templates.env.filters["money"] = _money
 
+
+def _localdate(s) -> str:
+    """ISO timestamp → date in the UI language's format (e.g. it '10 giu 2026',
+    en '10 Jun 2026') instead of the raw ISO '2026-06-10'. Time stays separate."""
+    dt = db_reader._local_dt(s)
+    return i18n.fmt_day_month_year(db_reader.get_language(), dt) if dt else (s or "")
+
+templates.env.filters["localdate"] = _localdate
+
 # Display-time unit conversion (DB stays metric — see units.py). Filters format "<value> <unit>";
 # the *_unit() / *_val() globals give a bare unit label or converted number (chart axes / JS data).
 import units
