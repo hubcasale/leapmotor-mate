@@ -29,6 +29,8 @@ _WB_KEYWORDS = (
     "keba", "wallbe", "zaptec", "openevse", "tesla_wall", "pulsar",
     # FR/other-language charger terms (issue #21 — Feyree relay via Tuya Local)
     "borne", "recharge", "feyree", "borne_recharge",
+    # V2C Trydan (issue #44 — entities are sensor.evse_v2c_trydan_local_*)
+    "v2c", "trydan",
 )
 _WB_DEVICE_CLASSES = ("power", "energy", "current", "voltage")
 
@@ -173,14 +175,17 @@ WB_ROLES = ("power", "energy", "status", "max_current", "speed", "max_power")
 _ROLE_HINTS = {
     # role:        (domains,        positive keywords,                              device_class)
     "power":       (("sensor",),    ("potenza_di_carica", "charging_power", "power"), "power"),
-    "energy":      (("sensor",),    ("energia_aggiunta", "added_grid_energy", "added_energy", "energy"), "energy"),
+    "energy":      (("sensor",),    ("energia_di_carica", "energia_aggiunta", "added_grid_energy", "added_energy", "charge_energy", "energy"), "energy"),
     "status":      (("sensor",),    ("descrizione_dello_stato", "status", "stato", "state"), None),
     "max_current": (("number",),    ("corrente_di_carica_massima", "max_charging_current", "massima"), None),
     "speed":       (("sensor",),    ("velocita_di_carica", "charging_speed", "charge_speed"), None),
     "max_power":   (("sensor",),    ("potenza_massima_disponibile", "max_available_power", "available_power", "disponibile"), None),
 }
-# Names that almost always mean "not the wallbox's own metric" → penalise.
-_NEG = ("leapmotor", "differenza", "ups", "green", "scaricata", "deposito", "prezzo", "costo", "filtered")
+# Names that almost always mean "not the wallbox's own metric" → penalise. Solar/house-power
+# sensors (e.g. V2C's "Energia fotovoltaica" / "Alimentazione domestica Inverted") are
+# device_class power too, so they must be kept out of the charging-power/energy roles (#44).
+_NEG = ("leapmotor", "differenza", "ups", "green", "scaricata", "deposito", "prezzo", "costo",
+        "filtered", "fotovoltaica", "fotovoltaico", "photovoltaic", "solar", "domestica", "inverted")
 
 
 def _score(entity: dict, domains, keywords, dclass) -> int:

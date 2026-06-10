@@ -3,6 +3,21 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.16.6] — 2026-06-10
+
+### Added
+- **🔌 Wallbox setup now explains itself (#44).** Every entity-mapping field has a short hint under it
+  saying exactly what to pick — the *type* of Home Assistant entity (a `sensor`, or a `number` for the
+  current control) and its *unit* — plus a line at the top explaining how auto-detection works and what to
+  do if your charger isn't listed (tick "Show all", or add its name to the detection keywords). EN/IT/FR/DE.
+
+### Fixed
+- **🔍 V2C Trydan chargers are detected automatically (#44).** Added `v2c`/`trydan` to the detection
+  keywords (matched on the entity id, which doesn't change with your HA language), so the picker fills in
+  on its own. Solar and house-power sensors (e.g. "Energia fotovoltaica", "Alimentazione domestica",
+  "Consumo appartamento") — which are also `power`/`energy` entities — are now kept out of the charging
+  roles so they can't be mapped by mistake.
+
 ## [1.16.5] — 2026-06-10
 
 ### Fixed
