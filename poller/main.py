@@ -86,10 +86,17 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
             elif cmd == "close_trunk": api.close_trunk(vin)
             elif cmd == "find_car":    api.find_vehicle(vin)
             elif cmd == "unlock_charger": api.unlock_charger(vin)
-            elif cmd == "door_lock":      # single HA lock toggle (#37): value = LOCK / UNLOCK
+            elif cmd == "door_lock":      # single HA lock entity (#37): value = LOCK / UNLOCK
                 if str(value).upper() == "LOCK":
                     api.lock_vehicle(vin);   optimistic = ("locked", True)
                 elif str(value).upper() == "UNLOCK":
+                    api.unlock_vehicle(vin); optimistic = ("locked", False)
+                else:
+                    return
+            elif cmd == "lock_toggle":    # switch flavour (#38: widgets can toggle a switch,
+                if str(value).upper() == "ON":      # not a lock): ON = lock, OFF = unlock
+                    api.lock_vehicle(vin);   optimistic = ("locked", True)
+                elif str(value).upper() == "OFF":
                     api.unlock_vehicle(vin); optimistic = ("locked", False)
                 else:
                     return

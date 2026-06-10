@@ -156,6 +156,33 @@ def _gps_track_km(rows) -> float:
                for i in range(len(pts) - 1))
 
 
+def trip_distance_km(gps_km: float, has_gps: bool, start_odo: float, end_odo: float):
+    """Pick the trip distance from the odometer vs the GPS track.
+
+    The odometer counts real wheel-distance (better than a 10s GPS track, which cuts
+    corners), BUT it reads in WHOLE km: a few-metres manoeuvre that happens to cross a
+    km boundary shows Δodo = 1 even though the car barely moved (a real 24 m driveway
+    shuffle was logged as a 1.0 km trip). So:
+      Δodo >= 2          → odometer (quantization error ≤ ±1 over ≥2 km, acceptable)
+      Δodo == 1          → ambiguous (true distance is anywhere in 0–2 km): if the GPS
+                           track says it was a sub-0.5 km manoeuvre, trust the GPS —
+                           the recorder then drops it as a short hop; otherwise keep
+                           the odometer's 1 km (GPS slightly underestimates real bends)
+      Δodo == 0 / bogus  → GPS track (the integer odometer can't resolve short hops;
+                           a 0 start would log the car's entire mileage)
+      nothing valid      → None (distance unknown → trip preserved, not dropped)
+    """
+    odo_delta = (end_odo or 0) - (start_odo or 0)
+    odo_valid = (start_odo or 0) > 0 and (end_odo or 0) > 0 and odo_delta > 0
+    if odo_valid and odo_delta == 1 and has_gps and gps_km < 0.5:
+        return gps_km
+    if odo_valid:
+        return odo_delta
+    if has_gps:
+        return gps_km
+    return None
+
+
 # Settings keys holding real secrets — encrypted at rest (see crypto.py). Everything
 # else (flags, prefixes, prices, ids, identifiers) stays plaintext.
 SECRET_KEYS = {"leapmotor_pass", "leapmotor_pin", "abrp_token",
@@ -217,10 +244,44 @@ class Database:
             self._conn.execute("ALTER TABLE trips ADD COLUMN merged_into_id INTEGER DEFAULT NULL")
         self._conn.commit()
         self._repair_odometer_trips()
+        self._repair_quantized_trip_distance()
         self._repair_snap_to_full_charges()
         self.migrate_secrets()
         self._check_decryption()
         log.info("Database ready: %s", path)
+
+    def _repair_quantized_trip_distance(self) -> None:
+        """One-time repair for manoeuvres logged as 1 km trips. The whole-km odometer
+        shows Δ = 1 when a few-metres move crosses a km boundary (a real 24 m driveway
+        shuffle was stored as a 1.0 km trip). Recompute closed Δodo=1 trips whose GPS
+        track says sub-0.5 km: store the true GPS distance and clear the (meaningless)
+        efficiency. Trips are NEVER deleted here — they stay visible as ~0 km manoeuvres
+        the user can remove via the existing delete button."""
+        if self.get_setting("trips_odo_quantize_repair_v1") == "1":
+            return
+        rows = self._conn.execute(
+            """SELECT id, start_odometer_km, end_odometer_km FROM trips
+               WHERE ended_at IS NOT NULL AND start_odometer_km > 0
+                 AND end_odometer_km = start_odometer_km + 1""").fetchall()
+        fixed = 0
+        for t in rows:
+            track = self._conn.execute(
+                "SELECT latitude, longitude FROM trip_positions WHERE trip_id=? ORDER BY id",
+                (t["id"],)).fetchall()
+            if len(track) < 2:
+                continue
+            gps_km = _gps_track_km(track)
+            if gps_km < 0.5:
+                self._conn.execute(
+                    "UPDATE trips SET distance_km=?, efficiency_kwh_100km=NULL WHERE id=?",
+                    (round(gps_km, 2), t["id"]))
+                log.info("Trip #%d: odometer-quantization repair — 1.0 km → %.2f km (GPS)",
+                         t["id"], gps_km)
+                fixed += 1
+        self._conn.commit()
+        self.set_setting("trips_odo_quantize_repair_v1", "1")
+        if fixed:
+            log.info("Quantized-trip repair: %d trip(s) corrected", fixed)
 
     def _repair_odometer_trips(self) -> None:
         """One-time repair for trips logged before the odometer-zero guard. When the
@@ -494,28 +555,12 @@ class Database:
         ).fetchall()
         trip = self._conn.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()
 
-        # Distance: the odometer counts the car's real wheel-distance, which is more
-        # accurate than summing a 10s-interval GPS track (the track cuts corners on
-        # bends and adds jitter when stationary). Use the odometer delta; fall back to
-        # the GPS track only for short hops the integer-km odometer can't resolve (Δ=0).
+        # Distance: odometer vs GPS — full decision table (incl. the Δodo=1 manoeuvre
+        # ambiguity and the missing-odometer fallbacks) lives in trip_distance_km().
         gps_km = _gps_track_km(rows)
         has_gps = len(rows) >= 2          # rows are real fixes only (add_trip_position skips (0,0))
-        # Trust the odometer delta ONLY when both readings are real. A missing
-        # odometer signal (1318) reads as 0; a 0 *start* would make the delta the
-        # car's entire mileage — a few-metre move logged as thousands of km
-        # (a 3-min hop showing 6441 km). Fall back to the GPS track in that case.
-        start_odo = trip["start_odometer_km"] or 0
-        end_odo = data.odometer_km or 0
-        odo_delta = end_odo - start_odo
-        if start_odo > 0 and end_odo > 0 and odo_delta > 0:
-            distance_km = odo_delta
-        elif has_gps:
-            distance_km = gps_km
-        else:
-            # Neither a valid odometer NOR a GPS track (e.g. the car reports no GPS):
-            # distance is UNKNOWN → keep it None so the trip is PRESERVED with its
-            # time/SOC/energy, instead of being dropped as a <0.5 km "short hop".
-            distance_km = None
+        distance_km = trip_distance_km(gps_km, has_gps,
+                                       trip["start_odometer_km"] or 0, data.odometer_km or 0)
 
         start_soc = trip["start_soc"]
         energy_used_kwh = (start_soc - data.soc) / 100.0 * self.get_battery_capacity()

@@ -74,7 +74,7 @@ def _poller_main():
     return mod
 
 
-def _dispatch(value, tmp_path):
+def _dispatch_cmd(cmd, value, tmp_path):
     import db as D
     pm = _poller_main()
     api = types.SimpleNamespace(calls=[],
@@ -85,8 +85,12 @@ def _dispatch(value, tmp_path):
     service = types.SimpleNamespace(last_climate_on=None,
                                     publish_state=lambda vin, k, v: pubs.append((vin, k, v)))
     db = D.Database(str(tmp_path / "t.db"))
-    pm._handle_mqtt_command(client, service, db, "VIN1", "door_lock", value)
+    pm._handle_mqtt_command(client, service, db, "VIN1", cmd, value)
     return api.calls, pubs
+
+
+def _dispatch(value, tmp_path):
+    return _dispatch_cmd("door_lock", value, tmp_path)
 
 
 def test_dispatch_lock(tmp_path):
@@ -104,3 +108,25 @@ def test_dispatch_unlock(tmp_path):
 def test_dispatch_ignores_garbage(tmp_path):
     calls, pubs = _dispatch("WOBBLE", tmp_path)
     assert calls == [] and pubs == []
+
+
+# ── switch flavour (#38): widgets can toggle a switch, not a lock ────────────────
+
+def test_discovery_publishes_a_toggle_switch():
+    svc = _service()
+    svc.publish_discovery(types.SimpleNamespace(vin="VINTEST"))
+    conf = json.loads(svc.client.published[
+        "homeassistant/switch/leapmotor_mate_vintest/lock_toggle/config"])
+    assert conf["command_topic"] == "leapmotor/VINTEST/lock_toggle/set"
+    assert conf["state_topic"] == "leapmotor/VINTEST/locked"
+    assert conf["payload_on"] == "ON" and conf["payload_off"] == "OFF"   # ON = locked
+
+
+def test_dispatch_lock_toggle_on_locks(tmp_path):
+    calls, pubs = _dispatch_cmd("lock_toggle", "ON", tmp_path)
+    assert calls == [("lock", "VIN1")] and ("VIN1", "locked", True) in pubs
+
+
+def test_dispatch_lock_toggle_off_unlocks(tmp_path):
+    calls, pubs = _dispatch_cmd("lock_toggle", "OFF", tmp_path)
+    assert calls == [("unlock", "VIN1")] and ("VIN1", "locked", False) in pubs

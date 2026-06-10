@@ -272,6 +272,17 @@ class MqttService:
             "payload_lock": "LOCK", "payload_unlock": "UNLOCK",
             "state_locked": "ON", "state_unlocked": "OFF",
         })
+        # Same control as a SWITCH (ON = locked): launcher/dashboard widgets (e.g. the
+        # Samsung HA widget, GitHub #38) force a fixed action on `lock` entities, but
+        # they CAN toggle a switch — so this is the one-button lock/unlock toggle.
+        cfg("switch", "lock_toggle", {
+            "name": "Door Lock Toggle",
+            "state_topic": f"{prefix}/{vin}/locked",
+            "command_topic": f"{prefix}/{vin}/lock_toggle/set",
+            "payload_on": "ON", "payload_off": "OFF",
+            "state_on": "ON", "state_off": "OFF",
+            "icon": "mdi:lock",
+        })
 
         for key, name, icon in [
             ("lock", "Lock", "mdi:lock"), ("unlock", "Unlock", "mdi:lock-open"),
