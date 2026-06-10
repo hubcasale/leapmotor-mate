@@ -157,7 +157,7 @@
           {% else %}text-slate-400 bg-slate-700 border border-slate-600{% endif %}">
           {% if trunk is none %}{{ t('unknown') }}{% elif trunk %}{{ t('trunk_open_state') }}{% else %}{{ t('trunk_closed_state') }}{% endif %}
         </span>
-        <div class="mt-auto w-full">{{ toggle_btn(not trunk, "open_trunk", "close_trunk", t('open_trunk_confirm'), "", drv) }}</div>
+        <div class="mt-auto w-full">{{ toggle_btn(not trunk, "open_trunk", "close_trunk", t('open_trunk_confirm'), t('close_trunk_confirm'), drv) }}</div>
       </div>
 
       <!-- Windows -->
@@ -171,7 +171,7 @@
           {% else %}text-slate-400 bg-slate-700 border border-slate-600{% endif %}">
           {% if wins is none %}{{ t('unknown') }}{% elif wins %}{{ t('wins_open_state') }}{% else %}{{ t('wins_closed_state') }}{% endif %}
         </span>
-        <div class="mt-auto w-full">{{ toggle_btn(not wins, "open_windows", "close_windows", t('open_wins_confirm'), "", drv) }}</div>
+        <div class="mt-auto w-full">{{ toggle_btn(not wins, "open_windows", "close_windows", t('open_wins_confirm'), t('close_wins_confirm'), drv) }}</div>
       </div>
 
       <!-- Sunshade -->
@@ -185,7 +185,7 @@
           {% else %}text-slate-400 bg-slate-700 border border-slate-600{% endif %}">
           {% if shade is none %}{{ t('unknown') }}{% elif shade %}{{ t('shade_open_state') }}{% else %}{{ t('shade_closed_state') }}{% endif %}
         </span>
-        <div class="mt-auto w-full">{{ toggle_btn(not shade, "open_sunshade", "close_sunshade", t('open_shade_confirm'), "", drv) }}</div>
+        <div class="mt-auto w-full">{{ toggle_btn(not shade, "open_sunshade", "close_sunshade", t('open_shade_confirm'), t('close_shade_confirm'), drv) }}</div>
       </div>
 
     </div>
