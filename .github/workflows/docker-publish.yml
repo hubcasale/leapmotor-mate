@@ -75,3 +75,15 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Keeps the Docker Hub repo page (short description + overview) in sync with
+      # docs/DOCKERHUB.md — the full README is bilingual and over Docker Hub's 25 KB limit.
+      - name: Sync Docker Hub description
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_USERNAME }}/leapmotor-mate
+          short-description: "Self-hosted companion for Leapmotor EVs — trips, charges, costs, battery health, MQTT/Home Assistant"
+          readme-filepath: ./docs/DOCKERHUB.md
