@@ -36,6 +36,7 @@ LeapMotor Mate is free and open-source, developed in my spare time. If it's usef
 - **Charge & climate scheduling** — a dedicated **Scheduling** page. Program a **charge window** (on/off, target SoC, start/end, days of the week) and the **climate pre-conditioning** schedule (quick **cool / heat / ventilation / defrost / auto** presets, time, days, target temperature). Both write to the car and stay in sync with the Leapmotor app; "Active" is a master switch (off = no schedule / charge anytime).
 - **CSV export** — export your trips and charges to **CSV** (plus per-trip **GPX**), from the Trips/Charges pages or *Settings → Export/Backup*.
 - **Wallbox (optional)** — pair a wallbox already in Home Assistant to see live charging power/status, set the max charging current, and compare **AC delivered by the wallbox** vs **DC into the battery** per session, with charging efficiency. A **"show all entities" advanced mode** lets you map *any* sensor — handy for foreign-language entity names or a generic energy-meter/relay.
+- **🆕 Auto-assign "Home" charges (optional)** — a *Settings → Wallbox* toggle: charges where **your wallbox measured the energy** are confirmed as **Home** automatically — no more tapping the badge after every overnight charge. The cost goes through the **same engine as a manual confirm** (flat prices *and* time-of-use bands, billed on the wallbox AC energy), the type stays editable, and DC/public/reconstructed charges are never touched. Off by default. *(Idea: @hubcasale.)*
 - **ABRP (optional)** — forward live telemetry to **A Better Route Planner** for live route planning (enable it with your ABRP token).
 - **MQTT → Home Assistant (optional)** — publish the car to Home Assistant via **MQTT Discovery** as native entities (sensors, binary sensors, GPS tracker) plus command buttons.
 - **EVCC (optional)** — publish EVCC-friendly MQTT topics so an **EVCC** `type: custom` vehicle reads SoC, plug/charging status, range and odometer (ready-to-paste config in `docs/EVCC.md`).
@@ -49,10 +50,10 @@ LeapMotor Mate is free and open-source, developed in my spare time. If it's usef
 - **Diagnostics** — a *Settings → Diagnostics* card with a read-only system snapshot, the recent poller/web logs and the car's current raw signals (with Copy), plus a one-click **downloadable bundle** to attach to a GitHub issue. Personal info (VIN, credentials, e-mail) is **always masked** in the exported logs.
 - **OTA-update indicator** — the Overview card tells you when the car has a **vehicle software update** waiting, without opening the official app.
 - **Mate self-update badge** — a small badge next to the version number when a **newer Mate release** is on GitHub (checked in the background every 6 h) — handy for standalone-Docker installs.
-- **🆕 Editable battery capacity** — pre-filled per model (usable/net kWh); edit it if yours differs, or click **“use measured”** to adopt the value Mate worked out from your own charges. Changing it never rewrites past charges.
-- **🆕 Advanced settings** — a collapsible card to tune the edge cases: missed-charge detection threshold, vampire-drain noise floor, and the AC/DC power threshold (for 22 kW AC wallboxes). Sane defaults, one-tap reset.
-- **🆕 Recover missed charges** — scan your history for charges that happened while the car was asleep before automatic detection existed; previews what it finds before adding anything.
-- **🆕 Single Home Assistant lock toggle** — an MQTT *lock* entity for dashboards **plus a “Door Lock Toggle” switch** for launcher widgets that can't toggle locks (e.g. Samsung's): one tap locks, the next unlocks — perfect as a phone front-screen button. The classic buttons stay too.
+- **Editable battery capacity** — pre-filled per model (usable/net kWh); edit it if yours differs, or click **“use measured”** to adopt the value Mate worked out from your own charges. Changing it never rewrites past charges.
+- **Advanced settings** — a collapsible card to tune the edge cases: missed-charge detection threshold, vampire-drain noise floor, and the AC/DC power threshold (for 22 kW AC wallboxes). Sane defaults, one-tap reset.
+- **Recover missed charges** — scan your history for charges that happened while the car was asleep before automatic detection existed; previews what it finds before adding anything.
+- **Single Home Assistant lock toggle** — an MQTT *lock* entity for dashboards **plus a “Door Lock Toggle” switch** for launcher widgets that can't toggle locks (e.g. Samsung's): one tap locks, the next unlocks — perfect as a phone front-screen button. The classic buttons stay too.
 
 ## How it works
 
@@ -185,7 +186,8 @@ Only **Max charging current** writes to the wallbox; everything else is read‑o
 What you get on the new **Wallbox** page:
 - a **live panel** (power, status, session energy, charging speed, max available power) plus the session cost (reused from your home charges);
 - a **max‑current control** to set the wallbox charging current — note your own HA load‑balancing automations may override it;
-- an **AC‑vs‑DC comparison** per charge session (kWh delivered vs into the battery + efficiency), laid out as a year/month/day history; expand a session for its power chart. The wallbox curve uses Home Assistant's history (kept ~10 days), so the comparison appears for recent sessions.
+- an **AC‑vs‑DC comparison** per charge session (kWh delivered vs into the battery + efficiency), laid out as a year/month/day history; expand a session for its power chart. The wallbox curve uses Home Assistant's history (kept ~10 days), so the comparison appears for recent sessions;
+- optional **auto‑assign "Home"** (Settings → Wallbox): charges the wallbox measured are confirmed as **Home** automatically, with the cost computed from your prices and time‑of‑use bands exactly like a manual confirm. Off by default. *(Idea: @hubcasale.)*
 
 ### ABRP (A Better Route Planner)
 
@@ -253,6 +255,7 @@ LeapMotor Mate è gratuito e open-source, sviluppato nel tempo libero. Se ti è 
 - **Schedulazione ricarica e clima** — una pagina **Schedulazione** dedicata. Programma una **fascia di ricarica** (on/off, SoC obiettivo, inizio/fine, giorni della settimana) e la **pre-climatizzazione** (preset rapidi **raffreddamento / riscaldamento / ventilazione / sbrinamento / auto**, orario, giorni, temperatura). Entrambe scrivono sull'auto e restano allineate con l'app Leapmotor; "Attivo" è l'interruttore principale (off = nessuna schedulazione / ricarica sempre).
 - **Esportazione CSV** — esporta viaggi e ricariche in **CSV** (più **GPX** per viaggio), dalle pagine Viaggi/Ricariche o da *Impostazioni → Esporta/Backup*.
 - **Wallbox (opzionale)** — abbina una wallbox già presente in Home Assistant per vedere potenza/stato di carica live, impostare la corrente max e confrontare l'**AC erogato dalla wallbox** con il **DC entrato in batteria** per sessione, col rendimento di carica. Una **modalità avanzata "mostra tutte le entità"** permette di mappare *qualsiasi* sensore — utile per nomi in altre lingue o un contatore/relè generico.
+- **🆕 Assegnazione automatica "Casa" (opzionale)** — un toggle in *Impostazioni → Wallbox*: le ricariche in cui **il tuo wallbox ha misurato l'energia** vengono confermate come **Casa** automaticamente — basta toccare il badge dopo ogni ricarica notturna. Il costo passa dallo **stesso motore della conferma manuale** (prezzi flat *e* fasce orarie, fatturato sull'energia AC del wallbox), il tipo resta modificabile, e le ricariche DC/pubbliche/ricostruite non vengono mai toccate. Spento di default. *(Idea: @hubcasale.)*
 - **ABRP (opzionale)** — invia la telemetria live ad **A Better Route Planner** per la pianificazione dei percorsi (attivala col tuo token ABRP).
 - **MQTT → Home Assistant (opzionale)** — pubblica l'auto a Home Assistant via **MQTT Discovery** come entità native (sensori, binary sensor, tracker GPS) più pulsanti comando.
 - **EVCC (opzionale)** — pubblica topic MQTT compatibili con **EVCC** così un veicolo `type: custom` legge SoC, stato spina/ricarica, autonomia e odometro (configurazione pronta in `docs/EVCC.md`).
@@ -266,10 +269,10 @@ LeapMotor Mate è gratuito e open-source, sviluppato nel tempo libero. Se ti è 
 - **Diagnostica** — una scheda in *Impostazioni → Diagnostica* con uno snapshot di sistema in sola lettura, i log recenti poller/web e i segnali grezzi attuali dell'auto (con Copia), più un **bundle scaricabile** con un clic da allegare a una issue su GitHub. Le info personali (VIN, credenziali, e-mail) sono **sempre mascherate** nei log esportati.
 - **Indicatore aggiornamenti OTA** — la scheda Panoramica ti dice quando l'auto ha un **aggiornamento software del veicolo** in attesa, senza aprire l'app ufficiale.
 - **Badge auto-aggiornamento di Mate** — un piccolo badge accanto al numero di versione quando su GitHub c'è una **release di Mate più recente** (controllo in background ogni 6 h) — comodo per le installazioni Docker standalone.
-- **🆕 Capacità batteria modificabile** — precompilata per modello (kWh netti/utilizzabili); modificala se la tua è diversa, o clicca **“usa misurata”** per adottare il valore che Mate ha calcolato dalle tue ricariche. Cambiarla non riscrive mai le ricariche passate.
-- **🆕 Impostazioni avanzate** — una scheda richiudibile per regolare i casi particolari: soglia rilevamento ricariche perse, soglia rumore consumo-da-fermo e soglia potenza AC/DC (per wallbox AC da 22 kW). Valori predefiniti sensati, reset con un tocco.
-- **🆕 Recupero ricariche perse** — cerca nella cronologia le ricariche avvenute mentre l'auto dormiva prima che esistesse il rilevamento automatico; mostra cosa trova prima di aggiungere qualcosa.
-- **🆕 Toggle blocco singolo per Home Assistant** — un'entità MQTT *lock* per i dashboard **più uno switch “Door Lock Toggle”** per i widget launcher che non sanno toggleare i lock (es. Samsung): un tocco blocca, il successivo sblocca — perfetto come bottone singolo sulla home del telefono. I pulsanti classici restano.
+- **Capacità batteria modificabile** — precompilata per modello (kWh netti/utilizzabili); modificala se la tua è diversa, o clicca **“usa misurata”** per adottare il valore che Mate ha calcolato dalle tue ricariche. Cambiarla non riscrive mai le ricariche passate.
+- **Impostazioni avanzate** — una scheda richiudibile per regolare i casi particolari: soglia rilevamento ricariche perse, soglia rumore consumo-da-fermo e soglia potenza AC/DC (per wallbox AC da 22 kW). Valori predefiniti sensati, reset con un tocco.
+- **Recupero ricariche perse** — cerca nella cronologia le ricariche avvenute mentre l'auto dormiva prima che esistesse il rilevamento automatico; mostra cosa trova prima di aggiungere qualcosa.
+- **Toggle blocco singolo per Home Assistant** — un'entità MQTT *lock* per i dashboard **più uno switch “Door Lock Toggle”** per i widget launcher che non sanno toggleare i lock (es. Samsung): un tocco blocca, il successivo sblocca — perfetto come bottone singolo sulla home del telefono. I pulsanti classici restano.
 
 ## Come funziona
 
@@ -394,7 +397,8 @@ Solo **Controllo potenza** scrive sulla wallbox; tutto il resto è in sola lettu
 Cosa ottieni nella nuova pagina **Wallbox**:
 - un **pannello live** (potenza, stato, energia sessione, velocità di carica, potenza max disponibile) più il costo sessione (riusato dalle tue ricariche home);
 - un **controllo della corrente max** per impostare la corrente di carica della wallbox — nota che le tue automazioni HA di bilanciamento del carico potrebbero sovrascriverlo;
-- un **confronto AC‑vs‑DC** per sessione (kWh erogati vs entrati in batteria + rendimento), come storico anno/mese/giorno; espandi una sessione per il grafico di potenza. La curva wallbox usa lo storico di Home Assistant (conservato ~10 giorni), quindi il confronto compare per le sessioni recenti.
+- un **confronto AC‑vs‑DC** per sessione (kWh erogati vs entrati in batteria + rendimento), come storico anno/mese/giorno; espandi una sessione per il grafico di potenza. La curva wallbox usa lo storico di Home Assistant (conservato ~10 giorni), quindi il confronto compare per le sessioni recenti;
+- l'**assegnazione automatica "Casa"** opzionale (Impostazioni → Wallbox): le ricariche misurate dal wallbox vengono confermate come **Casa** da sole, col costo calcolato dai tuoi prezzi e fasce orarie esattamente come una conferma manuale. Spenta di default. *(Idea: @hubcasale.)*
 
 ### ABRP (A Better Route Planner)
 

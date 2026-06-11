@@ -22,7 +22,7 @@ import mqtt_check
 import auth
 import update_check
 
-MATE_VERSION = "1.16.14"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.17.0"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 
@@ -157,6 +157,10 @@ def _fmt_dur(minutes) -> str:
 
 def _ctx(**kwargs):
     """Add shared helpers + i18n to every template context."""
+    # Lazy auto-confirm sweep (like update_check: piggybacks on page renders, no bg loop).
+    # Self-guarding no-op unless the wallbox_auto_home toggle is on AND a closed untyped
+    # wallbox charge exists — so by the time any page shows charges, they're already tagged.
+    db_reader.auto_confirm_home_charges()
     lang = db_reader.get_language()
     t = i18n.get_t(lang)
     def state_label(pos: dict) -> str:
@@ -667,6 +671,7 @@ async def settings_page(request: Request):
                 "charge_reconstruct_min_pct": db_reader.get_setting("charge_reconstruct_min_pct", "2.0"),
                 "vampire_min_drop_pct": db_reader.get_setting("vampire_min_drop_pct", "0.2"),
                 "charge_dc_min_kw": db_reader.get_setting("charge_dc_min_kw", "11"),
+                "wallbox_auto_home": db_reader.get_setting("wallbox_auto_home", "0"),
                 "db_size_mb": round(db_reader.get_db_size_bytes() / 1048576, 1)}
     # Per-card open/collapsed state for the settings accordion — saved in the DB (shared
     # across devices). Cards start collapsed so the page stays compact, EXCEPT 'vehicle': it's
@@ -824,6 +829,20 @@ async def save_wallbox_keywords(request: Request):
     db_reader.set_setting("wb_keywords", keywords)
     t = i18n.get_t(db_reader.get_language())
     return HTMLResponse(f'<span style="color:#22c55e;font-size:13px">{t("wallbox_saved")}</span>')
+
+
+@app.post("/api/settings/wallbox-auto-home", response_class=HTMLResponse)
+async def save_wallbox_auto_home(request: Request):
+    """Opt-in: auto-assign HOME to charges the wallbox measured (idea: @hubcasale, PR #47).
+    On enable, sweep immediately so the pending backlog is confirmed right away and the
+    feedback can say how many — costs go through the same engine as a manual confirm."""
+    form = await request.form()
+    val = "1" if form.get("wallbox_auto_home") in ("1", "on", "true") else "0"
+    db_reader.set_setting("wallbox_auto_home", val)
+    n = db_reader.auto_confirm_home_charges() if val == "1" else 0
+    t = i18n.get_t(db_reader.get_language())
+    msg = t("wallbox_saved") + (" · " + t("wallbox_auto_home_applied").format(n=n) if n else "")
+    return HTMLResponse(f'<span style="color:#22c55e;font-size:13px">{msg}</span>')
 
 
 @app.get("/api/wallbox/live", response_class=HTMLResponse)

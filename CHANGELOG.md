@@ -3,6 +3,19 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.17.0] — 2026-06-12
+
+### Added
+- **🏠 Auto-assign "Home" to wallbox charges** *(opt-in)*. New toggle in **Settings → Wallbox**:
+  charges where your wallbox measured energy are confirmed as **Home** automatically — if *your*
+  wallbox saw the energy flow, the charge happened at home. The cost goes through the **same engine
+  as a manual confirm**, so flat prices **and time-of-use bands** (including the accurate split
+  across band changes) come out identical to tapping the badge yourself — verified on real charges.
+  Turning the toggle on also confirms the eligible charges already in your history and tells you how
+  many. DC/public charges, reconstructed ones and anything you already typed are never touched, and
+  you can still change the type by hand afterwards. Off by default.
+  *(Idea: @hubcasale, PR #47 — thank you!)*
+
 ## [1.16.14] — 2026-06-11
 
 ### Changed

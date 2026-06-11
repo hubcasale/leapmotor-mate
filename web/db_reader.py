@@ -505,6 +505,30 @@ def update_charge_type(charge_id: int, location_type: str) -> dict:
     return dict(db.execute("SELECT * FROM charges WHERE id=?", (charge_id,)).fetchone())
 
 
+def auto_confirm_home_charges() -> int:
+    """Auto-assign HOME to closed, still-untyped charges where the wallbox measured real AC
+    energy (opt-in `wallbox_auto_home` setting; idea credit: @hubcasale, PR #47): if YOUR
+    wallbox saw energy flow during the session, the charge happened at home. DC/public
+    charges and reconstructed ones carry no wallbox session energy, so they stay manual.
+    Each hit goes through update_charge_type — the SAME path as a manual badge confirm —
+    so the cost honours the pricing config (flat or TOU bands) and the AC-energy billing;
+    the type stays user-editable afterwards. The 0.05 kWh floor mirrors the phantom-charge
+    threshold (meter jitter must not tag a charge). Runs on page renders (a settings probe
+    + one SELECT, normally 0 rows) and when the toggle is switched on; returns # confirmed."""
+    try:
+        if get_setting("wallbox_auto_home", "0") != "1":
+            return 0
+        rows = _get().execute(
+            "SELECT id FROM charges WHERE location_type IS NULL AND ended_at IS NOT NULL "
+            "AND COALESCE(reconstructed, 0) = 0 AND COALESCE(ac_energy_kwh, 0) > 0.05"
+        ).fetchall()
+    except sqlite3.Error:   # fresh install — settings/charges tables not created yet
+        return 0
+    for r in rows:
+        update_charge_type(r["id"], "HOME")
+    return len(rows)
+
+
 def update_charge_price(key: str, value: float) -> None:
     """Persist a base €/kWh price. Per the 'new charges only' rule, this does NOT
     retroactively recompute already-recorded charges: a charge's cost is frozen
