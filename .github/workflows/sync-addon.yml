@@ -52,20 +52,41 @@ jobs:
           token: ${{ secrets.ADDON_REPO_TOKEN }}
           path: addon
 
-      - name: Bump MATE_REF + version and sync CHANGELOG
+      # The add-on now PULLS the prebuilt GHCR image (config.yaml `image:`), so its `version:`
+      # IS the image tag Home Assistant pulls. Don't bump the add-on (which makes users' Supervisor
+      # offer the update) until that exact tag is actually on GHCR — otherwise the first user to
+      # update races a pull against an image that isn't published yet. docker-publish.yml builds it
+      # in parallel on the same release; wait here for it to land.
+      - name: Wait for the GHCR image to be published
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          img="ghcr.io/${{ github.repository_owner }}/leapmotor-mate:${VERSION}"
+          echo "Waiting for ${img} …"
+          for i in $(seq 1 60); do
+            if docker manifest inspect "$img" >/dev/null 2>&1; then
+              echo "✓ ${img} is published."; exit 0
+            fi
+            echo "  not yet (attempt ${i}/60) — sleeping 15s"; sleep 15
+          done
+          echo "::error::Timed out after 15 min waiting for ${img} to be published by docker-publish.yml"
+          exit 1
+
+      - name: Bump add-on version and sync CHANGELOG
         env:
           TAG: ${{ steps.ver.outputs.tag }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          sed -i -E "s|^ARG MATE_REF=.*|ARG MATE_REF=${TAG}|" addon/leapmotor_mate/Dockerfile
+          # Image-based add-on: the only thing to bump is config.yaml `version:` (= the GHCR tag
+          # the Supervisor pulls). No Dockerfile/MATE_REF any more — the add-on builds nothing.
           sed -i -E "s|^version: .*|version: \"${VERSION}\"|"  addon/leapmotor_mate/config.yaml
           # Copy the code CHANGELOG, but tidy it for HA's plain renderer: drop the
           # Keep-a-Changelog "[x]" brackets from version headings (they're link refs
           # that HA shows as literal text) and remove the orphan link-def lines.
           sed -E -e 's/^(## )\[([^]]+)\]/\1\2/' -e '/^\[[0-9][^]]*\]: http/d' \
             code/CHANGELOG.md > addon/leapmotor_mate/CHANGELOG.md
-          echo "Dockerfile : $(grep '^ARG MATE_REF=' addon/leapmotor_mate/Dockerfile)"
           echo "config.yaml: $(grep '^version:'      addon/leapmotor_mate/config.yaml)"
+          echo "image      : $(grep '^image:'        addon/leapmotor_mate/config.yaml)"
           echo "CHANGELOG  : $(grep -m1 '^## ' addon/leapmotor_mate/CHANGELOG.md)"
 
       - name: Commit and push if changed
@@ -80,7 +101,7 @@ jobs:
             echo "Add-on already at \`${TAG}\` — nothing to do." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          git add leapmotor_mate/Dockerfile leapmotor_mate/config.yaml leapmotor_mate/CHANGELOG.md
-          git commit -m "release: ${TAG} (MATE_REF=${TAG}) + changelog"
+          git add leapmotor_mate/config.yaml leapmotor_mate/CHANGELOG.md
+          git commit -m "release: ${TAG} (pull GHCR image ${TAG}) + changelog"
           git push
-          echo "Synced add-on repo to \`${TAG}\` (incl. changelog)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Synced add-on repo to \`${TAG}\` (image pull + changelog)." >> "$GITHUB_STEP_SUMMARY"
