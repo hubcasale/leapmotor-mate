@@ -85,5 +85,6 @@ jobs:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.DOCKERHUB_USERNAME }}/leapmotor-mate
-          short-description: "Self-hosted companion for Leapmotor EVs — trips, charges, costs, battery health, MQTT/Home Assistant"
+          # NB: Docker Hub's limit is 100 BYTES (multi-byte chars like — count as 3) — keep ASCII.
+          short-description: "Self-hosted companion for Leapmotor EVs: trips, charges, costs, battery health, MQTT/Home Assistant"
           readme-filepath: ./docs/DOCKERHUB.md
