@@ -22,7 +22,7 @@ import mqtt_check
 import auth
 import update_check
 
-MATE_VERSION = "1.16.7"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.16.8"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 
@@ -656,14 +656,10 @@ async def settings_page(request: Request):
                 "vampire_min_drop_pct": db_reader.get_setting("vampire_min_drop_pct", "0.2"),
                 "charge_dc_min_kw": db_reader.get_setting("charge_dc_min_kw", "11"),
                 "db_size_mb": round(db_reader.get_db_size_bytes() / 1048576, 1)}
-    # Per-card open/collapsed state — saved in the DB (shared across devices), with
-    # the enable flag as the first-time default until the user toggles the chevron.
-    card_open = {
-        "abrp": _card_open("abrp", settings["abrp_enabled"] == "1"),
-        "mqtt": _card_open("mqtt", settings["mqtt_enabled"] == "1"),
-        "wallbox": _card_open("wallbox", True),
-        "advanced": _card_open("advanced", False),   # collapsed by default
-    }
+    # Per-card open/collapsed state for the settings accordion — saved in the DB (shared
+    # across devices). Every card starts collapsed so the page stays compact; the user's
+    # chevron toggles are remembered per card (see _UI_CARD_KEYS / save_ui_state).
+    card_open = {k: _card_open(k, False) for k in _UI_CARD_KEYS}
     return templates.TemplateResponse(request, "settings.html", _ctx(
         page="settings", vehicle=vehicle, settings=settings, card_open=card_open,
         charge_types=db_reader.CHARGE_TYPES,
@@ -1227,13 +1223,16 @@ async def test_mqtt(request: Request):
     return HTMLResponse(f'<span style="color:#ef4444;font-size:13px">🔴 {t("mqtt_failed")}: {reason}</span>')
 
 
-_UI_CARD_KEYS = {"abrp", "mqtt", "wallbox"}
+# Every collapsible card on the Settings accordion. Used both to build the initial
+# open/collapsed map and as the allowlist for the ui-state save endpoint.
+_UI_CARD_KEYS = {"locale", "vehicle", "battery", "polling", "charge_detect", "advanced",
+                 "abrp", "geocoder", "wallbox", "mqtt", "database", "export", "diagnostics"}
 
 
 def _card_open(key: str, default: bool) -> bool:
     """Open/collapsed state of a settings card: the user's last saved choice if any,
-    otherwise `default` (the enable flag). Stored server-side so it survives reloads
-    and is the same on every device/browser."""
+    otherwise `default`. Stored server-side so it survives reloads and is the same on
+    every device/browser."""
     saved = db_reader.get_setting(f"ui_{key}_open", "")
     return saved == "1" if saved in ("0", "1") else default
 

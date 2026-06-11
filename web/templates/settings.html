@@ -2,6 +2,33 @@
 {% block autorefresh %}0{% endblock %}{# forms — never auto-reload (would wipe input) #}
 {% block title %}Settings — LeapMotor Mate{% endblock %}
 
+{# Collapsible settings card — same accordion pattern as the old Advanced card, now applied to
+   EVERY section so the page stays compact (only the card you open is expanded). Open/collapsed
+   state persists per-card via saveUiState()/card_open (DB-backed, shared across devices). The
+   {% call %} body runs in the page context, so t()/settings/etc. work inside it; the macro body
+   itself relies only on its arguments (Jinja macros don't see the render context).
+   Cards are split 5/4/4 across the three columns so the collapsed page stays balanced. #}
+{% macro scard(key, title, open=False, status_url='') %}
+<div class="card">
+  <details class="group" ontoggle="saveUiState('{{ key }}', this.open)"{% if open %} open{% endif %}>
+    <summary class="cursor-pointer select-none flex items-center justify-between gap-2" style="list-style:none">
+      <span class="flex items-center gap-2 font-semibold text-white">
+        <span class="group-open:rotate-90 text-slate-500" style="transition:transform .2s;display:inline-block">▶</span>
+        {{ title }}
+      </span>
+      {% if status_url %}
+      <span hx-get="{{ status_url }}" hx-trigger="load, every 30s" hx-swap="innerHTML">
+        <span class="text-xs text-slate-500">…</span>
+      </span>
+      {% endif %}
+    </summary>
+    <div class="mt-4">
+      {{ caller() }}
+    </div>
+  </details>
+</div>
+{% endmacro %}
+
 {% block content %}
 <div class="mb-6">
   <h1 class="text-2xl font-bold text-white">{{ t('settings_title') }}</h1>
@@ -9,12 +36,11 @@
 
 <div class="max-w-6xl flex flex-col lg:flex-row gap-5 items-start">
 
-  <!-- ── Column 1: Vehicle & driving (Language, Vehicle, Battery, Polling, Charge) ─ -->
+  <!-- ── Column 1 (5): Vehicle & driving — Language, Vehicle, Battery, Polling, Charge detect ─ -->
   <div class="flex-1 w-full space-y-5">
 
     <!-- Language & Currency -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-4">🌍 {{ t('setup_locale') }}</h2>
+    {% call scard('locale', '🌍 ' + t('setup_locale'), card_open.get('locale')) %}
       <div class="space-y-4">
         <div>
           <label class="block text-xs text-slate-400 mb-1.5">{{ t('setup_language') }}</label>
@@ -56,12 +82,11 @@
           <div class="text-[11px] text-slate-500 mt-1">{{ t('units_hint') }}</div>
         </div>
       </div>
-    </div>
+    {% endcall %}
 
     <!-- Vehicle info -->
     {% if vehicle %}
-    <div class="card">
-      <h2 class="font-semibold text-white mb-4">{{ t('vehicle_section') }}</h2>
+    {% call scard('vehicle', t('vehicle_section'), card_open.get('vehicle')) %}
       <div class="space-y-3 text-sm">
         <div class="flex justify-between">
           <span class="text-slate-400">{{ t('model') }}</span>
@@ -72,12 +97,11 @@
           <span class="text-white font-mono text-xs">{{ vehicle.vin }}</span>
         </div>
       </div>
-    </div>
+    {% endcall %}
     {% endif %}
 
     <!-- Battery -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-4">{{ t('battery_cap_section') }}</h2>
+    {% call scard('battery', t('battery_cap_section'), card_open.get('battery')) %}
       <form hx-post="api/settings/capacity" hx-trigger="change" hx-target="#cap-result" hx-swap="innerHTML">
         <div class="flex items-start justify-between gap-3">
           <div class="flex-1 min-w-0">
@@ -101,11 +125,10 @@
         {% endif %}
         <div id="cap-result" class="text-xs mt-2"></div>
       </form>
-    </div>
+    {% endcall %}
 
     <!-- Polling cadence -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-1">{{ t('polling_section') }}</h2>
+    {% call scard('polling', t('polling_section'), card_open.get('polling')) %}
       <div class="text-xs text-slate-400 mb-4">{{ t('polling_desc') }}</div>
       <form hx-post="api/poll-settings" hx-trigger="change" hx-target="#poll-result" hx-swap="innerHTML" class="space-y-5">
         <div>
@@ -132,11 +155,10 @@
         </div>
         <div id="poll-result" class="text-xs"></div>
       </form>
-    </div>
+    {% endcall %}
 
     <!-- Charge detection threshold -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-1">{{ t('charge_detect_section') }}</h2>
+    {% call scard('charge_detect', t('charge_detect_section'), card_open.get('charge_detect')) %}
       <div class="text-xs text-slate-400 mb-4">{{ t('charge_detect_desc') }}</div>
       <form hx-post="api/settings/charge-detect" hx-trigger="change" hx-target="#cd-result" hx-swap="innerHTML">
         <div class="flex items-center justify-between mb-2">
@@ -150,106 +172,32 @@
         <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>0.5 A</span><span>16 A</span></div>
         <div id="cd-result" class="text-xs mt-2"></div>
       </form>
-    </div>
-
-    <!-- Advanced tunables (collapsed by default) -->
-    <div class="card">
-      <details class="group" ontoggle="saveUiState('advanced', this.open)" {% if card_open.advanced %}open{% endif %}>
-        <summary class="cursor-pointer select-none flex items-center gap-2" style="list-style:none">
-          <span class="group-open:rotate-90 text-slate-500" style="transition:transform .2s;display:inline-block">▶</span>
-          <span class="font-semibold text-white">⚙️ {{ t('adv_section') }}</span>
-        </summary>
-        <div class="text-xs text-slate-400 mt-2 mb-4">{{ t('adv_desc') }}</div>
-        <form hx-post="api/settings/advanced" hx-trigger="change" hx-target="#adv-result" hx-swap="innerHTML" class="space-y-5">
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-sm text-white">{{ t('adv_reconstruct_label') }}</span>
-              <span class="font-bold text-brand"><span id="adv-rc-val">{{ settings.get('charge_reconstruct_min_pct', '2.0') }}</span>%</span>
-            </div>
-            <input type="range" name="charge_reconstruct_min_pct" min="1" max="10" step="0.5"
-                   value="{{ settings.get('charge_reconstruct_min_pct', '2.0') }}"
-                   oninput="document.getElementById('adv-rc-val').textContent=this.value"
-                   class="w-full accent-brand cursor-pointer">
-            <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>1%</span><span>10%</span></div>
-            <div class="text-[11px] text-slate-500 mt-1">{{ t('adv_reconstruct_help') }}</div>
-          </div>
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-sm text-white">{{ t('adv_vampire_label') }}</span>
-              <span class="font-bold text-brand"><span id="adv-vp-val">{{ settings.get('vampire_min_drop_pct', '0.2') }}</span>%</span>
-            </div>
-            <input type="range" name="vampire_min_drop_pct" min="0.1" max="2" step="0.1"
-                   value="{{ settings.get('vampire_min_drop_pct', '0.2') }}"
-                   oninput="document.getElementById('adv-vp-val').textContent=this.value"
-                   class="w-full accent-brand cursor-pointer">
-            <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>0.1%</span><span>2%</span></div>
-            <div class="text-[11px] text-slate-500 mt-1">{{ t('adv_vampire_help') }}</div>
-          </div>
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-sm text-white">{{ t('adv_dc_label') }}</span>
-              <span class="font-bold text-brand"><span id="adv-dc-val">{{ settings.get('charge_dc_min_kw', '11') }}</span> kW</span>
-            </div>
-            <input type="range" name="charge_dc_min_kw" min="11" max="32" step="1"
-                   value="{{ settings.get('charge_dc_min_kw', '11') }}"
-                   oninput="document.getElementById('adv-dc-val').textContent=this.value"
-                   class="w-full accent-brand cursor-pointer">
-            <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>11 kW</span><span>32 kW</span></div>
-            <div class="text-[11px] text-slate-500 mt-1">{{ t('adv_dc_help') }}</div>
-          </div>
-          <div class="flex items-center justify-between gap-3 pt-1">
-            <div id="adv-result" class="text-xs"></div>
-            <button type="button"
-                    hx-post="api/settings/advanced" hx-vals='{"reset":"1"}'
-                    hx-target="#adv-result" hx-swap="innerHTML"
-                    hx-on::after-request="if(event.detail.successful)setTimeout(function(){location.reload()},600)"
-                    class="text-xs text-slate-400 hover:text-white border border-slate-600 rounded-lg px-3 py-1.5 flex-shrink-0">
-              {{ t('adv_reset') }}
-            </button>
-          </div>
-        </form>
-      </details>
-    </div>
+    {% endcall %}
 
   </div>
 
-  <!-- ── Column 2: Integrations & services (ABRP, Geocoder, Wallbox) ──── -->
+  <!-- ── Column 2 (4): Integrations — ABRP, Geocoder, Wallbox, MQTT ──── -->
   <div class="flex-1 w-full space-y-5">
 
     <!-- ABRP (A Better Route Planner) -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-1">{{ t('abrp_section') }}</h2>
+    {% call scard('abrp', t('abrp_section'), card_open.get('abrp'), 'api/settings/abrp/status') %}
       <p class="text-xs text-slate-400 mb-4">{{ t('abrp_desc') }}</p>
       <form hx-post="api/settings/abrp" hx-target="#abrp-feedback" hx-swap="innerHTML" class="space-y-3">
         <label class="flex items-center justify-between gap-3 cursor-pointer">
           <span class="text-sm text-white">{{ t('abrp_enable') }}</span>
           <input type="checkbox" name="abrp_enabled" value="1"
                  {% if settings.get('abrp_enabled') == '1' %}checked{% endif %}
-                 onchange="this.closest('form').querySelector('details').open = this.checked"
                  class="w-5 h-5 accent-brand cursor-pointer flex-shrink-0">
         </label>
-        <details class="group" ontoggle="saveUiState('abrp', this.open)" {% if card_open.abrp %}open{% endif %}>
-          <summary class="cursor-pointer select-none flex items-center justify-between gap-2"
-                   style="list-style:none">
-            <span class="flex items-center gap-2 text-xs font-medium text-slate-300">
-              <span class="group-open:rotate-90 text-slate-500"
-                    style="transition:transform .2s;display:inline-block">▶</span>
-              {{ t('config_fields') }}
-            </span>
-            <span hx-get="api/settings/abrp/status" hx-trigger="load, every 30s" hx-swap="innerHTML">
-              <span class="text-xs text-slate-500">…</span>
-            </span>
-          </summary>
-          <div class="mt-3">
-            <label class="block text-xs text-slate-400 mb-1">{{ t('abrp_token_label') }}</label>
-            <input type="password" name="abrp_token"
-                   placeholder="{% if settings.get('abrp_token_set') %}••••••••{% endif %}"
-                   autocomplete="off" spellcheck="false"
-                   class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white
-                          text-sm font-mono focus:outline-none focus:border-brand">
-            <div class="text-[11px] text-slate-500 mt-1">{{ t('abrp_token_hint') }}</div>
-          </div>
-        </details>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">{{ t('abrp_token_label') }}</label>
+          <input type="password" name="abrp_token"
+                 placeholder="{% if settings.get('abrp_token_set') %}••••••••{% endif %}"
+                 autocomplete="off" spellcheck="false"
+                 class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white
+                        text-sm font-mono focus:outline-none focus:border-brand">
+          <div class="text-[11px] text-slate-500 mt-1">{{ t('abrp_token_hint') }}</div>
+        </div>
         <div class="flex items-center justify-between gap-3">
           <div id="abrp-feedback" class="text-xs"></div>
           <button type="submit"
@@ -258,11 +206,10 @@
           </button>
         </div>
       </form>
-    </div>
+    {% endcall %}
 
     <!-- Geocoder (Navigation address lookup) -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-1">{{ t('geocoder_section') }}</h2>
+    {% call scard('geocoder', t('geocoder_section'), card_open.get('geocoder')) %}
       <p class="text-xs text-slate-400 mb-4">{{ t('geocoder_desc') }}</p>
       <form hx-post="api/settings/geocoder" hx-target="#geocoder-feedback" hx-swap="innerHTML" class="space-y-3">
         <div>
@@ -293,11 +240,10 @@
           </button>
         </div>
       </form>
-    </div>
+    {% endcall %}
 
     <!-- Wallbox -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-4">{{ t('wallbox_section') }}</h2>
+    {% call scard('wallbox', t('wallbox_section'), card_open.get('wallbox'), 'api/wallbox/status' if wallbox_enabled else '') %}
       <form hx-post="api/settings/wallbox" hx-trigger="change">
         <label class="flex items-center justify-between gap-3 cursor-pointer">
           <div>
@@ -311,19 +257,7 @@
       </form>
 
       {% if wallbox_enabled %}
-      <details class="mt-5 pt-5 border-t border-slate-700 group" ontoggle="saveUiState('wallbox', this.open)" {% if card_open.wallbox %}open{% endif %}>
-        <summary class="cursor-pointer select-none flex items-center justify-between gap-2 mb-3"
-                 style="list-style:none">
-          <span class="flex items-center gap-2 text-sm font-medium text-white">
-            <span class="group-open:rotate-90 text-slate-500 text-xs"
-                  style="transition:transform .2s;display:inline-block">▶</span>
-            {{ t('ha_connection') }}
-          </span>
-          <span hx-get="api/wallbox/status" hx-trigger="load, every 30s" hx-swap="innerHTML">
-            <span class="text-xs text-slate-500">…</span>
-          </span>
-        </summary>
-
+      <div class="mt-5 pt-5 border-t border-slate-700">
         {% if not ha_supervisor %}
         <form hx-post="api/settings/ha" hx-target="#ha-test-result" hx-swap="innerHTML" class="space-y-3">
           <div>
@@ -357,7 +291,7 @@
         <form hx-post="api/settings/wallbox-keywords" hx-trigger="change" hx-target="#wb-keywords-result" hx-swap="innerHTML" class="mt-4">
           <div>
             <label class="block text-sm text-white mb-2">{{ t('wb_keywords_label') }}</label>
-            <input type="text" name="wb_keywords" value="{{ wb_keywords }}" 
+            <input type="text" name="wb_keywords" value="{{ wb_keywords }}"
                    placeholder="wallbox, charger, evse, keba, pulsar"
                    spellcheck="false"
                    class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white
@@ -381,80 +315,60 @@
           </div>
         </details>
         {% endif %}
-      </details>
+      </div>
       {% endif %}
-    </div>
-
-  </div>
-
-  <!-- ── Column 3: Home Assistant & data (MQTT, Database, Export) ──────── -->
-  <div class="flex-1 w-full space-y-5">
+    {% endcall %}
 
     <!-- MQTT → Home Assistant -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-1">{{ t('mqtt_section') }}</h2>
+    {% call scard('mqtt', t('mqtt_section'), card_open.get('mqtt'), 'api/settings/mqtt/status') %}
       <p class="text-xs text-slate-400 mb-4">{{ t('mqtt_desc') }}</p>
       <form hx-post="api/settings/mqtt" hx-target="#mqtt-feedback" hx-swap="innerHTML" class="space-y-3">
         <label class="flex items-center justify-between gap-3 cursor-pointer">
           <span class="text-sm text-white">{{ t('mqtt_enable') }}</span>
           <input type="checkbox" name="mqtt_enabled" value="1"
                  {% if settings.get('mqtt_enabled') == '1' %}checked{% endif %}
-                 onchange="this.closest('form').querySelector('details').open = this.checked"
                  class="w-5 h-5 accent-brand cursor-pointer flex-shrink-0">
         </label>
 
         {% set inp = "w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-white text-sm focus:outline-none focus:border-brand" %}
-        <details class="group" ontoggle="saveUiState('mqtt', this.open)" {% if card_open.mqtt %}open{% endif %}>
-        <summary class="cursor-pointer select-none flex items-center justify-between gap-2 mb-3"
-                 style="list-style:none">
-          <span class="flex items-center gap-2 text-xs font-medium text-slate-300">
-            <span class="group-open:rotate-90 text-slate-500"
-                  style="transition:transform .2s;display:inline-block">▶</span>
-            {{ t('config_fields') }}
-          </span>
-          <span hx-get="api/settings/mqtt/status" hx-trigger="load, every 30s" hx-swap="innerHTML">
-            <span class="text-xs text-slate-500">…</span>
-          </span>
-        </summary>
         <div class="space-y-3">
-        <div class="grid grid-cols-3 gap-2">
-          <div class="col-span-2">
-            <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_broker') }}</label>
-            <input type="text" name="mqtt_broker" value="{{ settings.get('mqtt_broker', '') }}"
-                   placeholder="192.168.1.10" autocomplete="off" class="{{ inp }} font-mono">
+          <div class="grid grid-cols-3 gap-2">
+            <div class="col-span-2">
+              <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_broker') }}</label>
+              <input type="text" name="mqtt_broker" value="{{ settings.get('mqtt_broker', '') }}"
+                     placeholder="192.168.1.10" autocomplete="off" class="{{ inp }} font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_port') }}</label>
+              <input type="text" name="mqtt_port" value="{{ settings.get('mqtt_port', '1883') }}" class="{{ inp }} font-mono">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_user') }}</label>
+              <input type="text" name="mqtt_user" value="{{ settings.get('mqtt_user', '') }}" autocomplete="off" class="{{ inp }}">
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_pass') }}</label>
+              <input type="password" name="mqtt_pass" placeholder="{% if settings.get('mqtt_pass_set') %}••••••••{% endif %}" autocomplete="off" class="{{ inp }}">
+            </div>
           </div>
           <div>
-            <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_port') }}</label>
-            <input type="text" name="mqtt_port" value="{{ settings.get('mqtt_port', '1883') }}" class="{{ inp }} font-mono">
+            <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_prefix') }}</label>
+            <input type="text" name="mqtt_prefix" value="{{ settings.get('mqtt_prefix', 'leapmotor') }}" class="{{ inp }} font-mono">
+          </div>
+          <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" name="mqtt_discovery" value="1"
+                     {% if settings.get('mqtt_discovery', '1') == '1' %}checked{% endif %} class="accent-brand"> {{ t('mqtt_discovery') }}</label>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" name="mqtt_tls" value="1"
+                     {% if settings.get('mqtt_tls') == '1' %}checked{% endif %} class="accent-brand"> TLS</label>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" name="mqtt_tls_insecure" value="1"
+                     {% if settings.get('mqtt_tls_insecure') == '1' %}checked{% endif %} class="accent-brand"> {{ t('mqtt_tls_insecure') }}</label>
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_user') }}</label>
-            <input type="text" name="mqtt_user" value="{{ settings.get('mqtt_user', '') }}" autocomplete="off" class="{{ inp }}">
-          </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_pass') }}</label>
-            <input type="password" name="mqtt_pass" placeholder="{% if settings.get('mqtt_pass_set') %}••••••••{% endif %}" autocomplete="off" class="{{ inp }}">
-          </div>
-        </div>
-        <div>
-          <label class="block text-xs text-slate-400 mb-1">{{ t('mqtt_prefix') }}</label>
-          <input type="text" name="mqtt_prefix" value="{{ settings.get('mqtt_prefix', 'leapmotor') }}" class="{{ inp }} font-mono">
-        </div>
-        <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
-          <label class="flex items-center gap-1.5 cursor-pointer">
-            <input type="checkbox" name="mqtt_discovery" value="1"
-                   {% if settings.get('mqtt_discovery', '1') == '1' %}checked{% endif %} class="accent-brand"> {{ t('mqtt_discovery') }}</label>
-          <label class="flex items-center gap-1.5 cursor-pointer">
-            <input type="checkbox" name="mqtt_tls" value="1"
-                   {% if settings.get('mqtt_tls') == '1' %}checked{% endif %} class="accent-brand"> TLS</label>
-          <label class="flex items-center gap-1.5 cursor-pointer">
-            <input type="checkbox" name="mqtt_tls_insecure" value="1"
-                   {% if settings.get('mqtt_tls_insecure') == '1' %}checked{% endif %} class="accent-brand"> {{ t('mqtt_tls_insecure') }}</label>
-        </div>
-        </div>
-        </details>
         <div class="flex items-center justify-between gap-3">
           <div id="mqtt-feedback" class="text-xs"></div>
           <div class="flex items-center gap-2 flex-shrink-0">
@@ -472,11 +386,15 @@
           </div>
         </div>
       </form>
-    </div>
+    {% endcall %}
+
+  </div>
+
+  <!-- ── Column 3 (4): Data & maintenance — Database, Export, Diagnostics, Advanced ──────── -->
+  <div class="flex-1 w-full space-y-5">
 
     <!-- Database / maintenance -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-1">{{ t('db_section') }}</h2>
+    {% call scard('database', t('db_section'), card_open.get('database')) %}
       <p class="text-xs text-slate-400 mb-4">{{ t('db_size_label') }}:
         <span class="text-slate-200 font-mono">{{ settings.get('db_size_mb', 0) }} MB</span></p>
       <form hx-post="api/settings/retention" hx-target="#retention-feedback" hx-swap="innerHTML" class="space-y-3">
@@ -501,11 +419,10 @@
           </button>
         </div>
       </form>
-    </div>
+    {% endcall %}
 
     <!-- Export / backup -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-1">{{ t('export_section') }}</h2>
+    {% call scard('export', t('export_section'), card_open.get('export')) %}
       <p class="text-xs text-slate-400 mb-4">{{ t('export_db_hint') }}</p>
       <div class="flex flex-wrap gap-2">
         <a href="api/export/trips.csv" download
@@ -515,11 +432,10 @@
         <a href="api/export/database" download
            class="border border-slate-600 text-slate-200 text-sm font-medium rounded-lg px-4 py-2 hover:border-brand">{{ t('export_db') }}</a>
       </div>
-    </div>
+    {% endcall %}
 
     <!-- Diagnostics / debug -->
-    <div class="card">
-      <h2 class="font-semibold text-white mb-1">🩺 {{ t('diag_section') }}</h2>
+    {% call scard('diagnostics', '🩺 ' + t('diag_section'), card_open.get('diagnostics')) %}
       <p class="text-xs text-slate-400 mb-3">{{ t('diag_hint') }}</p>
 
       <!-- System snapshot — read-only info (selectable text, not interactive) -->
@@ -576,7 +492,60 @@
         <span id="missed-spin" class="htmx-indicator text-xs text-slate-500 ml-2">…</span>
         <div id="missed-result"></div>
       </div>
-    </div>
+    {% endcall %}
+
+    <!-- Advanced tunables -->
+    {% call scard('advanced', '⚙️ ' + t('adv_section'), card_open.get('advanced')) %}
+      <div class="text-xs text-slate-400 mb-4">{{ t('adv_desc') }}</div>
+      <form hx-post="api/settings/advanced" hx-trigger="change" hx-target="#adv-result" hx-swap="innerHTML" class="space-y-5">
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-sm text-white">{{ t('adv_reconstruct_label') }}</span>
+            <span class="font-bold text-brand"><span id="adv-rc-val">{{ settings.get('charge_reconstruct_min_pct', '2.0') }}</span>%</span>
+          </div>
+          <input type="range" name="charge_reconstruct_min_pct" min="1" max="10" step="0.5"
+                 value="{{ settings.get('charge_reconstruct_min_pct', '2.0') }}"
+                 oninput="document.getElementById('adv-rc-val').textContent=this.value"
+                 class="w-full accent-brand cursor-pointer">
+          <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>1%</span><span>10%</span></div>
+          <div class="text-[11px] text-slate-500 mt-1">{{ t('adv_reconstruct_help') }}</div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-sm text-white">{{ t('adv_vampire_label') }}</span>
+            <span class="font-bold text-brand"><span id="adv-vp-val">{{ settings.get('vampire_min_drop_pct', '0.2') }}</span>%</span>
+          </div>
+          <input type="range" name="vampire_min_drop_pct" min="0.1" max="2" step="0.1"
+                 value="{{ settings.get('vampire_min_drop_pct', '0.2') }}"
+                 oninput="document.getElementById('adv-vp-val').textContent=this.value"
+                 class="w-full accent-brand cursor-pointer">
+          <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>0.1%</span><span>2%</span></div>
+          <div class="text-[11px] text-slate-500 mt-1">{{ t('adv_vampire_help') }}</div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-sm text-white">{{ t('adv_dc_label') }}</span>
+            <span class="font-bold text-brand"><span id="adv-dc-val">{{ settings.get('charge_dc_min_kw', '11') }}</span> kW</span>
+          </div>
+          <input type="range" name="charge_dc_min_kw" min="11" max="32" step="1"
+                 value="{{ settings.get('charge_dc_min_kw', '11') }}"
+                 oninput="document.getElementById('adv-dc-val').textContent=this.value"
+                 class="w-full accent-brand cursor-pointer">
+          <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>11 kW</span><span>32 kW</span></div>
+          <div class="text-[11px] text-slate-500 mt-1">{{ t('adv_dc_help') }}</div>
+        </div>
+        <div class="flex items-center justify-between gap-3 pt-1">
+          <div id="adv-result" class="text-xs"></div>
+          <button type="button"
+                  hx-post="api/settings/advanced" hx-vals='{"reset":"1"}'
+                  hx-target="#adv-result" hx-swap="innerHTML"
+                  hx-on::after-request="if(event.detail.successful)setTimeout(function(){location.reload()},600)"
+                  class="text-xs text-slate-400 hover:text-white border border-slate-600 rounded-lg px-3 py-1.5 flex-shrink-0">
+            {{ t('adv_reset') }}
+          </button>
+        </div>
+      </form>
+    {% endcall %}
 
   </div>
 
