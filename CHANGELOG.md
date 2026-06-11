@@ -3,6 +3,14 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.17.1] — 2026-06-12
+
+### Changed
+- **🎨 Mate has its own face.** New app icon (a car on a telemetry pulse, in the UI's teal) shown in
+  the sidebar and mobile header as "LeapMotor **Mate**", plus a **browser-tab favicon** (there was
+  none). The same icon now identifies the Home Assistant add-on in the store. The official Leapmotor
+  wordmark is no longer used inside the app — Mate is an unofficial companion and now looks the part.
+
 ## [1.17.0] — 2026-06-12
 
 ### Added

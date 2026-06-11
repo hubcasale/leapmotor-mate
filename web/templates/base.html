@@ -6,6 +6,7 @@
   <!-- Resolve all relative URLs against the HA ingress path (empty when standalone) -->
   <base href="{{ request.headers.get('x-ingress-path', '') }}/">
   <title>{% block title %}LeapMotor Mate{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="static/mate-icon.svg">
   <script src="static/vendor/tailwind.js"></script>
   <script src="static/vendor/htmx.min.js"></script>
   <script src="static/vendor/apexcharts.min.js"></script>
@@ -137,8 +138,8 @@
   <!-- Mobile Header -->
   <header class="md:hidden flex items-center justify-between px-4 py-3 bg-slate-800 border-b border-slate-700 sticky top-0 z-[1001]">
     <div class="flex items-center gap-2">
-      <img src="static/leapmotor-logo.svg" alt="Leapmotor" class="h-5 w-auto" style="filter:brightness(0) invert(1)">
-      <span class="text-sm font-medium text-brand">Mate</span>
+      <img src="static/mate-icon.svg" alt="LeapMotor Mate" class="h-6 w-6">
+      <span class="text-sm font-medium text-slate-100">LeapMotor <span class="text-brand">Mate</span></span>
       {% if version %}<span class="text-[10px] text-slate-500 font-normal self-end mb-0.5">v{{ version }}</span>{% endif %}
       {% if update and update.available %}<a href="{{ update.url }}" target="_blank" rel="noopener" title="{{ t('app_update') }} · v{{ update.latest }}" class="ml-1 text-[10px] font-semibold text-amber-300 bg-amber-500/15 rounded-full px-1.5 py-0.5 self-end mb-0.5 hover:bg-amber-500/25">↑ v{{ update.latest }}</a>{% endif %}
     </div>
@@ -166,8 +167,8 @@
     <!-- Logo (hidden on mobile, shown in header) -->
     <div class="hidden md:block px-5 py-5 border-b border-slate-700">
       <div class="flex items-center gap-2">
-        <img src="static/leapmotor-logo.svg" alt="Leapmotor" class="h-5 w-auto" style="filter:brightness(0) invert(1)">
-        <span class="text-sm font-medium text-brand">Mate</span>
+        <img src="static/mate-icon.svg" alt="LeapMotor Mate" class="h-6 w-6">
+        <span class="text-sm font-medium text-slate-100">LeapMotor <span class="text-brand">Mate</span></span>
         {% if version %}<span class="text-[10px] text-slate-500 font-normal self-end mb-0.5">v{{ version }}</span>{% endif %}
       {% if update and update.available %}<a href="{{ update.url }}" target="_blank" rel="noopener" title="{{ t('app_update') }} · v{{ update.latest }}" class="ml-1 text-[10px] font-semibold text-amber-300 bg-amber-500/15 rounded-full px-1.5 py-0.5 self-end mb-0.5 hover:bg-amber-500/25">↑ v{{ update.latest }}</a>{% endif %}
       </div>
