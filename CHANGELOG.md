@@ -3,6 +3,14 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.16.14] — 2026-06-11
+
+### Changed
+- **⚡ Faster add-on installs & updates.** The Home Assistant add-on now installs a **prebuilt
+  image** instead of compiling on your device, so installs and updates are much quicker and lighter
+  on the hardware. No action needed — your data and settings are kept across the switch. (This also
+  clears two deprecation notices the Supervisor was logging about the old build files.)
+
 ## [1.16.13] — 2026-06-11
 
 ### Fixed
