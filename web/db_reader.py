@@ -529,6 +529,57 @@ def auto_confirm_home_charges() -> int:
     return len(rows)
 
 
+# ── 📍 charging-station labels (resolved by web/charger_locator.py) ───────────
+# A candidate is a closed public charge with a GPS fix and no label yet. Home charges
+# are excluded twice over — by the HOME type and by any wallbox session evidence — so a
+# pure-home install never triggers a single network lookup.
+_LOCATION_CANDIDATES_WHERE = (
+    "ended_at IS NOT NULL AND location_name IS NULL "
+    "AND latitude IS NOT NULL AND longitude IS NOT NULL "
+    "AND latitude <> 0 AND longitude <> 0 "
+    "AND COALESCE(location_type, '') <> 'HOME' "
+    "AND wallbox_energy_start_kwh IS NULL AND COALESCE(ac_energy_kwh, 0) <= 0.05"
+)
+
+
+def has_location_lookup_candidates() -> bool:
+    try:
+        return _get().execute(
+            f"SELECT 1 FROM charges WHERE {_LOCATION_CANDIDATES_WHERE} LIMIT 1"
+        ).fetchone() is not None
+    except sqlite3.Error:  # fresh install — column not migrated by the poller yet
+        return False
+
+
+def get_location_lookup_candidates(limit: int = 40) -> list[dict]:
+    try:
+        rows = _get().execute(
+            f"SELECT id, latitude, longitude FROM charges WHERE {_LOCATION_CANDIDATES_WHERE} "
+            "ORDER BY started_at DESC LIMIT ?", (limit,)).fetchall()
+    except sqlite3.Error:
+        return []
+    return [dict(r) for r in rows]
+
+
+def get_labelled_locations() -> list[tuple]:
+    """(lat, lon, label) of every already-resolved charge — '' sentinels included — so
+    a charge at an already-known spot reuses the answer instead of re-asking Overpass."""
+    try:
+        rows = _get().execute(
+            "SELECT latitude, longitude, location_name FROM charges "
+            "WHERE location_name IS NOT NULL AND latitude IS NOT NULL AND longitude IS NOT NULL"
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    return [(r["latitude"], r["longitude"], r["location_name"]) for r in rows]
+
+
+def set_charge_location_name(charge_id: int, name: str) -> None:
+    db = _conn_rw()
+    db.execute("UPDATE charges SET location_name=? WHERE id=?", (name, charge_id))
+    db.commit()
+
+
 def update_charge_price(key: str, value: float) -> None:
     """Persist a base €/kWh price. Per the 'new charges only' rule, this does NOT
     retroactively recompute already-recorded charges: a charge's cost is frozen

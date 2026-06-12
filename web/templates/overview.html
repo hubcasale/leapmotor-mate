@@ -93,6 +93,12 @@
         <span class="text-white">{{ last_charge.cost | money }}</span>
       </div>
       {% endif %}
+      {% if last_charge.location_name %}
+      <div class="flex justify-between text-sm gap-3">
+        <span class="text-slate-400">📍</span>
+        <span class="text-white truncate text-right">{{ last_charge.location_name }}</span>
+      </div>
+      {% endif %}
     </div>
     {% else %}
     <div class="text-center py-6 text-slate-500 text-sm">{{ t('no_charges') }}</div>

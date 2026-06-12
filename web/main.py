@@ -18,11 +18,12 @@ import command_client
 import i18n
 import ha_client
 import geocode
+import charger_locator
 import mqtt_check
 import auth
 import update_check
 
-MATE_VERSION = "1.17.1"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.18.0"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 
@@ -161,6 +162,9 @@ def _ctx(**kwargs):
     # Self-guarding no-op unless the wallbox_auto_home toggle is on AND a closed untyped
     # wallbox charge exists — so by the time any page shows charges, they're already tagged.
     db_reader.auto_confirm_home_charges()
+    # Same piggyback for the 📍 station labels — settings probe + tiny SELECT per render,
+    # the OSM lookups run in a background thread on a TTL (see charger_locator.maybe_sweep).
+    charger_locator.maybe_sweep()
     lang = db_reader.get_language()
     t = i18n.get_t(lang)
     def state_label(pos: dict) -> str:
@@ -641,6 +645,49 @@ async def nav_send(request: Request):
     return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
 
 
+@app.get("/api/nav/chargers", response_class=JSONResponse)
+async def nav_chargers(radius: int = 2000, q: str = "", n: int = 25):
+    """Public charging stations around the car's current position (Navigation page),
+    nearest first. OSM (keyless) + Open Charge Map (with key) + the Italian PUN.
+    `q` filters by operator/network (e.g. 'electra') — handy in dense areas where a
+    specific network sits beyond the nearest few. `n` is the page size (how many to
+    show: 25/50/100) — in a dense city the nearest 25 all sit within ~2 km, so a
+    larger `n` is what actually reaches farther out. With no `q`, an empty radius
+    auto-widens to the nearest stations within 10 km (`widened`)."""
+    import asyncio
+    status = db_reader.get_latest_status() or {}
+    lat, lon = status.get("latitude"), status.get("longitude")
+    if not lat or not lon:
+        return JSONResponse({"error": "no_position"}, status_code=404)
+    radius = max(250, min(radius, 10000))
+    q = (q or "").strip()[:40]
+    limit = n if n in (25, 50, 100) else 25
+    loop = asyncio.get_event_loop()
+    try:
+        res = await loop.run_in_executor(
+            None, charger_locator.find_nearby, lat, lon, radius, limit, q)
+        widened = False
+        # Auto-widen only the unfiltered "nearest" view: climb a radius ladder so the
+        # first non-empty rung gives a small, complete (truly-nearest) set. With an
+        # operator filter, an empty result is a real "this network isn't nearby".
+        if res == [] and not q:
+            for wider in (2500, 5000, 10000):
+                if wider <= radius:
+                    continue
+                res = await loop.run_in_executor(
+                    None, charger_locator.find_nearby, lat, lon, wider, 5)
+                if res:           # found some — stop climbing
+                    widened = True
+                    break
+                if res is None:   # transient error — handled below
+                    break
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)}, status_code=502)
+    if res is None:  # every source down/rate-limited
+        return JSONResponse({"error": "unreachable"}, status_code=502)
+    return JSONResponse({"chargers": res, "widened": widened})
+
+
 @app.get("/api/vehicle-status", response_class=HTMLResponse)
 async def vehicle_status_api(request: Request):
     import asyncio
@@ -667,6 +714,9 @@ async def settings_page(request: Request):
                 "mqtt_discovery": db_reader.get_setting("mqtt_discovery", "1"),
                 "geocoder_provider": db_reader.get_setting("geocoder_provider", ""),
                 "geocoder_key_set": bool(db_reader.get_setting("geocoder_key", "")),
+                "charger_locator": db_reader.get_setting("charger_locator", "0"),
+                "charger_locator_ocm_key_set": bool(db_reader.get_setting("ocm_key", "")),
+                "charger_locator_tomtom_key_set": bool(db_reader.get_setting("tomtom_key", "")),
                 "positions_retention_days": db_reader.get_setting("positions_retention_days", "0"),
                 "charge_reconstruct_min_pct": db_reader.get_setting("charge_reconstruct_min_pct", "2.0"),
                 "vampire_min_drop_pct": db_reader.get_setting("vampire_min_drop_pct", "0.2"),
@@ -1155,6 +1205,28 @@ async def save_geocoder(request: Request):
     return HTMLResponse(f'<span style="color:#22c55e;font-size:13px">{t("geocoder_saved")}</span>')
 
 
+@app.post("/api/settings/charger-locator", response_class=HTMLResponse)
+async def save_charger_locator(request: Request):
+    """Toggle the 📍 station labels. Turning it ON kicks an immediate background backfill
+    of the unlabelled public charges (history included); the Navigation page search is
+    user-triggered and independent of this toggle."""
+    import asyncio
+    form = await request.form()
+    on = "1" if form.get("charger_locator") else "0"
+    db_reader.set_setting("charger_locator", on)
+    okey = (form.get("charger_locator_ocm_key") or "").strip()
+    if okey:
+        db_reader.set_secret("ocm_key", okey)
+    tkey = (form.get("charger_locator_tomtom_key") or "").strip()
+    if tkey:
+        db_reader.set_secret("tomtom_key", tkey)
+    t = i18n.get_t(db_reader.get_language())
+    if on == "1" and db_reader.has_location_lookup_candidates():
+        asyncio.get_event_loop().run_in_executor(None, charger_locator.sweep_now)
+        return HTMLResponse(f'<span style="color:#22c55e;font-size:13px">{t("charger_locator_started")}</span>')
+    return HTMLResponse(f'<span style="color:#22c55e;font-size:13px">{t("charger_locator_saved")}</span>')
+
+
 @app.post("/api/settings/retention", response_class=HTMLResponse)
 async def save_retention(request: Request):
     """Save GPS-sample retention (positions_retention_days; 0 = keep forever). The poller
@@ -1267,7 +1339,8 @@ async def test_mqtt(request: Request):
 # Every collapsible card on the Settings accordion. Used both to build the initial
 # open/collapsed map and as the allowlist for the ui-state save endpoint.
 _UI_CARD_KEYS = {"locale", "vehicle", "battery", "polling", "charge_detect", "advanced",
-                 "abrp", "geocoder", "wallbox", "mqtt", "database", "export", "diagnostics"}
+                 "abrp", "geocoder", "charger_locator", "wallbox", "mqtt",
+                 "database", "export", "diagnostics"}
 
 
 def _card_open(key: str, default: bool) -> bool:

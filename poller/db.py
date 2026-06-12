@@ -201,7 +201,7 @@ def trip_distance_km(gps_km: float, has_gps: bool, start_odo: float, end_odo: fl
 # Settings keys holding real secrets — encrypted at rest (see crypto.py). Everything
 # else (flags, prefixes, prices, ids, identifiers) stays plaintext.
 SECRET_KEYS = {"leapmotor_pass", "leapmotor_pin", "abrp_token",
-               "mqtt_pass", "geocoder_key", "ha_token"}
+               "mqtt_pass", "geocoder_key", "ha_token", "ocm_key", "tomtom_key"}
 
 
 class Database:
@@ -253,6 +253,11 @@ class Database:
         # cloud during the charge, so it was never seen live — recorded from the SoC delta instead).
         if "reconstructed" not in ccols:
             self._conn.execute("ALTER TABLE charges ADD COLUMN reconstructed INTEGER DEFAULT 0")
+        # migration: public charging-station label, resolved by the web layer from OSM
+        # (web/charger_locator.py; '' = looked up, nothing found). Display-only — it never
+        # feeds charge detection, costs or the HOME/AC/FAST/HPC location_type.
+        if "location_name" not in ccols:
+            self._conn.execute("ALTER TABLE charges ADD COLUMN location_name TEXT DEFAULT NULL")
         # migration: manual trip-merge link — a child trip points to the parent it was merged into
         tcols = {r[1] for r in self._conn.execute("PRAGMA table_info(trips)").fetchall()}
         if "merged_into_id" not in tcols:

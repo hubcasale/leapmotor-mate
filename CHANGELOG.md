@@ -3,6 +3,23 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.18.0] — 2026-06-12
+
+### Added
+- **📍 Charging-station names on charges** *(opt-in)*. Every public charge is tagged automatically
+  with the name of the station it happened at — shown as **📍 Station name** on the Charges list and
+  on the Overview "last charge" card. The lookup runs in the background, fills in already-recorded
+  charges too, and **never looks up home charges**. Enable it in **Settings → Charging stations**
+  *(off by default)*. *(Idea: @hubcasale, PR #48 — reimplemented Mate-side over multiple sources.)*
+- **⚡ Find charging stations** on the **Navigation** page. A new button maps the public chargers
+  around the car: choose the **max distance** and **results per page**, filter **by operator**
+  (e.g. Electra, Ionity), and see **AC/DC, power (kW) and live availability** — as map pins and a
+  list underneath. Tap a station to set it as your destination and send it to the car's navigator.
+- **Multi-source charger search**, with cross-source de-duplication: **OpenStreetMap** and the
+  **Italian national registry (PUN)** — both keyless and always on — plus **Open Charge Map** and
+  **TomTom** when you add their free API keys *(Settings → Charging stations)*. More sources, better
+  coverage; live availability comes from the PUN where available.
+
 ## [1.17.1] — 2026-06-12
 
 ### Changed

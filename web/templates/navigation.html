@@ -32,6 +32,57 @@
       🔍 {{ t('nav_search') }}
     </button>
 
+    {# ⚡ Charging-station finder (OSM keyless + Open Charge Map + Italian PUN) #}
+    <div class="mt-5 pt-4 border-t border-slate-700">
+      <div class="stat-label mb-3">⚡ {{ t('charger_locator_section') }}</div>
+
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">{{ t('nav_charger_radius') }}</label>
+          <select id="nav-charger-radius"
+                  class="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-600 text-white
+                         text-sm focus:outline-none focus:border-brand cursor-pointer">
+            <option value="500">500 m</option>
+            <option value="1000">1 km</option>
+            <option value="2000">2 km</option>
+            <option value="5000" selected>5 km</option>
+            <option value="10000">10 km</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">{{ t('nav_charger_count') }}</label>
+          <select id="nav-charger-count"
+                  class="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-600 text-white
+                         text-sm focus:outline-none focus:border-brand cursor-pointer">
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="block text-xs text-slate-400 mb-1">{{ t('nav_charger_op_label') }}</label>
+      <input id="nav-charger-op" type="text" list="nav-op-list"
+             placeholder="{{ t('nav_charger_op_ph') }}"
+             onkeydown="if(event.key==='Enter')navFindChargers()"
+             class="w-full px-3 py-2 mb-3 rounded-xl bg-slate-800 border border-slate-600 text-white
+                    text-sm placeholder-slate-500 focus:outline-none focus:border-brand">
+      <datalist id="nav-op-list">
+        <option value="Electra"></option><option value="Ionity"></option>
+        <option value="Enel X Way"></option><option value="Be Charge"></option>
+        <option value="Plenitude"></option><option value="A2A"></option>
+        <option value="Atlante"></option><option value="Ewiva"></option>
+        <option value="Tesla"></option>
+      </datalist>
+
+      <button onclick="navFindChargers()"
+              class="w-full py-3 rounded-xl font-semibold text-sm transition-all cursor-pointer"
+              style="border:1px solid #f59e0b;color:#f59e0b;background:transparent">
+        ⚡ {{ t('nav_find_chargers') }}
+      </button>
+      <div id="nav-chargers-msg" class="text-xs text-slate-400 mt-2" style="min-height:16px"></div>
+    </div>
+
     <div id="nav-result" class="text-sm text-slate-300 mb-3" style="min-height:20px"></div>
 
     <button id="nav-send-btn" onclick="navSend()" disabled
@@ -49,6 +100,12 @@
     <div id="nav-current" class="text-sm text-slate-300 mb-3" style="min-height:20px">…</div>
     <div id="navmap" class="w-full rounded-lg" style="height:340px"></div>
   </div>
+</div>
+
+<!-- ⚡ Charging-station results list (built from the same fetch as the map pins) -->
+<div id="nav-chargers-card" class="card mt-5" style="display:none">
+  <div class="stat-label mb-3">⚡ {{ t('nav_chargers_list_title') }}</div>
+  <div id="nav-chargers-list" class="divide-y divide-slate-700/60"></div>
 </div>
 
 <script>
@@ -93,6 +150,130 @@
     } catch (e) {
       res.textContent = '⚠️ {{ t("nav_not_found") }}';
     }
+  }
+
+  // ── ⚡ charging stations around the car ──────────────────────────────────
+  const chargerLayer = L.featureGroup().addTo(navMap);
+  let chargerMarkers = [];   // parallel to the results list, for row → pin focus
+  const chargerIcon = L.divIcon({
+    className: '',
+    html: '<div style="background:#0f172a;border:2px solid #f59e0b;border-radius:50%;' +
+          'width:26px;height:26px;display:flex;align-items:center;justify-content:center;' +
+          'font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.5)">⚡</div>',
+    iconSize: [26, 26], iconAnchor: [13, 13],
+  });
+
+  function navUseCharger(lat, lon, label) {
+    navDest = { lat: lat, lon: lon, label: label };
+    document.getElementById('nav-result').textContent = '📍 ' + label;
+    if (navDestMarker) navMap.removeLayer(navDestMarker);
+    navDestMarker = L.marker([lat, lon]).addTo(navMap);
+    document.getElementById('nav-send-btn').disabled = false;
+    document.getElementById('nav-status').innerHTML = '';
+    navMap.closePopup();
+  }
+
+  // Popup built with DOM nodes (not an HTML string): station names come from OSM.
+  // i18n strings go through |tojson — they may contain apostrophes (e.g. "dell'auto").
+  function chargerPopup(c) {
+    const name = c.name || {{ t("nav_charger_generic")|tojson }};
+    const div = document.createElement('div');
+    const title = document.createElement('b');
+    title.textContent = '⚡ ' + name;
+    div.appendChild(title);
+    const meta = document.createElement('div');
+    meta.style.cssText = 'font-size:12px;margin:3px 0 7px;color:#475569';
+    meta.textContent = (c.dist_m >= 1000 ? (c.dist_m / 1000).toFixed(1) + ' km' : c.dist_m + ' m')
+                     + (c.info ? ' · ' + c.info : '');
+    div.appendChild(meta);
+    if (c.avail) {  // PUN live status "free/total" — green when any free
+      const av = document.createElement('div');
+      const free = parseInt(c.avail, 10) > 0;
+      av.style.cssText = 'font-size:12px;margin:-3px 0 7px;font-weight:600;color:'
+                       + (free ? '#16a34a' : '#dc2626');
+      av.textContent = (free ? '🟢 ' : '🔴 ') + c.avail + ' ' + {{ t("nav_charger_available")|tojson }};
+      div.appendChild(av);
+    }
+    const btn = document.createElement('button');
+    btn.textContent = '🧭 ' + {{ t("nav_use_dest")|tojson }};
+    btn.style.cssText = 'border:1px solid #14b8a6;color:#0f766e;background:transparent;' +
+                        'border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer';
+    btn.onclick = () => navUseCharger(c.lat, c.lon, name);
+    div.appendChild(btn);
+    return div;
+  }
+
+  async function navFindChargers() {
+    const msg = document.getElementById('nav-chargers-msg');
+    const radius = document.getElementById('nav-charger-radius').value;
+    const count = document.getElementById('nav-charger-count').value;
+    const op = document.getElementById('nav-charger-op').value.trim();
+    msg.textContent = '⏳ ' + {{ t("nav_searching")|tojson }};
+    chargerLayer.clearLayers();
+    chargerMarkers = [];
+    try {
+      const r = await fetch(`api/nav/chargers?radius=${radius}&n=${count}&q=${encodeURIComponent(op)}`);
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        msg.textContent = '⚠️ ' + (d.error === 'no_position'
+          ? {{ t("nav_chargers_no_pos")|tojson }} : {{ t("nav_chargers_error")|tojson }});
+        return;
+      }
+      const d = await r.json();
+      navChargerList(d.chargers);   // list mirrors the map, always rebuilt
+      if (!d.chargers.length) { msg.textContent = {{ t("nav_chargers_none")|tojson }}; return; }
+      chargerMarkers = d.chargers.map(c =>
+        L.marker([c.lat, c.lon], { icon: chargerIcon }).addTo(chargerLayer).bindPopup(chargerPopup(c)));
+      navMap.fitBounds(chargerLayer.getBounds().pad(0.25), { maxZoom: 15 });
+      // Drop the "no live status" disclaimer when at least one station carries it (PUN, IT).
+      const hasLive = d.chargers.some(c => c.avail);
+      msg.textContent = (d.widened ? {{ t("nav_chargers_widened")|tojson }} + ' ' : '')
+                      + d.chargers.length + ' ' + {{ t("nav_chargers_found")|tojson }}
+                      + (hasLive ? '' : ' · ' + {{ t("nav_not_realtime")|tojson }});
+    } catch (e) {
+      msg.textContent = '⚠️ ' + {{ t("nav_chargers_error")|tojson }};
+    }
+  }
+
+  // Focus a station from the list: pan the map to its pin and open the popup.
+  function navFocusCharger(i) {
+    const m = chargerMarkers[i];
+    if (!m) return;
+    navMap.setView(m.getLatLng(), Math.max(navMap.getZoom(), 15));
+    m.openPopup();
+    document.getElementById('navmap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // Build the results list under the map from the same data as the pins.
+  function navChargerList(chargers) {
+    const card = document.getElementById('nav-chargers-card');
+    const list = document.getElementById('nav-chargers-list');
+    list.replaceChildren();
+    if (!chargers.length) { card.style.display = 'none'; return; }
+    chargers.forEach((c, i) => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center justify-between gap-3 py-2 cursor-pointer hover:bg-slate-800/40 px-1 rounded';
+      const left = document.createElement('div');
+      const nm = document.createElement('div');
+      nm.className = 'text-sm text-white';
+      nm.textContent = '⚡ ' + (c.name || {{ t("nav_charger_generic")|tojson }});
+      const sub = document.createElement('div');
+      sub.className = 'text-xs text-slate-400';
+      sub.textContent = (c.dist_m >= 1000 ? (c.dist_m / 1000).toFixed(1) + ' km' : c.dist_m + ' m')
+                      + (c.info ? ' · ' + c.info : '');
+      left.append(nm, sub);
+      const right = document.createElement('div');
+      right.className = 'text-xs font-semibold flex-shrink-0 text-right';
+      if (c.avail) {
+        const free = parseInt(c.avail, 10) > 0;
+        right.style.color = free ? '#16a34a' : '#dc2626';
+        right.textContent = (free ? '🟢 ' : '🔴 ') + c.avail;
+      }
+      row.append(left, right);
+      row.onclick = () => navFocusCharger(i);
+      list.appendChild(row);
+    });
+    card.style.display = '';
   }
 
   async function navSend() {
