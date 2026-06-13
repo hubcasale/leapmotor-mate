@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}{{ t('report_title') }} — LeapMotor Mate{% endblock %}
+{% block autorefresh %}0{% endblock %}{# interactive month map — a reload would reset zoom/pan #}
+
+{% block content %}
+
+{% macro delta_badge(d, good) %}
+  {%- if d and d.pct is not none -%}
+    {%- set positive = d.diff > 0 -%}
+    {%- set is_green = (good == 'up' and positive) or (good == 'down' and not positive) -%}
+    {%- set color = 'text-slate-400' if (good == 'neutral' or d.diff == 0) else ('text-green-400' if is_green else 'text-red-400') -%}
+    <span class="text-xs {{ color }} font-medium whitespace-nowrap" title="{{ t('report_vs_prev') }}{% if prev_label %} ({{ prev_label }}){% endif %}">
+      {{ '▲' if positive else ('▼' if d.diff < 0 else '＝') }}{{ d.pct|abs }}%
+    </span>
+  {%- endif -%}
+{% endmacro %}
+
+<!-- Header + month navigation -->
+<div class="mb-6 flex items-start justify-between gap-3 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold text-white">{{ t('report_title') }}</h1>
+    <p class="text-slate-400 text-sm mt-1">{{ t('report_subtitle') }}</p>
+  </div>
+  {% if r.has_data %}
+  <div class="flex items-center gap-2">
+    {% if r.prev_month %}
+      <a href="report?month={{ r.prev_month }}" title="{{ t('report_prev') }}"
+         class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 select-none">◀</a>
+    {% else %}
+      <span class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-600 select-none cursor-default">◀</span>
+    {% endif %}
+    <select onchange="location.href='report?month='+this.value"
+            class="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm font-semibold cursor-pointer">
+      {% for m in r.months %}
+        <option value="{{ m.key }}" {% if m.key == r.month %}selected{% endif %}>{{ m.label }}</option>
+      {% endfor %}
+    </select>
+    {% if r.next_month %}
+      <a href="report?month={{ r.next_month }}" title="{{ t('report_next') }}"
+         class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 select-none">▶</a>
+    {% else %}
+      <span class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-600 select-none cursor-default">▶</span>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if not r.has_data %}
+  <div class="card text-center py-12 text-slate-500">
+    <div class="text-5xl mb-3">📆</div>
+    <div class="text-lg">{{ t('report_no_data') }}</div>
+    <div class="text-sm mt-1">{{ t('report_no_data_hint') }}</div>
+  </div>
+{% else %}
+{% set c = r.cur %}
+{% set prev_label = r.prev_label %}
+
+<!-- Driving -->
+<div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">🚗 {{ t('report_driving') }}</div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="card">
+    <div class="stat-label">{{ t('total_distance') }}</div>
+    <div class="flex items-baseline gap-2 flex-wrap">
+      <span class="stat-value whitespace-nowrap">{{ c.total_km | dist(0) }}</span>
+      {% if r.deltas %}{{ delta_badge(r.deltas.km, 'neutral') }}{% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('total_trips') }}</div>
+    <div class="stat-value">{{ c.trip_count }}</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('avg_efficiency') }}</div>
+    <div class="flex items-baseline gap-2">
+      {% if c.avg_efficiency %}
+      <span class="stat-value {% if c.avg_efficiency < 18 %}text-green-400{% elif c.avg_efficiency < 22 %}text-yellow-400{% else %}text-red-400{% endif %}">
+        {{ eff_val(c.avg_efficiency)|nice }}<span class="text-base font-normal text-slate-400"> {{ eff_unit() }}</span>
+      </span>
+      {% if r.deltas %}{{ delta_badge(r.deltas.efficiency, 'down') }}{% endif %}
+      {% else %}
+      <span class="stat-value text-slate-500">—</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('energy_used') }}</div>
+    <div class="flex items-baseline gap-2">
+      <span class="stat-value">{{ c.total_kwh_used }}</span><span class="text-slate-400 text-sm">kWh</span>
+      {% if r.deltas %}{{ delta_badge(r.deltas.kwh_used, 'down') }}{% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Charging & cost -->
+<div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">⚡ {{ t('report_charging') }}</div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="card">
+    <div class="stat-label">{{ t('report_total_cost') }}</div>
+    <div class="flex items-baseline gap-2">
+      <span class="stat-value">{{ c.charge_cost | money if c.has_cost else '—' }}</span>
+      {% if r.deltas %}{{ delta_badge(r.deltas.cost, 'down') }}{% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('charge_sessions') }}</div>
+    <div class="stat-value">{{ c.charge_count }}</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('energy_charged') }}</div>
+    <div class="flex items-baseline gap-2">
+      <span class="stat-value">{{ c.charge_kwh }}</span><span class="text-slate-400 text-sm">kWh</span>
+      {% if r.deltas %}{{ delta_badge(r.deltas.charge_kwh, 'neutral') }}{% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat-label">{{ t('report_avg_price') }}</div>
+    <div class="stat-value">{% if r.avg_price is not none %}{{ r.avg_price | money }}<span class="text-base font-normal text-slate-400">/kWh</span>{% else %}<span class="text-slate-500">—</span>{% endif %}</div>
+  </div>
+</div>
+
+<!-- Home vs Public split + secondary metrics -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <div class="card">
+    <div class="stat-label mb-3">{{ t('report_split_title') }}</div>
+    {% set split_kwh = (c.home.kwh + c.public.kwh) %}
+    {% if split_kwh > 0 %}
+    <div class="flex h-2.5 rounded-full overflow-hidden bg-slate-800 mb-4">
+      <div style="width: {{ (c.home.kwh / split_kwh * 100) }}%; background:#22c55e"></div>
+      <div style="width: {{ (c.public.kwh / split_kwh * 100) }}%; background:#60a5fa"></div>
+    </div>
+    {% endif %}
+    <div class="space-y-2">
+      <div class="flex items-center justify-between text-sm">
+        <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#22c55e"></span><span class="text-slate-200">🏠 {{ t('report_home') }}</span></span>
+        <span class="text-slate-400">{{ c.home.count }} · {{ c.home.kwh }} kWh · <span class="text-white font-medium">{{ c.home.cost | money }}</span></span>
+      </div>
+      <div class="flex items-center justify-between text-sm">
+        <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:#60a5fa"></span><span class="text-slate-200">🌐 {{ t('report_public') }}</span></span>
+        <span class="text-slate-400">{{ c.public.count }} · {{ c.public.kwh }} kWh · <span class="text-white font-medium">{{ c.public.cost | money }}</span></span>
+      </div>
+      {% if c.unconfirmed > 0 %}
+      <div class="text-xs text-slate-500 pt-1">+{{ c.unconfirmed }} {{ t('report_unconfirmed') }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card grid grid-cols-3 gap-2 items-center">
+    <div>
+      <div class="stat-label">{{ t('report_cost_per') }} 100 {{ dist_unit() }}</div>
+      <div class="stat-value text-xl">
+        {% if c.has_cost and c.total_km > 0 %}{{ (c.charge_cost / dist_val(c.total_km) * 100) | money }}{% else %}<span class="text-slate-500">—</span>{% endif %}
+      </div>
+    </div>
+    <div>
+      <div class="stat-label">{{ t('total_regen') }}</div>
+      <div class="stat-value text-xl text-green-400">{{ c.regen_kwh }}<span class="text-sm font-normal text-slate-400"> kWh</span></div>
+    </div>
+    <div>
+      <div class="stat-label">{{ t('drive_time') }}</div>
+      <div class="stat-value text-xl">
+        {% set h = (c.drive_min // 60) | int %}{% set m = (c.drive_min % 60) | int %}
+        {{ h }}<span class="text-slate-400 text-sm">h</span> {{ m }}<span class="text-slate-400 text-sm">m</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Daily charts -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <div class="card">
+    <div class="text-xs text-slate-500 uppercase tracking-wide mb-2">{{ t('report_daily_distance') }}</div>
+    <canvas id="chart-daily-km" height="150"></canvas>
+  </div>
+  <div class="card">
+    <div class="text-xs text-slate-500 uppercase tracking-wide mb-2">{{ t('report_daily_cost') }}</div>
+    <canvas id="chart-daily-cost" height="150"></canvas>
+  </div>
+</div>
+
+<script src="static/vendor/chart.umd.min.js"></script>
+<script>
+(function () {
+  const labels   = [{% for d in r.daily %}{{ d.day }}{{ "," if not loop.last }}{% endfor %}];
+  const kmData   = [{% for d in r.daily %}{{ dist_val(d.km) }}{{ "," if not loop.last }}{% endfor %}];
+  const costData = [{% for d in r.daily %}{{ d.cost }}{{ "," if not loop.last }}{% endfor %}];
+  const tick = { color: '#64748b', font: { size: 9 } };
+  const grid = { color: '#1e293b' };
+  const baseOpts = (unit) => ({
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: tick, grid },
+      y: { beginAtZero: true, ticks: tick, grid,
+           title: { display: true, text: unit, color: '#475569', font: { size: 9 } } },
+    }
+  });
+
+  new Chart(document.getElementById('chart-daily-km'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: kmData,
+      backgroundColor: '#14b8a650', borderColor: '#14b8a6', borderWidth: 1, borderRadius: 3 }] },
+    options: baseOpts('{{ dist_unit() }}')
+  });
+
+  new Chart(document.getElementById('chart-daily-cost'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: costData,
+      backgroundColor: '#f59e0b40', borderColor: '#f59e0b', borderWidth: 1, borderRadius: 3 }] },
+    options: baseOpts('{{ currency.symbol }}')
+  });
+})();
+</script>
+
+{% if track %}
+<div class="card p-0 overflow-hidden mb-6">
+  <div class="px-4 pt-3 pb-2 text-xs text-slate-500 uppercase tracking-wide">
+    🗺 {{ t('report_map_title') }} <span class="text-slate-600 normal-case">({{ track|length }})</span>
+  </div>
+  <div id="report-map" style="height:420px"></div>
+  <link rel="stylesheet" href="static/vendor/leaflet/leaflet.css"/>
+  <script src="static/vendor/leaflet/leaflet.js"></script>
+  <script>
+  (function () {
+    const segments = {{ track | tojson }};
+    const allPts = [];
+    segments.forEach(function (s) { s.forEach(function (p) { allPts.push(p); }); });
+    if (!allPts.length) return;
+    const map = L.map('report-map', { preferCanvas: true }).fitBounds(L.latLngBounds(allPts).pad(0.05));
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      referrerPolicy: 'origin'   // keep OSM tiles loading under Firefox strict tracking protection
+    }).addTo(map);
+    // White casing under a blue line so each route stays legible over any road colour.
+    segments.forEach(function (s) {
+      L.polyline(s, { color: '#ffffff', weight: 5,   opacity: 0.7, lineJoin: 'round', lineCap: 'round' }).addTo(map);
+      L.polyline(s, { color: '#2563eb', weight: 2.5, opacity: 0.9, lineJoin: 'round', lineCap: 'round' }).addTo(map);
+    });
+  })();
+  </script>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

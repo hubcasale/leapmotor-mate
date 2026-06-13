@@ -719,8 +719,8 @@ def save_fresh_signals(signals: dict) -> None:
             is_locked, climate_on, plug_connected,
             climate_cooling, climate_heating, climate_defrost,
             trunk_open, windows_open, sunshade_open,
-            remaining_charge_min, charge_voltage_v, charge_current_a
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            remaining_charge_min, charge_voltage_v, charge_current_a, charge_completed, security_active
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             vehicle_id,
             datetime.now(timezone.utc).isoformat(),
@@ -738,6 +738,8 @@ def save_fresh_signals(signals: dict) -> None:
             sig("1200") or None,
             sigf("1177") or None,
             sigf("1178") or None,
+            int(int(signals.get("3736") or 0) != 0),
+            int(int(signals.get("1255") or 0) != 0),
         ),
     )
     db.commit()
@@ -1597,6 +1599,150 @@ def get_ac_dc_stats() -> dict:
     return {"ac": ac, "dc": dc, "total": ac["count"] + dc["count"]}
 
 
+# ── Monthly report (driving + charging + cost, one month) ──────────────────────
+
+def _month_shift(month_key: str, delta: int) -> str:
+    """'YYYY-MM' shifted by `delta` calendar months (delta may be negative)."""
+    y, m = int(month_key[:4]), int(month_key[5:7])
+    idx = y * 12 + (m - 1) + delta
+    return f"{idx // 12:04d}-{idx % 12 + 1:02d}"
+
+
+def _report_bucket() -> dict:
+    return {
+        "trip_count": 0, "total_km": 0.0, "total_kwh_used": 0.0,
+        "regen_kwh": 0.0, "drive_min": 0.0,
+        "_eff_wsum": 0.0, "_eff_wdist": 0.0, "avg_efficiency": None,
+        "charge_count": 0, "charge_kwh": 0.0, "charge_cost": 0.0, "has_cost": False,
+        "unconfirmed": 0,
+        "home":   {"count": 0, "kwh": 0.0, "cost": 0.0},
+        "public": {"count": 0, "kwh": 0.0, "cost": 0.0},
+        "_days": {},   # day-of-month -> {"km": float, "cost": float}
+    }
+
+
+def _collect_monthly_buckets() -> dict:
+    """Bucket every trip and charge into its LOCAL 'YYYY-MM'. One pass, reused for the
+    selected month, the previous month (deltas) and the month list (navigation). Trips come
+    from get_trips() (merged-aware, same as the Trips page); charges carry the frozen per-row
+    cost and the billed-kWh basis (_billed_kwh) so the report's € matches the Charges page."""
+    buckets: dict = {}
+
+    for tr in get_trips(limit=1_000_000):
+        dt = _local_dt(tr.get("started_at"))
+        if dt is None:
+            continue
+        b = buckets.setdefault(dt.strftime("%Y-%m"), _report_bucket())
+        km  = tr.get("distance_km") or 0
+        eff = tr.get("efficiency_kwh_100km")
+        b["trip_count"]     += 1
+        b["total_km"]       += km
+        b["total_kwh_used"] += km * (eff or 0) / 100.0
+        b["regen_kwh"]      += tr.get("regen_kwh") or 0
+        b["drive_min"]      += tr.get("duration_min") or 0
+        if eff and km > 0:
+            b["_eff_wsum"]  += km * eff
+            b["_eff_wdist"] += km
+        b["_days"].setdefault(dt.day, {"km": 0.0, "cost": 0.0})["km"] += km
+
+    for c in get_charges(limit=1_000_000):
+        dt = _local_dt(c.get("started_at"))
+        if dt is None:
+            continue
+        b = buckets.setdefault(dt.strftime("%Y-%m"), _report_bucket())
+        kwh  = _billed_kwh(c)
+        cost = c.get("cost")
+        lt   = c.get("location_type")
+        b["charge_count"] += 1
+        b["charge_kwh"]   += kwh
+        if cost is not None:
+            b["charge_cost"] += cost
+            b["has_cost"]     = True
+        grp = b["home"] if lt == "HOME" else (b["public"] if lt else None)
+        if grp is not None:
+            grp["count"] += 1
+            grp["kwh"]   += kwh
+            if cost is not None:
+                grp["cost"] += cost
+        else:
+            b["unconfirmed"] += 1   # untyped charge: counted in totals, left out of the split
+        if cost is not None:
+            b["_days"].setdefault(dt.day, {"km": 0.0, "cost": 0.0})["cost"] += cost
+
+    for b in buckets.values():
+        if b["_eff_wdist"] > 0:
+            b["avg_efficiency"] = round(b["_eff_wsum"] / b["_eff_wdist"], 1)
+        for k in ("total_km", "total_kwh_used", "regen_kwh", "charge_kwh", "charge_cost"):
+            b[k] = round(b[k], 2)
+        b["drive_min"] = int(round(b["drive_min"]))
+        for g in ("home", "public"):
+            b[g]["kwh"]  = round(b[g]["kwh"], 2)
+            b[g]["cost"] = round(b[g]["cost"], 2)
+    return buckets
+
+
+def get_monthly_report(month: Optional[str] = None) -> dict:
+    """One-month digest combining driving, charging and cost, with deltas vs the previous
+    calendar month and the list of months that have data (for the ◀ ▶ / dropdown nav).
+    `month` = local 'YYYY-MM'; defaults to the most recent month with any data."""
+    import calendar
+    buckets = _collect_monthly_buckets()
+    if not buckets:
+        return {"has_data": False, "month": None, "months": []}
+
+    months_desc = sorted(buckets.keys(), reverse=True)
+    if not month or month not in buckets:
+        month = months_desc[0]
+
+    lang = get_language()
+    def _label(mk):
+        return i18n.fmt_month_year(lang, datetime.strptime(mk, "%Y-%m"))
+
+    cur      = buckets[month]
+    prev_key = _month_shift(month, -1)
+    prev     = buckets.get(prev_key)
+
+    older = [m for m in months_desc if m < month]   # desc → nearest past is first
+    newer = [m for m in months_desc if m > month]   # desc → nearest future is last
+
+    def _delta(now, was):
+        if not was:                                 # None or 0 → no meaningful %
+            return {"diff": round(now, 2), "pct": None}
+        return {"diff": round(now - was, 2), "pct": int(round((now - was) / was * 100))}
+
+    deltas = None
+    if prev:
+        eff_d = None
+        if cur["avg_efficiency"] is not None and prev["avg_efficiency"] is not None:
+            eff_d = _delta(cur["avg_efficiency"], prev["avg_efficiency"])
+        deltas = {
+            "km":         _delta(cur["total_km"], prev["total_km"]),
+            "kwh_used":   _delta(cur["total_kwh_used"], prev["total_kwh_used"]),
+            "cost":       _delta(cur["charge_cost"], prev["charge_cost"]),
+            "charge_kwh": _delta(cur["charge_kwh"], prev["charge_kwh"]),
+            "efficiency": eff_d,
+        }
+
+    avg_price = (round(cur["charge_cost"] / cur["charge_kwh"], 3)
+                 if cur["charge_kwh"] > 0 and cur["has_cost"] else None)
+
+    ndays = calendar.monthrange(int(month[:4]), int(month[5:7]))[1]
+    daily = [{"day": d,
+              "km":   cur["_days"].get(d, {}).get("km", 0.0),
+              "cost": cur["_days"].get(d, {}).get("cost", 0.0)}
+             for d in range(1, ndays + 1)]
+
+    return {
+        "has_data": True,
+        "month": month, "label": _label(month),
+        "prev_month": older[0] if older else None,
+        "next_month": newer[-1] if newer else None,
+        "months": [{"key": m, "label": _label(m)} for m in months_desc],
+        "cur": cur, "prev": prev, "prev_label": _label(prev_key) if prev else None,
+        "deltas": deltas, "avg_price": avg_price, "daily": daily,
+    }
+
+
 # ── Battery health (SoH) ───────────────────────────────────────────────────────
 
 def get_battery_capacity_kwh() -> float:
@@ -1940,17 +2086,10 @@ def get_vampire_drain(min_hours: float = 1.0, min_drop_pct: float = 0.2,
 
 # ── Global map (all tracks + frequent places) ──────────────────────────────────
 
-def get_all_track(max_points: int = 12000) -> list[list[list[float]]]:
-    """Every trip's GPS track as a list of polylines (one [lat, lon] list per trip),
-    so the global map draws the actual driven roads as connected lines instead of
-    loose dots. Points are NEVER joined across trips. Downsampled to roughly
-    ``max_points`` total while always keeping each trip's first and last point, so the
-    lines stay continuous even when zoomed in."""
-    db = _get()
-    rows = db.execute(
-        "SELECT trip_id, latitude, longitude FROM trip_positions "
-        "WHERE latitude IS NOT NULL AND longitude IS NOT NULL ORDER BY trip_id, id"
-    ).fetchall()
+def _rows_to_segments(rows, max_points: int) -> list[list[list[float]]]:
+    """Group ordered (trip_id, lat, lon) rows into one polyline per trip (never joined across
+    trips), then proportionally downsample to ~max_points total while keeping each trip's real
+    first/last point. Shared by the global map (get_all_track) and the report's month map."""
     segments: list[list[list[float]]] = []
     cur_id, cur = None, []
     for r in rows:
@@ -1978,6 +2117,43 @@ def get_all_track(max_points: int = 12000) -> list[list[list[float]]]:
         ds[-1] = s[-1]
         out.append(ds)
     return out
+
+
+def get_all_track(max_points: int = 12000) -> list[list[list[float]]]:
+    """Every trip's GPS track as a list of polylines (one [lat, lon] list per trip),
+    so the global map draws the actual driven roads as connected lines instead of
+    loose dots. Points are NEVER joined across trips. Downsampled to roughly
+    ``max_points`` total while always keeping each trip's first and last point, so the
+    lines stay continuous even when zoomed in."""
+    db = _get()
+    rows = db.execute(
+        "SELECT trip_id, latitude, longitude FROM trip_positions "
+        "WHERE latitude IS NOT NULL AND longitude IS NOT NULL ORDER BY trip_id, id"
+    ).fetchall()
+    return _rows_to_segments(rows, max_points)
+
+
+def get_month_track(month: str, max_points: int = 8000) -> list[list[list[float]]]:
+    """GPS polylines for every trip STARTED in the given local 'YYYY-MM' — the report's month
+    map. Same shape/downsampling as get_all_track, scoped to one month's trips (parent and
+    merged-child trips alike, so every road driven that month is drawn)."""
+    if not month:
+        return []
+    db = _get()
+    ids = []
+    for r in db.execute("SELECT id, started_at FROM trips WHERE started_at IS NOT NULL").fetchall():
+        dt = _local_dt(r["started_at"])
+        if dt is not None and dt.strftime("%Y-%m") == month:
+            ids.append(r["id"])
+    if not ids:
+        return []
+    ph = ",".join("?" * len(ids))
+    rows = db.execute(
+        "SELECT trip_id, latitude, longitude FROM trip_positions "
+        f"WHERE trip_id IN ({ph}) AND latitude IS NOT NULL AND longitude IS NOT NULL "
+        "ORDER BY trip_id, id", ids
+    ).fetchall()
+    return _rows_to_segments(rows, max_points)
 
 
 def get_frequent_places(min_visits: int = 2, top_n: int = 15) -> list[dict]:

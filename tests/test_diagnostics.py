@@ -86,3 +86,29 @@ def test_redact_does_not_overmask_innocent_words():
 def test_redact_keeps_normal_lines_intact():
     line = "2026-06-09 [INFO] leapmotor_mate: SOC 92.3% | Range 400 km | State: parked_active"
     assert D._redact(line) == line
+
+
+def test_redact_camelcase_operate_password():
+    # riri19 #1: the Leapmotor remote-control field operatePassword (camelCase, no separator) was
+    # leaking — the compound-key regex requires a _/- separator, so camelCase slipped through.
+    assert "123456" not in D._redact('control req {"operatePassword": "123456"} sent')
+    assert "hunter2" not in D._redact("operatePassword=hunter2 next")
+    # innocent camelCase ending in a non-secret word must survive untouched
+    assert D._redact("compassHeading: 270 passengerCount: 2") == "compassHeading: 270 passengerCount: 2"
+
+
+def test_redact_lowercase_vin_in_mqtt_topic():
+    # riri19 #2: the VIN appears lowercase and glued inside the HA MQTT discovery topic, which the
+    # generic uppercase \b regex can't see. With the known VIN passed in, it's masked any case.
+    vin = "LFZA5AE2XSE000820"
+    out = D._redact("MQTT: homeassistant/sensor/leapmotor_mate_lfza5ae2xse000820/soc/config", vin)
+    assert "lfza5ae2xse000820" not in out.lower()
+    assert "LFZ…0820" in out
+
+
+def test_redact_gps_coords_truncated():
+    # riri19 #3: the trip-start log carries exact coords; truncate the paren pair to ~1 decimal.
+    out = D._redact("Trip #15 started — SOC 27.4% @ (45.4717, 1.5433)")
+    assert "45.4717" not in out and "1.5433" not in out
+    assert "(45.4…, 1.5…)" in out
+    assert "27.4%" in out                     # a non-coord number is NOT touched

@@ -1,10 +1,13 @@
 {% set is_charging = status and status.charging %}
+{% set is_complete = status and status.plug_connected and status.charge_completed and not is_charging %}
 <span id="charging-state" data-charging="{{ 'true' if is_charging else 'false' }}" hidden></span>
 <div class="flex items-center gap-2 mb-4">
   <span class="text-xl">⚡</span>
   <span class="font-semibold text-white">{{ t('charging') }}</span>
   {% if is_charging %}
   <span class="ml-auto text-xs font-bold px-2 py-0.5 rounded-full text-yellow-400 bg-yellow-400/10 border border-yellow-400/30 animate-pulse">{{ t('live_badge') }}</span>
+  {% elif is_complete %}
+  <span class="ml-auto text-xs font-bold px-2 py-0.5 rounded-full text-green-400 bg-green-400/10 border border-green-400/30">✅ {{ t('charge_complete') }}</span>
   {% else %}
   <span class="ml-auto text-xs text-slate-600">{{ t('not_charging') }}</span>
   {% endif %}

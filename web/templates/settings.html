@@ -599,6 +599,18 @@
           <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>11 kW</span><span>32 kW</span></div>
           <div class="text-[11px] text-slate-500 mt-1">{{ t('adv_dc_help') }}</div>
         </div>
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-sm text-white">{{ t('adv_soh_temp_label') }}</span>
+            <span class="font-bold text-brand"><span id="adv-soh-val">{{ settings.get('soh_temp_min_c', '15') }}</span> °C</span>
+          </div>
+          <input type="range" name="soh_temp_min_c" min="0" max="25" step="1"
+                 value="{{ settings.get('soh_temp_min_c', '15') }}"
+                 oninput="document.getElementById('adv-soh-val').textContent=this.value"
+                 class="w-full accent-brand cursor-pointer">
+          <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>0 °C</span><span>25 °C</span></div>
+          <div class="text-[11px] text-slate-500 mt-1">{{ t('adv_soh_temp_help') }}</div>
+        </div>
         <div class="flex items-center justify-between gap-3 pt-1">
           <div id="adv-result" class="text-xs"></div>
           <button type="button"

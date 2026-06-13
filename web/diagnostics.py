@@ -46,6 +46,16 @@ _BEARER_RE = re.compile(r'(?i)\bbearer\s+[\w.\-]+')         # "Bearer <token>" w
 # `*` in the local part also catches an already-partly-masked address (sil***@dxc.com → ***@***).
 _EMAIL_RE = re.compile(r'\b[\w.+*-]+@[\w.-]+\.\w{2,}\b')
 _VIN_RE = re.compile(r'\b([A-HJ-NPR-Z0-9]{17})\b')
+# camelCase secret keys (no separator, so the compound regex above misses them): the Leapmotor
+# remote-control field `operatePassword`, plus userToken/apiKey-style names. The CAPITALISED
+# suffix is required, so plain words (compass, passenger, compassHeading) are never matched.
+_CAMEL_SECRET_RE = re.compile(
+    r'''(?:["']?)\b([a-z]\w*?(?:Password|Passwd|Pwd|Pin|Token|Secret|Credential|ApiKey|AuthKey))\b["']?\s*[:=]\s*'''
+    r'''("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|[^\s,;}\n]+)''')
+# A latitude/longitude PAIR in parentheses — the trip-start log "@ (45.4717, 1.5433)". Truncated to
+# ~1 decimal (≈10 km) so a publicly-shared bundle can't pinpoint home. Only a paren-wrapped decimal
+# pair matches, so SoC / kWh / efficiency numbers in the logs are left untouched.
+_COORD_RE = re.compile(r'\(\s*(-?\d{1,3}\.\d)\d*\s*,\s*(-?\d{1,3}\.\d)\d*\s*\)')
 
 
 def mask_vin(vin: str | None) -> str:
@@ -54,12 +64,19 @@ def mask_vin(vin: str | None) -> str:
     return f"{vin[:3]}…{vin[-4:]}" if len(vin) >= 8 else "…"
 
 
-def _redact(text: str) -> str:
+def _redact(text: str, vin: str | None = None) -> str:
     text = _KV_SECRET_RE.sub(lambda m: f"{m.group(2)}=***", text)
+    text = _CAMEL_SECRET_RE.sub(lambda m: f"{m.group(1)}=***", text)   # operatePassword=…
     text = _AUTH_RE.sub("authorization=***", text)
     text = _BEARER_RE.sub("bearer ***", text)
     text = _EMAIL_RE.sub("***@***", text)
+    # The real VIN appears lowercase + glued inside the MQTT discovery topic
+    # (leapmotor_mate_lfza…820), which the generic uppercase \b regex below can't see — so when we
+    # know the car's VIN, replace it literally first, any case.
+    if vin:
+        text = re.sub(re.escape(vin), mask_vin(vin), text, flags=re.IGNORECASE)
     text = _VIN_RE.sub(lambda m: f"{m.group(1)[:3]}…{m.group(1)[-4:]}", text)
+    text = _COORD_RE.sub(lambda m: f"({m.group(1)}…, {m.group(2)}…)", text)
     return text
 
 
@@ -131,7 +148,8 @@ def read_log_tail(which: str, lines: int = 200) -> str:
     try:
         with path.open("r", errors="replace") as fh:
             tail = fh.readlines()[-max(1, min(lines, 2000)):]
-        return _redact("".join(tail)).strip() or "(log is empty)"
+        vehicle, _ = db_reader.get_vehicle()
+        return _redact("".join(tail), (vehicle or {}).get("vin")).strip() or "(log is empty)"
     except Exception as e:  # noqa: BLE001
         return f"(could not read log: {e})"
 

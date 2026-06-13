@@ -3,6 +3,31 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.19.0] — 2026-06-13
+
+### Added
+- **📆 Monthly Report.** A new **Report** page brings one month of driving, charging and **cost**
+  together at a glance: distance, trips, average efficiency and energy used; charging cost, sessions,
+  energy charged and average €/kWh; a **Home vs public** split; cost per 100 km, regen and drive time;
+  **deltas vs the previous month**; and **daily distance/cost charts**. Move between months with ◀ ▶
+  or the dropdown, and see a **map of every trip that month**. The figures match the Statistics
+  (driving) and Charges (cost) pages exactly.
+- **🔒 Security indicator on the Overview.** The first card now shows a **Security** row (just above
+  READY) — green **Active** when the car is locked and its alarm is armed — mirroring Leapmotor's own
+  *vehicle security active* signal. *(Suggested by @riri19.)*
+- **✅ "Fully charged" badge.** While the cable is still plugged in and the charge has completed, the
+  Overview charging card shows a **Fully charged** badge.
+- **Battery-health cold cutoff.** A new slider in **Settings → Advanced** sets the temperature below
+  which cold charges are excluded from the State-of-Health estimate (a cold LFP pack reads low). Default
+  15 °C; set it to 0 to include every charge.
+
+### Fixed
+- **Privacy of the shareable diagnostics bundle.** The exported diagnostics now also redact three things
+  that could leak when a bundle is posted publicly: the remote-control **`operatePassword`** (it was
+  printed in clear in the web log), the **VIN where it appears lowercase inside the Home Assistant MQTT
+  discovery topic**, and **exact GPS coordinates** in the trip logs (truncated to ~10 km). The actual
+  MQTT topic, the database and live logging are unchanged. *(Reported by @riri19.)*
+
 ## [1.18.1] — 2026-06-12
 
 ### Fixed

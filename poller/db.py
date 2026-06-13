@@ -74,7 +74,9 @@ CREATE TABLE IF NOT EXISTS positions (
     windows_open     INTEGER DEFAULT NULL,
     sunshade_open    INTEGER DEFAULT NULL,
     plug_connected   INTEGER DEFAULT NULL,
-    ready            INTEGER DEFAULT NULL
+    ready            INTEGER DEFAULT NULL,
+    charge_completed INTEGER DEFAULT NULL,
+    security_active  INTEGER DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS trips (
@@ -243,6 +245,10 @@ class Database:
             self._conn.execute("ALTER TABLE positions ADD COLUMN charge_current_a REAL DEFAULT NULL")
         if "ready" not in cols:
             self._conn.execute("ALTER TABLE positions ADD COLUMN ready INTEGER DEFAULT NULL")
+        if "charge_completed" not in cols:
+            self._conn.execute("ALTER TABLE positions ADD COLUMN charge_completed INTEGER DEFAULT NULL")
+        if "security_active" not in cols:
+            self._conn.execute("ALTER TABLE positions ADD COLUMN security_active INTEGER DEFAULT NULL")
         # migration: per-charge wallbox AC energy (the "wallbox, to pay" figure) on existing DBs
         ccols = {r[1] for r in self._conn.execute("PRAGMA table_info(charges)").fetchall()}
         if "ac_energy_kwh" not in ccols:
@@ -557,8 +563,8 @@ class Database:
                 range_km, gear, charging, is_locked, climate_on,
                 climate_cooling, climate_heating, climate_defrost,
                 trunk_open, windows_open, sunshade_open, plug_connected,
-                remaining_charge_min, charge_voltage_v, charge_current_a, ready)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                remaining_charge_min, charge_voltage_v, charge_current_a, ready, charge_completed, security_active)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 vehicle_id, _now_iso(),
                 data.latitude, data.longitude, data.speed_kmh, data.odometer_km,
@@ -578,6 +584,8 @@ class Database:
                 data.charge_voltage_v or None,
                 data.charge_current_a or None,
                 1 if data.ready else 0,
+                1 if data.charge_completed else 0,
+                1 if data.security_active else 0,
             ),
         )
         self._conn.commit()

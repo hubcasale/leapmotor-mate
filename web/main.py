@@ -23,7 +23,7 @@ import mqtt_check
 import auth
 import update_check
 
-MATE_VERSION = "1.18.1"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.19.0"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 
@@ -404,6 +404,16 @@ async def statistics(request: Request):
     return templates.TemplateResponse(request, "statistics.html", _ctx(
         page="statistics", vehicle=vehicle,
         grouped=grouped, totals=totals,
+    ))
+
+
+@app.get("/report", response_class=HTMLResponse)
+async def report(request: Request, month: str | None = None):
+    vehicle, _ = db_reader.get_vehicle()
+    data = db_reader.get_monthly_report(month)
+    track = db_reader.get_month_track(data["month"]) if data.get("has_data") else []
+    return templates.TemplateResponse(request, "report.html", _ctx(
+        page="report", vehicle=vehicle, r=data, track=track,
     ))
 
 
@@ -1727,6 +1737,7 @@ _ADVANCED_DEFAULTS = {
     "charge_reconstruct_min_pct": (2.0, 1.0, 10.0),
     "vampire_min_drop_pct":       (0.2, 0.1, 2.0),
     "charge_dc_min_kw":           (11.0, 11.0, 32.0),
+    "soh_temp_min_c":             (15.0, 0.0, 25.0),
 }
 
 

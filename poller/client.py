@@ -68,6 +68,8 @@ class VehicleData:
     mirror_heat_left: int = 0       # signal 49 leftMirrorHeating
     mirror_heat_right: int = 0      # signal 50 rightMirrorHeating
     ready: bool = False             # signal 1258 bcmKeyPositionOn3 — faithful READY/ON3 (physical key only)
+    charge_completed: bool = False  # signal 3736 chargeCompleted — true at full charge (validate on a real charge)
+    security_active: bool = False   # signal 1255 vehicleSecurityActive — locked + alarm armed (validate on-car)
 
     def fingerprint(self) -> tuple:
         """Compact snapshot of signals that indicate car activity."""
@@ -465,4 +467,6 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
         tire_rl_bar=round(float(sig.get("2660") or 0) / 100.0, 2),
         tire_rr_bar=round(float(sig.get("2667") or 0) / 100.0, 2),
         ready=int(sig.get("1258") or 0) == 1,   # B10 faithful READY (ON3) sensor
+        charge_completed=int(sig.get("3736") or 0) != 0,  # 3736 chargeCompleted — truthy (confirm value at a real full charge)
+        security_active=int(sig.get("1255") or 0) != 0,   # 1255 vehicleSecurityActive — B10 reads 2 when armed; truthy, matches kerniger bool()
     )

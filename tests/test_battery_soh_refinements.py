@@ -57,3 +57,20 @@ def test_full_charges_weigh_more_in_headline(tmp_path, monkeypatch):
     assert h["sample_count"] == 2
     # plain mean would be 63.5; weighting toward the 100%-ender gives (67·1 + 60·0.4)/1.4 = 65.0
     assert h["latest_capacity_kwh"] == 65.0
+
+
+def test_cold_cutoff_setting_is_honoured(tmp_path, monkeypatch):
+    """The Advanced 'cold cutoff' slider writes soh_temp_min_c; get_battery_health (called with
+    no arg) reads it. Lower the cutoff below the charge's temp and the once-cold session counts."""
+    db = _seed(tmp_path)
+    _charge(db, 1, "06-01", 20, 100, amps=268, temp=25, odo=1000)   # warm
+    _charge(db, 2, "06-05", 20, 100, amps=268, temp=5,  odo=1500)   # 5°C — excluded at the default 15
+    monkeypatch.setattr(db_reader, "DB_PATH", str(tmp_path / "t.db"))
+
+    assert db_reader.get_battery_health()["excluded_count"] == 1     # default 15°C → cold one out
+
+    db_reader.set_setting("soh_temp_min_c", "2")                     # slider: cutoff below 5°C
+    h = db_reader.get_battery_health()
+    assert h["temp_min_c"] == 2.0
+    assert h["excluded_count"] == 0 and h["sample_count"] == 2       # both now count
+    assert all(p["excluded"] is False for p in h["points"])
