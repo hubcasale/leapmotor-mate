@@ -373,6 +373,14 @@ def main():
                     db.set_setting("gps_lon_sign", str(signs["lon"]))
                 _persisted_signs = signs
 
+            # Persist the car's configured charge limit (the SoC it will stop at) whenever it
+            # changes, so the Overview hero can label the charge ETA with the real % read cheaply
+            # from settings — works even when the limit is changed from the official app. Write
+            # only on change, like the GPS sign above → no per-poll churn.
+            if data.charge_limit_percent is not None and \
+                    str(data.charge_limit_percent) != db.get_setting("charge_limit_percent", ""):
+                db.set_setting("charge_limit_percent", str(data.charge_limit_percent))
+
             # OTA / software-update check (scans the account inbox) — throttled, best-effort.
             _maybe_check_ota(db, client)
 

@@ -24,7 +24,7 @@ import mqtt_check
 import auth
 import update_check
 
-MATE_VERSION = "1.21.2"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.21.3"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 import demo
@@ -258,6 +258,7 @@ async def overview(request: Request):
         page="overview", vehicle=vehicle, settings=settings,
         status=status, recent_trips=trips,
         last_charge=charges[0] if charges else None,
+        charge_limit=_configured_charge_limit(),
     ))
 
 
@@ -1526,6 +1527,16 @@ async def status_card(request: Request):
     ))
 
 
+def _configured_charge_limit() -> int | None:
+    """The car's configured max-charge SoC (the % it stops charging at), persisted by the poller
+    from each status read (and on a Mate set). Lets the Overview hero label the charge ETA with the
+    real limit instead of a hardcoded 100. None if never seen → the template falls back to 100."""
+    try:
+        return int(db_reader.get_setting("charge_limit_percent", "") or 0) or None
+    except (TypeError, ValueError):
+        return None
+
+
 @app.get("/api/overview-hero", response_class=HTMLResponse)
 async def overview_hero(request: Request):
     """Overview hero card (image + live status chips + quick commands + charging animation).
@@ -1534,7 +1545,7 @@ async def overview_hero(request: Request):
     status = db_reader.get_latest_status()
     vehicle, _ = db_reader.get_vehicle()
     return templates.TemplateResponse(request, "partials/overview_hero.html", _ctx(
-        status=status, vehicle=vehicle,
+        status=status, vehicle=vehicle, charge_limit=_configured_charge_limit(),
     ))
 
 
@@ -1929,6 +1940,9 @@ async def set_charge_limit(request: Request):
         None, lambda: command_client.set_charge_limit(percent)
     )
     if ok:
+        # Mirror the new limit into settings so the Overview hero shows the right "to X%" at once,
+        # before the next poll re-reads it from the car.
+        db_reader.set_setting("charge_limit_percent", str(percent))
         return HTMLResponse(f'<span style="color:#22c55e">✓ Limit set to {percent}%</span>')
     return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
 

@@ -70,6 +70,8 @@ class VehicleData:
     ready: bool = False             # signal 1258 bcmKeyPositionOn3 — faithful READY/ON3 (physical key only)
     charge_completed: bool = False  # signal 3736 chargeCompleted — true at full charge (validate on a real charge)
     security_active: bool = False   # signal 1255 vehicleSecurityActive — locked + alarm armed (validate on-car)
+    charge_limit_percent: int | None = None  # configured max-charge SoC (from the config block, not a
+                                             # signal); None if unknown / model doesn't report it
 
     def fingerprint(self) -> tuple:
         """Compact snapshot of signals that indicate car activity."""
@@ -160,7 +162,19 @@ class LeapmotorMateClient:
             # Surface a clear, transient error instead of a bare KeyError so the poller
             # can back off cleanly and retry.
             raise EmptyStatusError("vehicle status has no live signals (car asleep or not reporting)")
-        return _parse_signal(self._vehicle.vin, sig)
+        vd = _parse_signal(self._vehicle.vin, sig)
+        # The configured charge limit (max-charge SoC) lives in the config block of this SAME raw
+        # status — not in the signal dict — so capture it here, free of any extra cloud call, for
+        # the Overview's "to X%" charge-ETA label instead of a hardcoded 100. It's the very field
+        # the Charges page reads via get_charge_plan (config["3"]["percent"]). Absent on some models
+        # (T03/EU named-field responses) → stays None and the UI falls back to 100.
+        try:
+            pct = ((data.get("config") or {}).get("3") or {}).get("percent")
+            if pct is not None:
+                vd.charge_limit_percent = int(pct)
+        except (TypeError, ValueError):
+            pass
+        return vd
 
     def check_ota(self) -> dict:
         """Scan the account message inbox for an OTA / software-update notice. This is the ONLY

@@ -3,6 +3,23 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.21.3] — 2026-06-14
+
+### Fixed
+- **Overview charge ETA now shows the real charge limit, not a hardcoded 100%.** While charging, the
+  hero card read e.g. *"3h 00m al 100%"* even when the car's charge limit was set to 90% — the target
+  percentage was a fixed string. It now shows the **actual configured limit** the car reports
+  (*"… al 90%"*, the same value as the Charges page "Charge Limit"). The car already reports both the
+  remaining time and the SoC it will stop at — only the label was wrong. The limit is captured by the
+  poller from each status read (free — it's in the same response; updates even if you change it from the
+  official app) and persisted, and is mirrored immediately when you set it from Mate. Localised IT/EN/FR/DE.
+- **Charging animation no longer overlaps the car image.** The plug → flow → battery animation was
+  absolutely positioned over the car picture, so on every screen the icons sat on top of the vehicle
+  (wheels/body), and in the narrow 3‑column layout (~1024px, e.g. a slim Home Assistant panel) the
+  status pill wrapped and split *"al 90%"* across two lines. The animation now sits **below** the car in
+  normal flow — it can't overlap the vehicle at any resolution — and the charging pill stays on **one
+  line** at every width (verified 320 → 1280px).
+
 ## [1.21.2] — 2026-06-14
 
 ### Added

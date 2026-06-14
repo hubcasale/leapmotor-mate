@@ -5,6 +5,11 @@
 {% block content %}
 <style>
   #hero-card .hero-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:4px 9px;border-radius:999px;line-height:1}
+  /* The charging chip packs a lot (kW · SoC · time · target %). Keep it on ONE line at every
+     width; in the narrow 3-column (lg) layout the hero card is only ~190px wide, so shrink the
+     font a touch there to stop it wrapping and splitting "al 90%" across two lines over the car. */
+  #hero-card .hero-chip--charge{white-space:nowrap;max-width:100%}
+  @media (min-width:1024px){ #hero-card .hero-chip--charge{font-size:11px;padding-left:7px;padding-right:7px} }
   #hero-card .hero-stream{position:relative;width:64px;height:8px;border-radius:999px;background:rgba(20,184,166,.15);overflow:hidden}
   #hero-card .hero-stream span{position:absolute;top:2px;width:4px;height:4px;border-radius:50%;background:#5eead4;animation:heroFlow 1.2s linear infinite}
   #hero-card .hero-stream span:nth-child(2){animation-delay:.3s}

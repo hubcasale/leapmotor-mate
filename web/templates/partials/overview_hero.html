@@ -59,30 +59,33 @@
       {{ ico.mdi('car', 'w-16 h-16') }}
       <span class="text-sm mt-2 text-slate-400">{{ vehicle.car_type if vehicle else 'Leapmotor' }}</span>
     </div>
-
-    {% if charging %}
-    <!-- Charging: energy flowing from the charge point into the car -->
-    <div class="absolute inset-x-0 bottom-1 flex flex-col items-center gap-1.5">
-      <div class="flex items-center gap-2">
-        <span class="text-teal-300">{{ ico.mdi('ev-plug-type2', 'w-5 h-5') }}</span>
-        <div class="hero-stream"><span></span><span></span><span></span><span></span></div>
-        <span class="text-teal-300">{{ ico.mdi('battery-charging', 'w-5 h-5') }}</span>
-      </div>
-      <span class="hero-chip bg-teal-400/10 text-teal-300 border border-teal-400/30">
-        {% if status.charge_power_kw %}{{ '%.1f'|format(status.charge_power_kw) }} kW · {% endif %}
-        {{ status.soc | round | int }}%{% if status.remaining_charge_min %} · {{ fmt_dur(status.remaining_charge_min) }} {{ t('hero_to_full') }}{% endif %}
-      </span>
-    </div>
-    {% elif plug %}
-    <!-- Plugged in but not actively charging (charge complete / paused) — the cable is still in. -->
-    <div class="absolute inset-x-0 bottom-1 flex justify-center">
-      <span class="hero-chip bg-teal-400/10 text-teal-300 border border-teal-400/30">
-        {{ ico.mdi('ev-plug-type2', 'w-4 h-4') }}
-        {{ t('state_plugged') }}{% if status.soc is not none %} · {{ status.soc | round | int }}%{% endif %}
-      </span>
-    </div>
-    {% endif %}
   </div>
+
+  {# Charge status sits BELOW the car image in normal flow (not absolutely overlaid) so the
+     plug/stream/battery animation can never overlap the vehicle — the car PNG fills the image
+     box at any card width (object-contain, height-constrained), leaving no room to overlay. #}
+  {% if charging %}
+  <!-- Charging: energy flowing from the charge point into the car -->
+  <div class="flex flex-col items-center gap-1.5 mt-1">
+    <div class="flex items-center gap-2">
+      <span class="text-teal-300">{{ ico.mdi('ev-plug-type2', 'w-5 h-5') }}</span>
+      <div class="hero-stream"><span></span><span></span><span></span><span></span></div>
+      <span class="text-teal-300">{{ ico.mdi('battery-charging', 'w-5 h-5') }}</span>
+    </div>
+    <span class="hero-chip hero-chip--charge bg-teal-400/10 text-teal-300 border border-teal-400/30">
+      {% if status.charge_power_kw %}{{ '%.1f'|format(status.charge_power_kw) }} kW · {% endif %}
+      {{ status.soc | round | int }}%{% if status.remaining_charge_min %} · {{ fmt_dur(status.remaining_charge_min) }} {{ t('hero_to_full').format(pct=(charge_limit or 100)) }}{% endif %}
+    </span>
+  </div>
+  {% elif plug %}
+  <!-- Plugged in but not actively charging (charge complete / paused) — the cable is still in. -->
+  <div class="flex justify-center mt-1">
+    <span class="hero-chip bg-teal-400/10 text-teal-300 border border-teal-400/30">
+      {{ ico.mdi('ev-plug-type2', 'w-4 h-4') }}
+      {{ t('state_plugged') }}{% if status.soc is not none %} · {{ status.soc | round | int }}%{% endif %}
+    </span>
+  </div>
+  {% endif %}
 
   <!-- State word -->
   {% if status %}
