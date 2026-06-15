@@ -841,6 +841,65 @@ def delete_charge(charge_id: int) -> bool:
     return cur.rowcount > 0
 
 
+# ── Command responsiveness log (car↔cloud reachability proxy) ────────────────
+# A remote command is the ONLY moment Mate talks to the car in real time — polls just read
+# the cloud's CACHED state, so they succeed even when the car has weak coverage. Logging each
+# command's outcome therefore measures how responsive the car itself is (a proxy for the
+# cellular coverage where it's parked) — which is exactly what a "cloud OK but car didn't
+# confirm" timeout is telling us. This is why one user can see timeouts while everyone else is fine.
+def _ensure_command_log(db: sqlite3.Connection) -> None:
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS command_log ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, "
+        "action TEXT, outcome TEXT NOT NULL, latency_ms INTEGER)")
+
+
+def log_command(action: str, outcome: str, latency_ms: Optional[int] = None) -> None:
+    """Record one remote-command outcome (confirmed|timeout_car|cloud_unreachable|rejected).
+    Best-effort: never raises into the command path. Keeps ~90 days."""
+    try:
+        db = _conn_rw()
+        _ensure_command_log(db)
+        db.execute("INSERT INTO command_log (ts, action, outcome, latency_ms) VALUES (?,?,?,?)",
+                   (datetime.now(timezone.utc).isoformat(), action, outcome, latency_ms))
+        db.execute("DELETE FROM command_log WHERE ts < ?",
+                   ((datetime.now(timezone.utc) - timedelta(days=90)).isoformat(),))
+        db.commit()
+    except Exception:
+        pass
+
+
+def command_responsiveness(last_n: int = 24, min_samples: int = 3) -> dict:
+    """How reliably the car answers commands — a proxy for its cellular coverage. Window is by
+    COUNT (the LAST `last_n` commands), NOT by time: it stays visible between command sessions
+    and recovers to green within ~last_n good commands (old timeouts scroll out). Only
+    'confirmed' vs 'timeout_car' count (a cloud/network or auth failure isn't the car's fault).
+    ALWAYS returns a dict so the badge stays visible — state='unknown' until min_samples commands."""
+    rows = []
+    try:
+        db = _conn_rw()
+        _ensure_command_log(db)
+        rows = db.execute(
+            "SELECT outcome, latency_ms FROM command_log "
+            "WHERE outcome IN ('confirmed','timeout_car') ORDER BY id DESC LIMIT ?",
+            (last_n,)).fetchall()
+    except Exception:
+        rows = []
+    total = len(rows)
+    if total < min_samples:
+        return {"state": "unknown", "confirmed": 0, "timeouts": 0, "total": total,
+                "rate": None, "last_n": last_n, "avg_latency_ms": None}
+    confirmed = sum(1 for r in rows if r["outcome"] == "confirmed")
+    lat = [r["latency_ms"] for r in rows
+           if r["outcome"] == "confirmed" and r["latency_ms"] is not None]
+    rate = confirmed / total
+    state = ("responsive" if rate >= 0.8 else
+             "intermittent" if rate >= 0.4 else "unresponsive")
+    return {"state": state, "confirmed": confirmed, "timeouts": total - confirmed,
+            "total": total, "rate": round(rate, 2), "last_n": last_n,
+            "avg_latency_ms": int(sum(lat) / len(lat)) if lat else None}
+
+
 # ── Manual trip merge (reversible) ──────────────────────────────────────────────
 # A merged trip is a parent + child trips (merged_into_id = parent.id), joined by the user when
 # a journey was split by a SHORT, NON-charging stop. Nothing is deleted or overwritten — the group

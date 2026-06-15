@@ -3,6 +3,14 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.21.6] — 2026-06-15
+
+### Added
+- **"Car responsiveness" indicator on the Overview.** A small coloured dot next to the status card shows how reliably your car has been answering remote commands lately — a proxy for the mobile coverage where it's parked (🟢 good · 🟡 patchy · 🔴 poor · ⚪ no data yet). It's built from the outcome of your **last 24 commands** — only "car confirmed in time" vs "car didn't confirm" count, since a cloud/network or PIN error isn't the car's fault — and recovers to green within a handful of good commands. A poll only reads the cloud's *cached* state, so a command is the one moment Mate reaches the car in real time, which is exactly what this measures. Hover for details.
+
+### Changed
+- **Clearer message when a command "times out".** When you send a command and the Leapmotor cloud accepts it ("request successful") but the car doesn't confirm in time — typically weak cellular coverage or the car in deep standby — Mate now shows an **amber "sent — the car didn't confirm in time (it may still have worked); try again shortly"** notice instead of a red error. The command often *did* apply: it's the car's reachability, not a Mate fault. Genuine cloud-unreachable or auth/PIN errors still show clearly in red.
+
 ## [1.21.5] — 2026-06-15
 
 ### Fixed

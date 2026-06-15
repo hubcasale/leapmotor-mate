@@ -24,7 +24,7 @@ import mqtt_check
 import auth
 import update_check
 
-MATE_VERSION = "1.21.5"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.21.6"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 import demo
@@ -259,6 +259,7 @@ async def overview(request: Request):
         status=status, recent_trips=trips,
         last_charge=charges[0] if charges else None,
         charge_limit=_configured_charge_limit(),
+        car_resp=db_reader.command_responsiveness(),
     ))
 
 
@@ -665,7 +666,7 @@ async def nav_send(request: Request):
     t = i18n.get_t(db_reader.get_language())
     if ok:
         return HTMLResponse(f'<span style="color:#22c55e">✓ {t("nav_sent")}</span>')
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 @app.get("/api/nav/chargers", response_class=JSONResponse)
@@ -1524,6 +1525,7 @@ async def status_card(request: Request):
     vehicle, _ = db_reader.get_vehicle()
     return templates.TemplateResponse(request, "partials/status_card.html", _ctx(
         status=status, vehicle=vehicle,
+        car_resp=db_reader.command_responsiveness(),
     ))
 
 
@@ -1746,7 +1748,7 @@ async def set_seat(request: Request, func: str, position: str):
         _t = i18n.get_t(db_reader.get_language())
         txt = f"{_t('lvl_abbr')} {level}" if level > 0 else _t('lvl_off')
         return HTMLResponse(f'<span style="color:#22c55e">✓ {txt}</span>')
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 @app.post("/api/climate-temp", response_class=HTMLResponse)
@@ -1763,7 +1765,7 @@ async def set_climate_temp_api(request: Request):
         None, lambda: command_client.set_climate_temp(temp, inside))
     if ok:
         return HTMLResponse(f'<span style="color:#22c55e">✓ {max(18, min(temp, 32))}°C</span>')
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 @app.post("/api/poll-settings", response_class=HTMLResponse)
@@ -1944,7 +1946,7 @@ async def set_charge_limit(request: Request):
         # before the next poll re-reads it from the car.
         db_reader.set_setting("charge_limit_percent", str(percent))
         return HTMLResponse(f'<span style="color:#22c55e">✓ Limit set to {percent}%</span>')
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 # ── Scheduling (native B10: charge cmd 190, climate cmd 171) ───────────────────
@@ -1984,7 +1986,7 @@ async def save_charge_schedule_api(request: Request):
     if ok:
         return HTMLResponse(f'<span style="color:#22c55e">✓ {t("sched_saved")}</span>',
                             headers={"HX-Trigger": "chargeScheduleSaved"})
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 @app.get("/api/climate-schedule")
@@ -2024,7 +2026,7 @@ async def save_climate_schedule_api(request: Request):
     if ok:
         return HTMLResponse(f'<span style="color:#22c55e">✓ {t("sched_saved")}</span>',
                             headers={"HX-Trigger": "climateScheduleSaved"})
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 # ── One-touch prepare-car (cmd 360 immediate / 361 schedule) ─────────────────────────────────
@@ -2097,7 +2099,7 @@ async def save_prepare_car_schedule_api(request: Request):
     if ok:
         return HTMLResponse(f'<span style="color:#22c55e">✓ {t("sched_saved")}</span>',
                             headers={"HX-Trigger": "prepareCarSaved"})
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 @app.post("/api/prepare-car/schedule/delete", response_class=HTMLResponse)
@@ -2123,7 +2125,7 @@ async def delete_prepare_car_schedule_api(request: Request):
     if ok:
         return HTMLResponse(f'<span style="color:#22c55e">✓ {t("sched_saved")}</span>',
                             headers={"HX-Trigger": "prepareCarSaved"})
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 @app.post("/api/prepare-car/now", response_class=HTMLResponse)
@@ -2139,7 +2141,7 @@ async def prepare_car_now_api(request: Request):
         None, lambda: command_client.prepare_car_now(bundle))
     if ok:
         return HTMLResponse(f'<span style="color:#22c55e">✓ {t("prep_sent")}</span>')
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 @app.post("/api/prepare-car/off", response_class=HTMLResponse)
@@ -2150,7 +2152,7 @@ async def prepare_car_off_api(request: Request):
     ok, msg = await asyncio.get_event_loop().run_in_executor(None, command_client.prepare_car_off)
     if ok:
         return HTMLResponse(f'<span style="color:#22c55e">✓ {t("prep_off_done")}</span>')
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 _OPTIMISTIC = {
@@ -2199,6 +2201,20 @@ _SLOW_COMMANDS = {"open_sunshade", "close_sunshade", "open_trunk", "close_trunk"
 # it — so command #1's eventual timeout can never clear command #2's optimistic overlay
 # (GitHub #34).
 _command_epoch = 0
+
+
+def _cmd_error_html(msg: str) -> str:
+    """HTML for a FAILED command. A 'timeout_car' (cloud accepted the command but the car
+    didn't confirm in time = weak coverage / standby) and a cloud-unreachable error are shown
+    as AMBER notices — it's the car or the network, not a Mate bug — while genuine errors stay
+    red. data-warn keeps the message visible (no grid refetch)."""
+    t = i18n.get_t(db_reader.get_language())
+    outcome = command_client._classify_outcome(False, msg)
+    if outcome == "timeout_car":
+        return f'<span data-warn="1" style="color:#fbbf24">⏱️ {t("cmd_timeout_car")}</span>'
+    if outcome == "cloud_unreachable":
+        return f'<span data-warn="1" style="color:#fbbf24">📡 {t("cmd_cloud_unreach")}</span>'
+    return f'<span style="color:#ef4444">✗ {msg}</span>'
 
 
 def _command_confirmed(expected: dict, signals: dict) -> bool:
@@ -2339,7 +2355,7 @@ async def run_command(name: str, background_tasks: BackgroundTasks):
         if slow:
             return HTMLResponse('<span data-slow="1" style="color:#60a5fa;display:inline-flex;align-items:center;gap:4px"><svg style="animation:spin 1s linear infinite;width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg></span><style>@keyframes spin{to{transform:rotate(360deg)}}</style>')
         return HTMLResponse('<span style="color:#22c55e">✓ Done</span>')
-    return HTMLResponse(f'<span style="color:#ef4444">✗ {msg}</span>')
+    return HTMLResponse(_cmd_error_html(msg))
 
 
 # ── Battery options — European models only (verified specs) ──────────────────

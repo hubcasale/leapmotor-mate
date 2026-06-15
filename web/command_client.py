@@ -9,6 +9,24 @@ from leapmotor_api import LeapmotorApiClient
 
 log = logging.getLogger(__name__)
 
+
+def _classify_outcome(ok: bool, msg: str) -> str:
+    """Bucket a command result for the responsiveness log:
+      confirmed         — the car acknowledged in time
+      timeout_car       — cloud accepted ('Request successful') but the car didn't confirm in 5s
+      cloud_unreachable — couldn't even reach the Leapmotor cloud (network)
+      rejected          — auth/PIN/other refusal (not a reachability issue)
+    """
+    if ok:
+        return "confirmed"
+    low = (msg or "").lower()
+    if "remote control result" in low or ("timed out" in low and "remote" in low):
+        return "timeout_car"
+    if any(k in low for k in ("timed out", "connection", "max retries", "unreachable",
+                              "remotedisconnected", "broken pipe", "ssl", "temporarily")):
+        return "cloud_unreachable"
+    return "rejected"
+
 # App certificate location. The wizard writes the user-provided cert to /data/certs
 # (persistent); fall back to the image-bundled CERT_DIR for local dev. Resolved at call
 # time so certs uploaded mid-setup are picked up without a restart.
@@ -163,6 +181,25 @@ class LeapmotorSession:
         log.info("Session reset — will re-login on next call")
 
     def execute(self, action_fn) -> tuple[bool, str]:
+        """Run a command, then log its outcome + round-trip latency — the car-responsiveness
+        signal. A command is the only time Mate reaches the car in real time (polls read the
+        cloud cache), so this is our one window into how well the car answers."""
+        import sys
+        t0 = time.monotonic()
+        try:
+            action = sys._getframe(1).f_code.co_name
+        except Exception:
+            action = "command"
+        ok, msg = self._execute_inner(action_fn)
+        try:
+            import db_reader as _dr
+            _dr.log_command(action, _classify_outcome(ok, msg),
+                            int((time.monotonic() - t0) * 1000))
+        except Exception:
+            pass
+        return ok, msg
+
+    def _execute_inner(self, action_fn) -> tuple[bool, str]:
         with self._lock:
             refreshed = False
             for attempt in range(3):

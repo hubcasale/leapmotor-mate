@@ -85,6 +85,20 @@
     <span>{{ t('last_seen') }}</span>
     <span class="text-white font-medium">{{ status.last_seen }}</span>
   </div>
+  {% if car_resp %}
+  <div class="flex justify-between items-center text-slate-400 col-span-2 gap-2" title="{{ t('car_resp_hint') }}">
+    <span class="flex-shrink-0">📶 {{ t('car_resp_title') }}</span>
+    <span class="font-semibold flex items-center justify-end gap-1.5 text-right">
+      {% if car_resp.state == 'unknown' %}
+      <span class="text-base leading-none opacity-60">⚪</span>
+      <span class="text-xs text-slate-500 font-normal whitespace-nowrap">—</span>
+      {% else %}
+      <span class="text-base leading-none">{% if car_resp.state == 'responsive' %}🟢{% elif car_resp.state == 'intermittent' %}🟡{% else %}🔴{% endif %}</span>
+      <span class="text-xs text-slate-500 font-normal whitespace-nowrap">{{ car_resp.confirmed }}/{{ car_resp.total }}{% if car_resp.avg_latency_ms %} · {{ (car_resp.avg_latency_ms / 1000) | round(1) }}s{% endif %}</span>
+      {% endif %}
+    </span>
+  </div>
+  {% endif %}
 </div>
 
 {% else %}

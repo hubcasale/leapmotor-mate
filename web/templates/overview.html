@@ -28,7 +28,7 @@
   <div class="card md:col-span-1"
        id="status-card"
        hx-get="api/status-card"
-       hx-trigger="every 30s"
+       hx-trigger="load, every 30s"
        hx-swap="innerHTML">
     {% include "partials/status_card.html" %}
   </div>
