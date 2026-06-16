@@ -3,6 +3,11 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.22.3] — 2026-06-16
+
+### Changed
+- **Diagnostics bundle now shows the computed battery-standby (vampire-drain) result and a 14-day SoC-by-day summary.** When someone reports an empty or missing battery-drain chart, the downloaded bundle now includes exactly what Mate computes — the window count, the time-weighted rate and each detected window — plus, for the last 14 days, the daily battery-% high→low and the km driven. That makes the actual cause (sparse data, no qualifying parked period, gaps, etc.) visible at a glance instead of guessing from a screenshot.
+
 ## [1.22.2] — 2026-06-16
 
 ### Fixed

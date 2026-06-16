@@ -10,7 +10,7 @@ Everything here is read-only and redacts obvious secrets + the VIN before it lea
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import db_reader
@@ -189,6 +189,40 @@ def _signals_section(signals: dict | None, vin: str | None) -> str:
     return _redact(json.dumps(clean, indent=2, sort_keys=True), vin)
 
 
+def _vampire_section() -> str:
+    """What get_vampire_drain() actually computes — so an 'empty/missing battery-drain chart'
+    report (e.g. #63) shows the real count/windows, not just the user's screenshot."""
+    try:
+        v = db_reader.get_vampire_drain()
+    except Exception as e:  # noqa: BLE001
+        return f"(vampire calc failed: {e})"
+    out = [f"count={v.get('count')}  typical={v.get('typical_pct_per_day')} %/day  "
+           f"lookback={v.get('lookback_days')}d"]
+    for w in (v.get("windows") or [])[-15:]:
+        out.append(f"  {str(w['start'])[:16]} → {str(w['end'])[:16]}  {w['drop_pct']}% / {w['hours']}h "
+                   f"= {w['pct_per_day']} %/day  reliable={w['reliable']}"
+                   + ("  ongoing" if w.get("ongoing") else ""))
+    return "\n".join(out)
+
+
+def _soc_daily_section() -> str:
+    """Per-day SoC hi→lo + km driven for the last 14 days — reveals the parked-drain pattern and
+    any data gaps behind a 'my history vanished' report (#63)."""
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+        rows = db_reader._get().execute(
+            "SELECT substr(recorded_at,1,10) d, COUNT(*) n, MIN(soc) lo, MAX(soc) hi, "
+            "MIN(odometer_km) o0, MAX(odometer_km) o1 FROM positions "
+            "WHERE soc IS NOT NULL AND recorded_at >= ? GROUP BY d ORDER BY d", (cutoff,)).fetchall()
+    except Exception as e:  # noqa: BLE001
+        return f"(soc-daily failed: {e})"
+    out = []
+    for r in rows:
+        drove = (r["o1"] or 0) - (r["o0"] or 0)
+        out.append(f"  {r['d']}  n={str(r['n']):<5} soc {r['hi']:.1f}→{r['lo']:.1f}  drove {drove:.0f} km")
+    return "\n".join(out) or "(no SoC samples in the last 14 days)"
+
+
 def build_bundle(version: str, parts=_BUNDLE_PARTS, lines: int = 300, signals: dict | None = None) -> str:
     """One redacted text blob to attach to an issue. `parts` selects which sections to include
     (any of 'info', 'poller', 'web', 'signals'); a one-line version header is always present. The
@@ -214,6 +248,8 @@ def build_bundle(version: str, parts=_BUNDLE_PARTS, lines: int = 300, signals: d
             f"Last poll    : {info['last_poll_iso']} (age {info['last_poll_age_min']} min) "
             f"soc={info['last_soc']} gear={info['last_gear']} charging={info['last_charging']}",
         ]
+        out += ["", "----- battery standby / vampire-drain (computed) -----", _vampire_section()]
+        out += ["", "----- SoC by day (last 14d · hi→lo · km driven) -----", _soc_daily_section()]
     if "poller" in want:
         out += ["", "----- poller log (recent) -----", read_log_tail("poller", lines)]
     if "web" in want:
