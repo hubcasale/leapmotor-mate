@@ -3,6 +3,11 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.22.6] — 2026-06-16
+
+### Fixed
+- **T03: the window open/closed status now reflects reality, and "open windows" works.** On the T03 the Vehicle page always showed the windows as "closed" — it read only the open/closed flags, which the T03 doesn't drive (it reports the live window *position* instead) — and the "open windows" button did nothing, because the command value the T03 needs differs from the B10's. Mate now also reads the window position where it's a reliable signal for the car (gated per-car via the capability profile, so the B10's dead position-sensor can't produce false "open" readings), and sends the model-appropriate open value. The B10 is unaffected (same command, same behaviour as before). (#62)
+
 ## [1.22.5] — 2026-06-16
 
 ### Fixed

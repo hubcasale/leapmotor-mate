@@ -743,7 +743,17 @@ def set_climate_temp(temp, inside=None):
     body = json.dumps({"circle": "in", "mode": mode, "operate": "manual", "position": "all",
                        "temperature": str(t), "windlevel": "5", "wshld": "0"}, separators=(",", ":"))
     return _session.execute(lambda api, vin: api._remote_control(vin=vin, action="ac_on", cmd_content=body))
-def open_windows():      return _session.execute(lambda api, vin: api.open_windows(vin, value="2"))
+# windows value is a position 0–100, but the accepted-and-ACTUATED value is model-specific: the B10
+# opens on "2" and ignores "100" (cloud says "request successful" either way); leapconnect's T03 opens
+# on "100" and ignores "2" (#62). So default to the B10's "2" (the only value confirmed on-car here)
+# and override per car-type for models known to need a different one. close=0 works on both.
+_WINDOWS_OPEN_VALUE = {"T03": "100"}   # car_type → open value; default "2" (B10-confirmed)
+def _session_car_type() -> str:
+    v = getattr(_session, "_vehicle", None)
+    return (getattr(v, "car_type", "") or "").upper() if v else ""
+def open_windows():
+    return _session.execute(lambda api, vin: api.open_windows(
+        vin, value=_WINDOWS_OPEN_VALUE.get(_session_car_type(), "2")))
 def close_windows():     return _session.execute(lambda api, vin: api.close_windows(vin, value="0"))
 def battery_preheat():   return _session.execute(lambda api, vin: api.battery_preheat(vin))
 def battery_preheat_off():return _session.execute(lambda api, vin: api.battery_preheat_off(vin))

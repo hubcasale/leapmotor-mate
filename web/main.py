@@ -24,7 +24,7 @@ import mqtt_check
 import auth
 import update_check
 
-MATE_VERSION = "1.22.5"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.22.6"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 import demo
@@ -596,8 +596,9 @@ async def commands(request: Request):
     ))
 
 
-def _parse_vehicle_status(sig: dict) -> dict:
-    """Parse tyres / doors / windows / temps from a fresh signal dict (live, not DB)."""
+def _parse_vehicle_status(sig: dict, vin: str | None = None) -> dict:
+    """Parse tyres / doors / windows / temps from a fresh signal dict (live, not DB). `vin` gates
+    the per-car window-% fallback against its capability profile (#62)."""
     def f(k):
         try: return float(sig.get(k)) if sig.get(k) is not None else None
         except (TypeError, ValueError): return None
@@ -608,6 +609,19 @@ def _parse_vehicle_status(sig: dict) -> dict:
         v = f(k); return round(v / 100.0, 2) if v is not None else None
     def is_open(k):
         v = i(k); return None if v is None else (v != 0)
+    # The open/closed flags (1693-1696) work on the B10 but are DEAD on the T03 (stay 0 even when
+    # open); the position % (3727/3728/1879/1880) is the opposite — live on the T03, dead/garbage on
+    # the B10 (#62). Fall back to the % ONLY where it isn't a known-broken sensor for this car (per
+    # the capability profile), otherwise the B10's dead-but-noisy % false-positives every window.
+    use_pct = bool(vin) and capability_profile.is_shown(vin, "windows_pct")
+    def win_open(state_k, pct_k):
+        # open if the flag says so, OR (where the % is trusted) the position % is > 0. Library map:
+        # 1693↔3727 (FL), 1694↔3728 (FR), 1695↔1879 (RL), 1696↔1880 (RR).
+        s = i(state_k)
+        p = i(pct_k) if use_pct else None
+        if s is None and p is None:
+            return None
+        return bool((s or 0) != 0 or (p or 0) > 0)
     return {
         # Wheel→signal mapping corrected from a TWO-B10 vs official-app cross-check (GitHub #32:
         # the UK reporter's car + Silvio's IT car, both showing 280 kPa at the rear-right):
@@ -625,8 +639,8 @@ def _parse_vehicle_status(sig: dict) -> dict:
             "trunk":      is_open("1281"),
         },
         "windows": {
-            "fl": is_open("1693"), "fr": is_open("1694"),
-            "rl": is_open("1695"), "rr": is_open("1696"),
+            "fl": win_open("1693", "3727"), "fr": win_open("1694", "3728"),
+            "rl": win_open("1695", "1879"), "rr": win_open("1696", "1880"),
             "sunshade": is_open("1724"),
         },
         "temps": {"battery": f("1182"), "cabin": f("1349")},  # no ambient-temp signal exists
@@ -771,8 +785,9 @@ async def vehicle_status_api(request: Request):
         return templates.TemplateResponse(request, "partials/vehicle_status.html",
                                           _ctx(vs=demo.vehicle_status(db_reader)))
     import asyncio
+    vehicle, _ = db_reader.get_vehicle()
     signals = await asyncio.get_event_loop().run_in_executor(None, command_client.get_fresh_signals)
-    vs = _parse_vehicle_status(signals) if signals else None
+    vs = _parse_vehicle_status(signals, (vehicle or {}).get("vin")) if signals else None
     return templates.TemplateResponse(request, "partials/vehicle_status.html", _ctx(vs=vs))
 
 
