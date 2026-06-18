@@ -60,7 +60,7 @@
   var nominal = {{ health.nominal_kwh }};
   var typeColor = { HOME: '#22c55e', AC: '#60a5fa', FAST: '#fb923c', DC: '#fb923c', HPC: '#e879f9', FREE: '#a3e635' };
   var COLD   = 'rgba(100,116,139,0.5)';  // faded slate — cold charges, excluded from the figure
-  var ACTIVE = 'rgba(251,146,60,0.55)';  // faded amber — car-on charges, excluded from the figure
+  var ACTIVE = 'rgba(251,146,60,0.55)';  // faded amber — car-on / BMS-recalibration charges, excluded from the figure
   var mode = 'time', curData = [];
   function dataFor(m) {
     return pts.map(function (p) {
@@ -86,7 +86,7 @@
       colors: ['#38bdf8'],
       markers: { size: 6, strokeWidth: 0,
                  discrete: curData.map(function (d, i) {
-                   var fc = d.excl ? (d.excl_reason === 'active_use' ? ACTIVE : COLD)
+                   var fc = d.excl ? (d.excl_reason === 'cold' ? COLD : ACTIVE)
                                    : (typeColor[d.type] || '#38bdf8');
                    return { seriesIndex: 0, dataPointIndex: i, size: 6, fillColor: fc };
                  }) },

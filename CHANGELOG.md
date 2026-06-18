@@ -3,6 +3,15 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.25.0] — 2026-06-18
+
+### Added
+- **Home Assistant: a single "Trunk" toggle ([#71](https://github.com/ProtossBlaster/leapmotor-mate/issues/71), thanks @wlighter).** A new `switch` entity that shows the trunk's open/closed state **and** opens or closes it from one control — the trunk analog of the existing "Door Lock Toggle" (ON = open, OFF = closed). It reuses the `trunk_open` state and routes to the existing open/close commands; the separate Open/Close Trunk buttons stay for anyone already using them in automations.
+
+### Fixed
+- **Remote commands are no longer fired twice (and the session is no longer needlessly re-logged in) when the car doesn't confirm in time.** When a command timed out waiting for the car to acknowledge — the cloud accepted it (HTTP 200) but the car, parked and asleep, never confirmed — Mate misread the "timed out" message as a *network* error, reset the session (forcing a re-login) and **sent the command at the car a second time**. A car-confirm timeout is now recognised as exactly that: logged best-effort, with no reset, no re-login and no resend. Genuine connection errors still reset and retry as before. (Surfaced from @riri19's logs, [#73](https://github.com/ProtossBlaster/leapmotor-mate/issues/73).)
+- **Battery health: charges distorted by a BMS SoC recalibration or by active cabin use are now excluded from the capacity/SoH figure ([#72](https://github.com/ProtossBlaster/leapmotor-mate/pull/72), thanks @hubcasale).** Two cases produced artificially low capacity estimates: (1) the BMS occasionally snaps SoC upward without matching energy, inflating ΔSoC (detected on AC charges as a SoC rise > 0.8 %/min, ≈ 2× the physical AC ceiling); (2) the cabin A/C or heater running while plugged in feeds part of the charger energy to car loads instead of the battery (detected via climate cooling/heating during the session). Both are now excluded from the headline figure but still shown on the chart in amber for context, with per-reason labels and an explanatory note. The vampire-drain headline likewise excludes windows where the car was in active use (drain rate > 15 %/day). Four new strings in EN/IT/FR/DE.
+
 ## [1.24.2] — 2026-06-18
 
 ### Fixed

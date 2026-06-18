@@ -101,6 +101,13 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
                     api.unlock_vehicle(vin); optimistic = ("locked", False)
                 else:
                     return
+            elif cmd == "trunk":          # single HA switch toggle (#71): ON = open, OFF = close
+                if str(value).upper() == "ON":
+                    api.open_trunk(vin);   optimistic = ("trunk_open", True)
+                elif str(value).upper() == "OFF":
+                    api.close_trunk(vin);  optimistic = ("trunk_open", False)
+                else:
+                    return
             elif cmd == "climate_cool":
                 api.quick_cool(vin);         optimistic = ("climate_on", True)
             elif cmd == "climate_heat":

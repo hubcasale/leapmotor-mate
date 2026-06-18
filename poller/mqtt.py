@@ -289,6 +289,21 @@ class MqttService:
             "icon": "mdi:lock",
         })
 
+        # Single "Trunk" TOGGLE (HA `switch` platform): one control that shows the trunk
+        # open/closed state AND opens/closes it on tap — the trunk analog of the Door Lock
+        # Toggle above (#71). ON = open. Reuses the `trunk_open` state topic; ON/OFF on
+        # `trunk/set` route to the existing open_trunk/close_trunk commands. A plain toggle
+        # (like the lock) reads more clearly than a cover's open/close arrows. The separate
+        # Open/Close Trunk buttons below stay for existing automations.
+        cfg("switch", "trunk", {
+            "name": "Trunk",
+            "state_topic": f"{prefix}/{vin}/trunk_open",
+            "command_topic": f"{prefix}/{vin}/trunk/set",
+            "payload_on": "ON", "payload_off": "OFF",
+            "state_on": "ON", "state_off": "OFF",
+            "icon": "mdi:car-back",
+        })
+
         for key, name, icon in [
             # NB: no Lock/Unlock buttons here — superseded by the Door Lock lock entity
             # + Door Lock Toggle switch above (their retained configs are cleared below);

@@ -217,6 +217,16 @@ class LeapmotorSession:
                     return True, "OK"
                 except Exception as e:
                     err = str(e)
+                    # Car-confirm timeout: the cloud accepted the command (HTTP 200) but the car
+                    # didn't acknowledge within the cloud's poll window. This is NOT a network fault
+                    # and NOT fixable by retrying — a resend just fires the command at the car a
+                    # second time, and the reset would force a needless re-login. Stop here,
+                    # best-effort. (riri19/#73: his car returns data:0 for the whole window — even
+                    # the cloud's 30s grants time out — so neither a resend nor a longer wait helps.)
+                    # The same message is mapped to 'timeout_car' by _classify_outcome for the log.
+                    if "remote control result" in err.lower():
+                        log.warning("Command not confirmed by the car in time (best-effort): %s", err)
+                        return False, err
                     # A first failed attempt is usually transient (stale keep-alive or an expired
                     # token) and recovers on retry — log those at warning/info, and reserve ERROR
                     # for a command that actually gives up, so the diagnostics aren't alarming.
