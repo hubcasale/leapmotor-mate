@@ -87,6 +87,16 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
             elif cmd == "close_trunk": api.close_trunk(vin)
             elif cmd == "find_car":    api.find_vehicle(vin)
             elif cmd == "unlock_charger": api.unlock_charger(vin)
+            elif cmd == "charge_limit":   # writable HA number (#77): value = target SoC %
+                try:
+                    pct = int(float(value))
+                except (TypeError, ValueError):
+                    log.warning("MQTT: charge_limit value %r not a number — ignored", value)
+                    return
+                if not (50 <= pct <= 100):
+                    log.warning("MQTT: charge_limit %d%% out of range 50-100 — ignored", pct)
+                    return
+                api.set_charge_limit(vin, pct)
             elif cmd == "door_lock":      # single HA lock entity (#37): value = LOCK / UNLOCK
                 if str(value).upper() == "LOCK":
                     api.lock_vehicle(vin);   optimistic = ("locked", True)

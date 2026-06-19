@@ -432,7 +432,7 @@ Invia la telemetria dell'auto ad ABRP per la pianificazione viaggi in tempo real
 
 ### MQTT → Home Assistant
 Pubblica lo stato dell'auto (carica, autonomia, posizione, porte, stato ricarica…) come **entità in
-Home Assistant**, con **auto-discovery**. Puoi anche **comandare** l'auto dalle entità di HA.
+Home Assistant**, con **auto-discovery**. Puoi anche **comandare** l'auto dalle entità di HA — incluso un **limite di carica** (`number` scrivibile) per impostare il SoC target.
 
 1. Prepara un **broker MQTT** (di solito l'add-on *Mosquitto* in Home Assistant).
 2. In *Impostazioni → MQTT*, attiva **Abilita MQTT** e compila:

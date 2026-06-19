@@ -123,6 +123,8 @@ class MqttService:
         pub("charge_voltage", data.charge_voltage_v)
         pub("charge_current", data.charge_current_a)
         pub("charge_time_remaining", data.remaining_charge_min)
+        if data.charge_limit_percent is not None:   # absent on some models (T03) → keep last retained value
+            pub("charge_limit", data.charge_limit_percent)
         pub("battery_temp", data.battery_min_temp)
         pub("inside_temp", data.inside_temp)
         pub("ac_target_temp", data.climate_target_temp)
@@ -302,6 +304,21 @@ class MqttService:
             "payload_on": "ON", "payload_off": "OFF",
             "state_on": "ON", "state_off": "OFF",
             "icon": "mdi:car-back",
+        })
+
+        # Charge limit / target SoC — writable HA `number` (#77, requested on FB). It's the
+        # same value Mate already reads from the status config block (charge_limit_percent)
+        # and sets from the Prepare-Car page (api.set_charge_limit). `charge_limit/set` routes
+        # to the charge_limit command in the poller. Range matches the web UI (50–100%). Not
+        # model-gated — the car's CHARGE_LIMIT right governs whether the set takes effect.
+        cfg("number", "charge_limit", {
+            "name": "Charge Limit",
+            "state_topic": f"{prefix}/{vin}/charge_limit",
+            "command_topic": f"{prefix}/{vin}/charge_limit/set",
+            "min": 50, "max": 100, "step": 1,
+            "unit_of_measurement": "%",
+            "icon": "mdi:battery-charging-high",
+            "mode": "slider",
         })
 
         for key, name, icon in [

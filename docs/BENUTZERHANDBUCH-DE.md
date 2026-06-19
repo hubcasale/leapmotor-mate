@@ -426,7 +426,7 @@ Sendet die Telemetrie des Autos an ABRP für die Routenplanung in Echtzeit.
 
 ### MQTT → Home Assistant
 Veröffentlicht den Zustand des Autos (Ladung, Reichweite, Position, Türen, Ladezustand…) als **Entitäten in Home
-Assistant**, mit **Auto-Discovery**. Sie können das Auto auch über die Entitäten von HA **steuern**.
+Assistant**, mit **Auto-Discovery**. Sie können das Auto auch über die Entitäten von HA **steuern** — einschließlich eines beschreibbaren **Ladelimits** (`number`) zum Einstellen des Ziel-SoC.
 
 1. Bereiten Sie einen **MQTT-Broker** vor (üblicherweise das *Mosquitto*-Add-on in Home Assistant).
 2. Aktivieren Sie unter *Einstellungen → MQTT* die Option **MQTT aktivieren** und füllen Sie aus:

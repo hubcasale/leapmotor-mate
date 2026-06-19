@@ -3,6 +3,11 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.26.0] — 2026-06-19
+
+### Added
+- **The charge limit (target SoC) is now a writable Home Assistant entity.** A **`Charge Limit` `number`** (50–100 %) is published over MQTT Discovery: it shows the limit Mate already reads from the car and lets you set it straight from Home Assistant dashboards and automations — not only from Mate's Prepare-Car page. It reuses the same `set_charge_limit` command the web UI has always used, so there's no new car behaviour to trust. (Community request, #77.)
+
 ## [1.25.2] — 2026-06-19
 
 ### Fixed

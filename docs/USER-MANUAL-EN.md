@@ -427,7 +427,7 @@ Sends the car's telemetry to ABRP for real-time trip planning.
 
 ### MQTT → Home Assistant
 Publishes the car's status (charge, range, position, doors, charge status…) as **entities in Home
-Assistant**, with **auto-discovery**. You can also **command** the car from the HA entities.
+Assistant**, with **auto-discovery**. You can also **command** the car from the HA entities — including a writable **Charge Limit** number to set the target SoC.
 
 1. Get an **MQTT broker** ready (usually the *Mosquitto* add-on in Home Assistant).
 2. In *Settings → MQTT*, turn on **Enabled** and fill in:
