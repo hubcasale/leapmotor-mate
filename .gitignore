@@ -17,9 +17,16 @@ certs/app.crt
 certs/app.key
 !certs/.gitkeep
 
-# Personal one-off migration scripts (not for distribution)
+# Personal one-off migration scripts + on-car reverse-engineering dev tools (not for distribution)
 scripts/import_from_ha.py
 scripts/import_ha_history.py
+scripts/dump_raw_pids.py
+scripts/send_climate.py
+scripts/analyze_v2l.py
+scripts/_replay_v2l_test.py
+
+# Encryption key for stored credentials — MUST NEVER be committed
+secret.key
 
 # Dev-only compose override (bind-mounts source) — not for distribution
 docker-compose.override.yml

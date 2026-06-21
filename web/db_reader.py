@@ -742,8 +742,9 @@ def save_fresh_signals(signals: dict) -> None:
             remaining_charge_min, charge_voltage_v, charge_current_a, charge_completed, security_active,
             windows_open_count,
             door_driver_open, door_passenger_open, door_rear_left_open, door_rear_right_open,
-            window_fl_open, window_rl_open, ac_port_mode
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            window_fl_open, window_rl_open, ac_port_mode,
+            fan_level, recirculation, climate_mode
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             vehicle_id,
             datetime.now(timezone.utc).isoformat(),
@@ -769,6 +770,9 @@ def save_fresh_signals(signals: dict) -> None:
             1 if _wstates[0] else 0, 1 if _wstates[2] else 0,
             int(signals.get("47") or 0),     # ac_port_mode — same as the poller; without it this
                                              # web-side write left NULL, fragmenting V2L sessions (#)
+            sig("1941") or None,             # fan_level (1941 acAirVolume 1-7; 0 → NULL = no data)
+            int(sig("1943") == 1),           # recirculation (1=recirc/in, 0=fresh/out)
+            int(signals["3713"]) if signals.get("3713") is not None else None,  # climate_mode (3713)
         ),
     )
     db.commit()
@@ -808,9 +812,10 @@ def get_latest_status() -> Optional[dict]:
         d["charge_power_kw"] = round(abs(cur_a * volt_v) / 1000.0, 2)
     else:
         d["charge_power_kw"] = 0.0
-    # Derived "ventilating" = climate on but neither cooling, heating nor defrosting (wind mode).
-    d["climate_venting"] = bool(d.get("climate_on")) and not d.get("climate_cooling") \
-        and not d.get("climate_heating") and not d.get("climate_defrost")
+    # "Ventilating" = the REAL vent mode (signal 3713 climate_mode == 4), gated on A/C being on
+    # (modes persist when off). The old derive-by-absence wrongly lit up for plain A/C-on / AUTO
+    # (mode 0 = A/C on but not yet cooling) — confirmed on-car 2026-06-21.
+    d["climate_venting"] = bool(d.get("climate_on")) and d.get("climate_mode") == 4
     # How long ago
     try:
         ts = datetime.fromisoformat(d["recorded_at"])

@@ -297,6 +297,14 @@ because whatever comes first is what's due.
 - activate **seat heating**, **steering wheel** and **mirror heating** (where supported);
 - manage the **charge limit**.
 
+The **climate card** now has a **temperature slider, a fan slider and a recirculation toggle** (fresh
+air / recirculate). Each climate tile — **A/C AUTO · Cool · Heat · Vent · Defrost** — lights from the
+car's **real mode**, with exactly one lit at a time (just like the official app). In the three
+**manual** modes (**Cool / Heat / Vent**) you can set target temperature and fan speed: the car stays
+in that mode and remembers the value. In **AUTO** the car manages fan and recirculation itself, so
+those two controls show the current value but are **read-only** — the temperature stays adjustable.
+**Rapid Ventilation** now reliably engages true ventilation (air only, no heat/cool) from any state.
+
 When you send a command, Mate updates the interface immediately in an "optimistic" way and then
 confirms on the next read. If the cloud accepts but the car doesn't confirm within a few seconds, you
 see an **amber** notice ("sent, it may have worked") — it's not an error: the command often goes
@@ -341,8 +349,10 @@ stations**. The page has three parts:
 
 ### Vehicle
 **(menu: Vehicle)** — The **full status** card for the car: all the sensors available on your model
-(charge, range, inside temperature, gear, doors, windows, tyres, locks, charge status…). Mate shows
-**only what your car actually reports** (some models don't expose certain data).
+(charge, range, inside temperature, gear, doors, windows, tyres, locks, charge status…), now also the
+**climate detail**: **fan level** (1–7), **air recirculation** (fresh / recirculate) and the **active
+climate mode** (AUTO / Cool / Heat / Vent). Mate shows **only what your car actually reports** (some
+models don't expose certain data).
 
 ### Wallbox
 **(menu: Wallbox)** — If you've connected a wallbox (see
@@ -438,7 +448,7 @@ Sends the car's telemetry to ABRP for real-time trip planning.
 
 ### MQTT → Home Assistant
 Publishes the car's status (charge, range, position, doors, charge status…) as **entities in Home
-Assistant**, with **auto-discovery**. You can also **command** the car from the HA entities — including a writable **Charge Limit** number to set the target SoC. The published entities also include three read-only V2L ones: **`V2L Active`** (binary sensor), **`V2L Power`** (W) and **`V2L Session Energy`** (Wh).
+Assistant**, with **auto-discovery**. You can also **command** the car from the HA entities — including a writable **Charge Limit** number to set the target SoC, a writable **Fan Level** number (1–7) and a writable **Recirculation** switch, plus a **Climate Mode** sensor (AUTO / Cool / Heat / Vent). The published entities also include three read-only V2L ones: **`V2L Active`** (binary sensor), **`V2L Power`** (W) and **`V2L Session Energy`** (Wh).
 
 1. Get an **MQTT broker** ready (usually the *Mosquitto* add-on in Home Assistant).
 2. In *Settings → MQTT*, turn on **Enabled** and fill in:

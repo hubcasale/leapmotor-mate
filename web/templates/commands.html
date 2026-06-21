@@ -23,6 +23,25 @@ function refreshCmdGrid() {
   htmx.ajax('GET', 'api/cmd-grid', {source: '#cmd-refresh-src', target: '#cmd-grid', swap: 'outerHTML'});
 }
 
+// Climate temp/fan sliders post their own routes (api/climate-temp|fan); the car reports the new value
+// only a few seconds later. Keep the value the user JUST set visible across grid refetches until the
+// car's REAL value catches up — otherwise a refetch swaps in the stale pre-command value and the thumb
+// "snaps back", making it look like the command never took. Released when the car matches (or after 40s).
+var climPending = {};  // sliderId -> {val, lblId, until}
+function climMarkPending(sliderId, lblId) {
+  var inp = document.getElementById(sliderId);
+  if (inp) climPending[sliderId] = {val: inp.value, lblId: lblId, until: Date.now() + 40000};
+}
+function climReapply() {
+  Object.keys(climPending).forEach(function (id) {
+    var p = climPending[id], inp = document.getElementById(id);
+    if (!inp || Date.now() > p.until) { delete climPending[id]; return; }
+    if (inp.value === p.val) { delete climPending[id]; return; }   // car caught up → release
+    inp.value = p.val;                                             // keep the user's choice visible
+    var lbl = document.getElementById(p.lblId); if (lbl) lbl.textContent = p.val;
+  });
+}
+
 // === Command feedback — the SAME mechanism as the Overview hero, but the ⏳ AND the "in progress" message
 // live TOGETHER inside the launching control's OWN tile — they're ONE element (its #spin-), so they can
 // never desync (the ⏳ vanishing before the text). On a command: that tile shows "⏳ Comando in corso…" and
@@ -98,7 +117,8 @@ document.addEventListener('htmx:afterRequest', function(e) {
   // They don't trip the busy mechanism (no 10s wait), but they DO need the grid to refetch so the tile's
   // badge/level reflects the change. api/seat was the missing one → the seat slider looked stale (badge
   // not updating) exactly like the windows did.
-  var isSlider = path === 'api/windows' || path.indexOf('api/seat/') !== -1;
+  var isClim = path === 'api/climate-temp' || path === 'api/climate-fan' || path === 'api/climate-recirc';
+  var isSlider = path === 'api/windows' || path.indexOf('api/seat/') !== -1 || isClim;
   if (!isCmd && !isSlider) return;
   if (isCmd) {
     sending = false;
@@ -115,12 +135,16 @@ document.addEventListener('htmx:afterRequest', function(e) {
     }
     cmdBusyTick();
   }
+  if (isClim && e.detail.successful) {   // remember the value just set so refetches don't snap it back
+    if (path === 'api/climate-temp') climMarkPending('clim-temp-slider', 'clim-temp-val');
+    if (path === 'api/climate-fan')  climMarkPending('clim-fan-slider', 'clim-fan-val');
+  }
   // Refetch the grid so the real state — and the toggled button that ends the wait — lands.
   if (e.detail.successful) [1500, 5000, 9000, 15000, 23000, 31000].forEach(function (ms) { setTimeout(refreshCmdGrid, ms); });
 });
 
 // Re-apply the ⏳+message + disabled state right after a grid refetch (the swap rebuilt every tile).
-document.addEventListener('htmx:afterSwap', function() { cmdBusyTick(); });
+document.addEventListener('htmx:afterSwap', function() { cmdBusyTick(); climReapply(); });
 
 // === Window slider — snaps to the stops the car actually actuates (#62). Blocked while a command runs. ===
 var WINS_STOPS = {{ wins_stops | tojson }};

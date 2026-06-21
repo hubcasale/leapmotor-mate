@@ -36,6 +36,8 @@
 {% set IC_TIRE_LOW = "M11 13h2v2h-2zm0-8h2v6h-2zm6-.24c1.86 1.43 3 3.85 3 6.24a8 8 0 0 1-4.14 7H8.14A8 8 0 0 1 4 11c0-2.39 1.09-4.83 3-6.24V2H5v1.86C3.15 5.68 2 8.2 2 11s1.15 5.32 3 7.14V22h2v-2h2v2h2v-2h2v2h2v-2h2v2h2v-3.86c1.85-1.82 3-4.34 3-7.14s-1.15-5.32-3-7.14V2h-2z" %}
 {% set IC_THERMO  = "M15 13V5a3 3 0 0 0-6 0v8a5 5 0 1 0 6 0m-3-9a1 1 0 0 1 1 1v3h-2V5a1 1 0 0 1 1-1" %}
 {% set IC_BATTERY = "M4 3v3H1v14h22V6h-3V3h-6v3h-4V3zM3 8h18v10H3zm12 2v2h-2v2h2v2h2v-2h2v-2h-2v-2zM5 12v2h6v-2z" %}
+{% set IC_FAN = "M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11M12.5,2C17,2 17.11,5.57 14.75,6.75C13.76,7.24 13.32,8.29 13.13,9.22C13.61,9.42 14.03,9.73 14.35,10.13C18.05,8.13 22.03,8.92 22.03,12.5C22.03,17 18.46,17.1 17.28,14.74C16.79,13.75 15.74,13.31 14.81,13.12C14.61,13.6 14.3,14.02 13.9,14.34C15.9,18.04 15.11,22.02 11.53,22.02C7.03,22.02 6.93,18.45 9.29,17.27C10.28,16.78 10.72,15.73 10.91,14.8C10.43,14.6 10.01,14.29 9.69,13.89C5.99,15.89 2.01,15.1 2.01,11.52C2.01,7.02 5.58,6.92 6.76,9.28C7.25,10.27 8.3,10.71 9.23,10.9C9.43,10.42 9.74,10 10.14,9.68C8.14,5.98 8.93,2 12.5,2Z" %}
+{% set IC_RECIRC = "M12,6V9L16,5L12,1V4A8,8 0 0,0 4,12C4,13.57 4.46,15.03 5.24,16.26L6.7,14.8C6.26,13.97 6,13.03 6,12A6,6 0 0,1 12,6M18.76,7.74L17.3,9.2C17.74,10.04 18,10.99 18,12A6,6 0 0,1 12,18V15L8,19L12,23V20A8,8 0 0,0 20,12C20,10.43 19.54,8.97 18.76,7.74Z" %}
 
 {# ── Open/closed state tile: value colour carries the meaning ── #}
 {% macro state_tile(icon, label, st, open_class='text-red-400') %}
@@ -102,6 +104,29 @@
       {{ win_tile(t('win_rl'), vs.windows.rl, vs.windows.rl_pct) }}
       {{ win_tile(t('win_rr'), vs.windows.rr, vs.windows.rr_pct) }}
       {{ state_tile(mdi(IC_ROOF), t('win_sunshade'), vs.windows.sunshade, open_class='text-brand') }}
+    </div>
+  </div>
+
+  <!-- Climate: A/C mode · fan level · recirculation (signals 3713 / 1941 / 1943, on-car validated 2026-06-20) -->
+  <div class="card">
+    <h2 class="font-semibold text-white mb-4 flex items-center gap-2">{{ mdi(IC_FAN) }} {{ t('climate') }}</h2>
+    {% set cm = vs.climate %}
+    <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      {% if cm.on is none %}
+        {{ tile(mdi(IC_THERMO), t('climate_mode'), '—', 'text-slate-500', 'text-slate-500') }}
+      {% elif not cm.on %}
+        {{ tile(mdi(IC_THERMO), t('climate_mode'), t('off_state'), 'text-slate-400', 'text-slate-400') }}
+      {% else %}
+        {{ tile(mdi(IC_THERMO), t('climate_mode'), (t('mode_' ~ cm.mode) if cm.mode else t('on_state')), 'text-emerald-400', 'text-emerald-400') }}
+      {% endif %}
+      {{ tile(mdi(IC_FAN), t('fan_level'), ((cm.fan ~ ' / 7') if cm.fan else '—')) }}
+      {% if cm.recirc is none %}
+        {{ tile(mdi(IC_RECIRC), t('recirculation'), '—', 'text-slate-500', 'text-slate-500') }}
+      {% elif cm.recirc %}
+        {{ tile(mdi(IC_RECIRC), t('recirculation'), t('recirc_on'), 'text-sky-400', 'text-sky-400') }}
+      {% else %}
+        {{ tile(mdi(IC_RECIRC), t('recirculation'), t('recirc_fresh'), 'text-slate-300', 'text-slate-300') }}
+      {% endif %}
     </div>
   </div>
 

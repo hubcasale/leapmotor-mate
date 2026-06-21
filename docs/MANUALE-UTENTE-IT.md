@@ -1,6 +1,6 @@
 # LeapMotor Mate — Manuale utente
 
-> **Versione di Mate:** v1.27.0 · **Lingua:** Italiano (prima edizione)
+> **Versione di Mate:** v1.28.0 · **Lingua:** Italiano (prima edizione)
 > Questo manuale è pensato per chi *usa* Mate, non per chi lo sviluppa. Spiega come configurarlo
 > dall'inizio e cosa fa ogni pagina. Per i dettagli tecnici interni c'è `ARCHITECTURE.md`.
 
@@ -299,6 +299,15 @@ il **tempo**, perché scade ciò che arriva prima.
 - attivare **riscaldamento sedili**, **volante** e **specchietti** (dove supportato);
 - gestire il **limite di carica**.
 
+La scheda del **climatizzatore** ha uno **slider temperatura**, uno **slider ventola** e un
+**interruttore ricircolo** (aria fresca / ricircolo). Ogni modo (**A/C AUTO · Raffredda · Riscalda ·
+Ventila · Sbrina**) si accende in base al modo **reale** dell'auto — **una sola alla volta**, come
+l'app ufficiale. Nei tre modi manuali (Raffredda / Riscalda / Ventila) imposti **temperatura target
+e velocità ventola** e l'auto **resta in quel modo e mantiene il valore**. In **AUTO** è l'auto a
+gestire ventola e ricircolo: quei due controlli mostrano il valore corrente ma sono in **sola
+lettura** (la temperatura resta regolabile). La **Ventilazione** ingrana la sola ventilazione (solo
+aria, né caldo né freddo) in modo affidabile da qualsiasi stato.
+
 Quando dai un comando, Mate aggiorna subito l'interfaccia in modo "ottimistico" e poi conferma alla
 lettura successiva. Se il cloud accetta ma l'auto non conferma entro pochi secondi, vedi un avviso
 **ambra** ("inviato, può aver funzionato") — non è un errore: spesso il comando va comunque a buon
@@ -345,7 +354,9 @@ nelle vicinanze**. La pagina ha tre parti:
 **(menu: Veicolo)** — La scheda **stato completo** dell'auto: tutti i sensori disponibili sul tuo
 modello (carica, autonomia, temperatura interna, marcia, porte, finestrini, pneumatici, blocchi,
 stato di ricarica…). Mate mostra **solo ciò che la tua auto riporta davvero** (alcuni modelli non
-espongono certi dati).
+espongono certi dati). Tra questi ora ci sono anche i dati del clima letti dall'auto: **livello
+ventola** (1–7), **ricircolo aria** (aria fresca / ricircolo) e **modalità clima** attiva (AUTO /
+Raffreddamento / Riscaldamento / Ventilazione).
 
 ### Wallbox
 **(menu: Wallbox)** — Se hai collegato una wallbox (vedi
@@ -444,9 +455,11 @@ Invia la telemetria dell'auto ad ABRP per la pianificazione viaggi in tempo real
 ### MQTT → Home Assistant
 Pubblica lo stato dell'auto (carica, autonomia, posizione, porte, stato ricarica…) come **entità in
 Home Assistant**, con **auto-discovery**. Tra queste, tre nuove entità V2L **di sola lettura**:
-**`V2L Active`** (binary sensor), **`V2L Power`** (W) e **`V2L Session Energy`** (Wh). Puoi anche
-**comandare** l'auto dalle entità di HA — incluso un **limite di carica** (`number` scrivibile) per
-impostare il SoC target.
+**`V2L Active`** (binary sensor), **`V2L Power`** (W) e **`V2L Session Energy`** (Wh), più i dati del
+clima letti dall'auto: il **Livello ventola** (`number` scrivibile, 1–7), il **Ricircolo**
+(interruttore scrivibile) e la **Modalità clima** (sensore: AUTO / Raffreddamento / Riscaldamento /
+Ventilazione). Puoi anche **comandare** l'auto dalle entità di HA — incluso un **limite di carica**
+(`number` scrivibile) per impostare il SoC target.
 
 1. Prepara un **broker MQTT** (di solito l'add-on *Mosquitto* in Home Assistant).
 2. In *Impostazioni → MQTT*, attiva **Abilita MQTT** e compila:
@@ -545,7 +558,7 @@ Da *Impostazioni → Esporta/backup* scarichi il database (e i CSV). Conserva il
 
 ---
 
-> 📌 **Nota di manutenzione del manuale.** Questo documento descrive la versione **v1.27.0**. Quando
+> 📌 **Nota di manutenzione del manuale.** Questo documento descrive la versione **v1.28.0**. Quando
 > cambia qualcosa di visibile all'utente (una pagina nuova, un'opzione, un flusso), aggiorna la
 > sezione corrispondente e la riga di versione in alto. È pensato come base per le traduzioni
 > (EN/FR/DE): la struttura è volutamente la stessa dell'interfaccia.

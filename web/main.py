@@ -25,7 +25,7 @@ import mqtt_check
 import auth
 import update_check
 
-MATE_VERSION = "1.27.0"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.28.0"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 import demo
@@ -688,6 +688,15 @@ def _parse_vehicle_status(sig: dict, vin: str | None = None, cmd_pct: int | None
             "sunshade": is_open("1724"),
         },
         "temps": {"battery": f("1182"), "cabin": f("1349")},  # no ambient-temp signal exists
+        # Climate panel — signals validated on-car 2026-06-20: base mode 3713 (0 auto/1 cool/3 heat/
+        # 4 vent), fan level 1941 (acAirVolume 1-7; holds last level when off), recirculation 1943.
+        "climate": {
+            "on": is_open("1938"),
+            "mode": {0: "auto", 1: "cool", 3: "heat", 4: "vent"}.get(i("3713")),
+            "fan": (i("1941") or None),
+            "recirc": (i("1943") == 1) if i("1943") is not None else None,
+            "target": f("2183"),
+        },
     }
 
 
@@ -1817,6 +1826,7 @@ _COMMANDS = {
     "quick_heat":        command_client.quick_heat,
     "quick_vent":        command_client.quick_vent,
     "windshield_defrost":command_client.windshield_defrost,
+    "recirc_toggle":     command_client.recirc_toggle,
     "open_windows":      command_client.open_windows,
     "close_windows":     command_client.close_windows,
     "battery_preheat":   command_client.battery_preheat,
@@ -1909,7 +1919,43 @@ async def set_climate_temp_api(request: Request):
     ok, msg = await asyncio.get_event_loop().run_in_executor(
         None, lambda: command_client.set_climate_temp(temp, inside))
     if ok:
+        import time
+        db_reader.set_setting("boost_until", str(time.time() + 60))   # re-poll the car within seconds, not 30s
         return HTMLResponse(f'<span style="color:#22c55e">✓ {max(18, min(temp, 32))}°C</span>')
+    return HTMLResponse(_cmd_error_html(msg))
+
+
+@app.post("/api/climate-fan", response_class=HTMLResponse)
+async def set_fan_level_api(request: Request):
+    """Set the A/C fan level 1-7 (signal 1941), preserving the current mode / recirc / temp."""
+    form = await request.form()
+    try:
+        level = max(1, min(int(form.get("level", 0)), 7))
+    except (TypeError, ValueError):
+        return HTMLResponse('<span style="color:#ef4444">✗</span>', status_code=400)
+    import asyncio
+    ok, msg = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: command_client.set_fan_level(level))
+    if ok:
+        import time
+        db_reader.set_setting("boost_until", str(time.time() + 60))   # re-poll the car within seconds, not 30s
+        return HTMLResponse(f'<span style="color:#22c55e">✓ {level}/7</span>')
+    return HTMLResponse(_cmd_error_html(msg))
+
+
+@app.post("/api/climate-recirc", response_class=HTMLResponse)
+async def set_recirc_api(request: Request):
+    """Toggle air recirculation (signal 1943; on = recirculate, off = fresh air), preserving the
+    current mode / fan / temp."""
+    form = await request.form()
+    on = str(form.get("on", "")).lower() in ("1", "true", "on")
+    import asyncio
+    ok, msg = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: command_client.set_recirc(on))
+    if ok:
+        import time
+        db_reader.set_setting("boost_until", str(time.time() + 60))   # re-poll the car within seconds, not 30s
+        return HTMLResponse(f'<span style="color:#22c55e">✓</span>')
     return HTMLResponse(_cmd_error_html(msg))
 
 
@@ -2536,11 +2582,22 @@ async def run_command(name: str, background_tasks: BackgroundTasks):
     field = _CLIMATE_TILES.get(name)
     if field:
         cur = db_reader.get_latest_status() or {}
-        turning_off = bool(cur.get(field))
-        if turning_off:                         # currently on → turn off
-            # Master A/C tile → real full-off (ac_switch operate=off, drives 1938→0, B10-confirmed).
-            # Mode tiles (cool/heat/defrost) keep the ac_switch toggle (stops the active mode).
-            fn = command_client.ac_off if name == "ac_on" else command_client.ac_on
+        if name == "ac_on":
+            # "A/C AUTO" counts as ON only when the car is REALLY in AUTO (mode 0). From OFF or from a
+            # manual mode (cool/heat/vent), pressing it ENGAGES auto (ac_on) — it must not "turn off".
+            turning_off = bool(cur.get("climate_on")) and cur.get("climate_mode") == 0 and not cur.get("climate_defrost")
+        elif name in ("quick_cool", "quick_heat"):
+            # Cool/Heat tiles light from the MODE (3713=1/3) to match the sliders; the off-press must use
+            # the SAME basis, or a lit tile (mode on but compressor idle → cooling/heating signal 0)
+            # wouldn't flip off — it would re-send the mode instead.
+            _want = 1 if name == "quick_cool" else 3
+            turning_off = bool(cur.get("climate_on")) and cur.get("climate_mode") == _want and not cur.get("climate_defrost")
+        else:
+            turning_off = bool(cur.get(field))
+        if turning_off:                         # currently on → turn EVERYTHING off (full A/C off)
+            # ANY climate tile, when on, is switched fully OFF — same behaviour as the A/C AUTO off,
+            # NEVER fall back to AUTO. ac_off = ac_switch operate=off (drives 1938→0, B10-confirmed).
+            fn = command_client.ac_off
         expected = {field: (not turning_off)}   # verify the tile actually flipped
         overrides = {}                          # never fake climate state in the DB
 

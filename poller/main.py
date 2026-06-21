@@ -70,6 +70,34 @@ _MQTT_BOOST_S = 60   # after a command, poll fast for a minute so the state sync
 _API_LOCK = threading.Lock()
 
 
+_CLIM_MODE_TOKEN = {1: "cold", 3: "hot", 4: "wind"}   # signal 3713 → ac_on mode; auto(0)/unknown → wind
+
+
+def _climate_ctx_from_db(db):
+    """(mode_token, circle, fan, temp) from the latest stored position — lets an MQTT fan/recirc
+    change PRESERVE the rest of the panel. Short-lived connection: this runs on paho's network
+    thread and the poller's shared db connection is not safe cross-thread."""
+    mode, circle, fan, temp = "wind", "out", 3, 26
+    try:
+        import sqlite3
+        c = sqlite3.connect(db._path, timeout=5.0)
+        try:
+            row = c.execute("SELECT climate_mode, recirculation, fan_level, climate_target_temp "
+                            "FROM positions ORDER BY id DESC LIMIT 1").fetchone()
+        finally:
+            c.close()
+        if row:
+            mode = _CLIM_MODE_TOKEN.get(row[0], "wind")
+            circle = "in" if row[1] else "out"
+            try: fan = max(1, min(int(row[2] or 3), 7))
+            except (TypeError, ValueError): fan = 3
+            try: temp = max(18, min(int(float(row[3] or 26)), 32))
+            except (TypeError, ValueError): temp = 26
+    except Exception:  # noqa: BLE001 — fall back to safe defaults
+        pass
+    return mode, circle, fan, temp
+
+
 def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
     """Execute a remote MQTT command, then keep HA in sync the same way the web UI
     does: publish the expected state immediately (optimistic) and trigger a fast
@@ -134,6 +162,23 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
             elif cmd == "climate_vent":
                 api._remote_control(vin=vin, action="ac_on",
                     cmd_content='{"circle":"in","mode":"wind","operate":"manual","position":"all","temperature":"26","windlevel":"7","wshld":"0"}')
+                optimistic = ("climate_on", True)
+            elif cmd == "fan_level":      # writable HA number: value = fan 1-7 (signal 1941)
+                try:
+                    lvl = max(1, min(int(float(value)), 7))
+                except (TypeError, ValueError):
+                    log.warning("MQTT: fan_level value %r not a number — ignored", value); return
+                m, circ, _f, tmp = _climate_ctx_from_db(db)
+                api._remote_control(vin=vin, action="ac_on", cmd_content=json.dumps(
+                    {"circle": circ, "mode": m, "operate": "manual", "position": "all",
+                     "temperature": str(tmp), "windlevel": str(lvl), "wshld": "0"}, separators=(",", ":")))
+                optimistic = ("climate_on", True)
+            elif cmd == "recirculation":  # writable HA switch: ON = recirc / OFF = fresh (signal 1943)
+                on = str(value).upper() == "ON"
+                m, _circ, f, tmp = _climate_ctx_from_db(db)
+                api._remote_control(vin=vin, action="ac_on", cmd_content=json.dumps(
+                    {"circle": "in" if on else "out", "mode": m, "operate": "manual", "position": "all",
+                     "temperature": str(tmp), "windlevel": str(f), "wshld": "0"}, separators=(",", ":")))
                 optimistic = ("climate_on", True)
             elif cmd == "steering_heat_on":
                 api._remote_control(vin=vin, action="steering_wheel_heat", cmd_content='{"level":"2"}')

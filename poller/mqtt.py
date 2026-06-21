@@ -166,6 +166,9 @@ class MqttService:
         pub("inside_temp", data.inside_temp)
         pub("ac_target_temp", data.climate_target_temp)
         pub("locked", data.is_locked);          pub("climate_on", data.climate_on)
+        pub("fan_level", data.fan_level or None)              # acAirVolume 1-7 (empty when no data)
+        pub("recirculation", data.recirculation)             # binary: recirc on / fresh off
+        pub("climate_mode", data.climate_mode_label or None) # auto/cool/heat/vent
         pub("plug_connected", data.plug_connected)
         pub("tire_fl", data.tire_fl_bar);       pub("tire_fr", data.tire_fr_bar)
         pub("tire_rl", data.tire_rl_bar);       pub("tire_rr", data.tire_rr_bar)
@@ -252,6 +255,7 @@ class MqttService:
             ("gear", "Gear", {"icon": "mdi:car-shift-pattern"}),
             ("state", "State", {"icon": "mdi:car-info"}),
             ("last_seen", "Last Seen", {"dc": "timestamp", "icon": "mdi:clock-outline"}),
+            ("climate_mode", "Climate Mode", {"icon": "mdi:air-conditioner"}),
         ]
         for key, name, extra in sensors:
             c = {"name": name, "state_topic": f"{prefix}/{vin}/{key}"}
@@ -305,6 +309,23 @@ class MqttService:
                 # "Locked" (not "Unlocked"). The published topic value is unchanged.
                 conf["payload_on"], conf["payload_off"] = "OFF", "ON"
             cfg("binary_sensor", key, conf)
+
+        # Fan level (signal 1941) as a writable HA NUMBER (1-7) and air recirculation (signal 1943)
+        # as a writable HA SWITCH — both validated on-car 2026-06-20. state_topic mirrors the live
+        # value; the /set command_topic routes to set_fan_level / set_recirc (poller dispatch). A
+        # single entity each = state + control (no separate read-only sensor).
+        cfg("number", "fan_level", {
+            "name": "Fan Level",
+            "state_topic": f"{prefix}/{vin}/fan_level",
+            "command_topic": f"{prefix}/{vin}/fan_level/set",
+            "min": 1, "max": 7, "step": 1, "icon": "mdi:fan",
+        })
+        cfg("switch", "recirculation", {
+            "name": "Air Recirculation",
+            "state_topic": f"{prefix}/{vin}/recirculation",
+            "command_topic": f"{prefix}/{vin}/recirculation/set",
+            "payload_on": "ON", "payload_off": "OFF", "icon": "mdi:autorenew",
+        })
 
         # Single "Door Lock" TOGGLE (HA `lock` platform): one control that shows the
         # locked state AND locks/unlocks on tap — so it fits as a single Home-Assistant

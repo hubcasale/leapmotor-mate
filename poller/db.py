@@ -287,6 +287,14 @@ class Database:
         # discharge must NOT be counted as standby/vampire drain).
         if "ac_port_mode" not in cols:
             self._conn.execute("ALTER TABLE positions ADD COLUMN ac_port_mode INTEGER DEFAULT NULL")
+        # migration: extended climate panel (validated on-car 2026-06-20) — fan level (1941 acAirVolume,
+        # 1-7), recirculation (1943: 1=recirc / 0=fresh), base climate mode (3713: 0 auto/1 cool/3 heat/4 vent).
+        if "fan_level" not in cols:
+            self._conn.execute("ALTER TABLE positions ADD COLUMN fan_level INTEGER DEFAULT NULL")
+        if "recirculation" not in cols:
+            self._conn.execute("ALTER TABLE positions ADD COLUMN recirculation INTEGER DEFAULT NULL")
+        if "climate_mode" not in cols:
+            self._conn.execute("ALTER TABLE positions ADD COLUMN climate_mode INTEGER DEFAULT NULL")
         # migration: per-charge wallbox AC energy (the "wallbox, to pay" figure) on existing DBs
         ccols = {r[1] for r in self._conn.execute("PRAGMA table_info(charges)").fetchall()}
         if "ac_energy_kwh" not in ccols:
@@ -646,8 +654,9 @@ class Database:
                 remaining_charge_min, charge_voltage_v, charge_current_a, ready, charge_completed, security_active,
                 windows_open_count,
                 door_driver_open, door_passenger_open, door_rear_left_open, door_rear_right_open,
-                window_fl_open, window_rl_open, ac_port_mode)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                window_fl_open, window_rl_open, ac_port_mode,
+                fan_level, recirculation, climate_mode)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 vehicle_id, _now_iso(),
                 data.latitude, data.longitude, data.speed_kmh, data.odometer_km,
@@ -678,6 +687,9 @@ class Database:
                 1 if data.window_fl_open else 0,
                 1 if data.window_rl_open else 0,
                 data.ac_port_mode,
+                data.fan_level or None,
+                1 if data.recirculation else 0,
+                data.climate_mode,
             ),
         )
         self._conn.commit()

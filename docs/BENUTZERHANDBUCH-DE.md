@@ -1,6 +1,6 @@
 # LeapMotor Mate — Benutzerhandbuch
 
-> **Mate-Version:** v1.27.0 · **Sprache:** Deutsch (erste Ausgabe)
+> **Mate-Version:** v1.28.0 · **Sprache:** Deutsch (erste Ausgabe)
 > Dieses Handbuch richtet sich an alle, die Mate *nutzen*, nicht an die, die es entwickeln. Es erklärt, wie
 > Sie es von Grund auf einrichten und was jede Seite tut. Für die internen technischen Details gibt es `ARCHITECTURE.md`.
 
@@ -298,6 +298,17 @@ zuerst eintritt.
 - **Sitzheizung**, **Lenkrad** und **Spiegel** aktivieren (wo unterstützt);
 - das **Ladelimit** verwalten.
 
+**Die Klimakarte** zeigt für jeden Modus eine eigene **Kachel** — **A/C AUTO · Kühlen · Heizen · Lüften ·
+Enteisen** — und es leuchtet immer **nur eine gleichzeitig**, genau dem echten Modus des Autos entsprechend, wie in
+der offiziellen App. Darunter gibt es drei Bedienelemente: einen **Temperatur-Schieberegler**, einen
+**Lüfter-Schieberegler** (Stufe 1–7) und einen **Umluft-Schalter** (Frischluft ↔ Umluft):
+
+- In den **drei manuellen Modi** (Kühlen / Heizen / Lüften) stellen Sie **Zieltemperatur** und **Lüfterstufe** ein;
+  das Auto **bleibt in diesem Modus und behält den Wert**.
+- Im **AUTO**-Modus regelt das Auto Lüfter und Umluft selbst: Diese beiden Bedienelemente zeigen den aktuellen Wert
+  daher nur **lesend** an, während die **Temperatur weiterhin einstellbar** bleibt.
+- **Lüften** schaltet zuverlässig echte Lüftung (**nur Luft**, weder Heizen noch Kühlen) aus jedem Zustand ein.
+
 Wenn Sie einen Befehl geben, aktualisiert Mate die Oberfläche sofort „optimistisch" und bestätigt ihn dann bei der
 nächsten Auslesung. Wenn die Cloud annimmt, das Auto aber nicht innerhalb weniger Sekunden bestätigt, sehen Sie
 einen **bernsteinfarbenen** Hinweis („gesendet, könnte funktioniert haben") — das ist kein Fehler: Oft geht der
@@ -343,7 +354,9 @@ Nähe**. Die Seite hat drei Teile:
 ### Fahrzeug
 **(Menü: Fahrzeug)** — Die Karte mit dem **vollständigen Zustand** des Autos: alle auf Ihrem Modell verfügbaren
 Sensoren (Ladung, Reichweite, Innentemperatur, Gang, Türen, Fenster, Reifen, Verriegelungen, Ladezustand…). Mate
-zeigt **nur das, was Ihr Auto wirklich meldet** (manche Modelle stellen bestimmte Daten nicht bereit).
+liest jetzt auch die **Lüfterstufe** (1–7), die **Luftumwälzung** (Frischluft / Umluft) und den **aktiven
+Klimamodus** (AUTO / Kühlen / Heizen / Lüften) aus. Mate zeigt **nur das, was Ihr Auto wirklich meldet** (manche
+Modelle stellen bestimmte Daten nicht bereit).
 
 ### Wallbox
 **(Menü: Wallbox)** — Wenn Sie eine Wallbox verbunden haben (siehe
@@ -438,7 +451,7 @@ Sendet die Telemetrie des Autos an ABRP für die Routenplanung in Echtzeit.
 
 ### MQTT → Home Assistant
 Veröffentlicht den Zustand des Autos (Ladung, Reichweite, Position, Türen, Ladezustand…) als **Entitäten in Home
-Assistant**, mit **Auto-Discovery**. Sie können das Auto auch über die Entitäten von HA **steuern** — einschließlich eines beschreibbaren **Ladelimits** (`number`) zum Einstellen des Ziel-SoC. Hinzu kommen drei neue **schreibgeschützte** V2L-Entitäten: **`V2L Active`** (Binärsensor), **`V2L Power`** (W) und **`V2L Session Energy`** (Wh).
+Assistant**, mit **Auto-Discovery**. Sie können das Auto auch über die Entitäten von HA **steuern** — einschließlich eines beschreibbaren **Ladelimits** (`number`) zum Einstellen des Ziel-SoC. Zum Klima kommen die **beschreibbare Lüfterstufe** (`number`, 1–7), der **beschreibbare Umluft-Schalter** (Frischluft ↔ Umluft) und ein **Klimamodus**-Sensor (AUTO / Kühlen / Heizen / Lüften) hinzu. Außerdem gibt es drei **schreibgeschützte** V2L-Entitäten: **`V2L Active`** (Binärsensor), **`V2L Power`** (W) und **`V2L Session Energy`** (Wh).
 
 1. Bereiten Sie einen **MQTT-Broker** vor (üblicherweise das *Mosquitto*-Add-on in Home Assistant).
 2. Aktivieren Sie unter *Einstellungen → MQTT* die Option **MQTT aktivieren** und füllen Sie aus:
@@ -539,7 +552,7 @@ Unter *Einstellungen → Export/Backup* laden Sie die Datenbank (und die CSVs) h
 
 ---
 
-> 📌 **Hinweis zur Pflege des Handbuchs.** Dieses Dokument beschreibt die Version **v1.27.0**. Wenn sich etwas für
+> 📌 **Hinweis zur Pflege des Handbuchs.** Dieses Dokument beschreibt die Version **v1.28.0**. Wenn sich etwas für
 > den Benutzer Sichtbares ändert (eine neue Seite, eine Option, ein Ablauf), aktualisieren Sie den entsprechenden
 > Abschnitt und die Versionszeile oben. Es ist als Grundlage für die Übersetzungen (EN/FR/DE) gedacht: Die Struktur
 > ist bewusst dieselbe wie die der Oberfläche.

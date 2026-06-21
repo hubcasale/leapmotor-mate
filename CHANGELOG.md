@@ -3,6 +3,15 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.28.0] — 2026-06-21
+
+### Added
+- **Climate panel — fan, recirculation and per-mode manual control.** Mate now reads three more things from the car and lets you set them. It reads the **fan level** (1–7), **air recirculation** (fresh air / recirculate) and the **active climate mode** (AUTO · Cool · Heat · Vent), shows them on the Vehicle card, and publishes them to Home Assistant over MQTT Discovery — a **writable `Fan Level` number**, a **writable `Recirculation` switch**, and a **`Climate Mode` sensor**. On the Commands page the climate card gains a **temperature slider, a fan slider and a recirculation toggle**: in the three manual modes (**Cool · Heat · Vent**) you can set the target temperature and the fan speed and the car **stays in that mode and remembers the value**; in **AUTO** the car manages fan and recirculation itself, so those two controls show the current value but stay read-only (the temperature remains adjustable as the AUTO target). Each climate tile (A/C AUTO · Cool · Heat · Vent · Defrost) now lights from the car's **real mode**, so exactly one is lit at a time and it matches the official app. Discovered and validated entirely by on-car testing on a B10 — including correcting the Leapmotor library, which mislabels the fan-level signal.
+
+### Fixed
+- **Rapid Ventilation now actually engages.** Pressing **Ventilazione Rapida** used to leave the car on whatever mode was already active unless you started from a neutral state; it now reliably switches the car into **true ventilation** (air only — no heating, no cooling) from **any** state, exactly like the official app.
+- **No more slider "snap-back".** Moving the temperature or fan slider could briefly jump back to the old value before the car caught up — the value you set now stays put while the car re-polls within a few seconds.
+
 ## [1.27.0] — 2026-06-19
 
 ### Added

@@ -79,11 +79,24 @@ class VehicleData:
     # active. Verified on-car 2026-06-19: V2L switch ON + adapter → 47=2, battery discharging (1178>0).
     ac_port_mode: int = 0
 
+    # Climate detail (read+write validated on-car 2026-06-20): fan level (signal 1941 acAirVolume,
+    # 1-7; HOLDS the last level even when A/C is off), recirculation (signal 1943: 1=recirc/in,
+    # 0=fresh/out), base mode (signal 3713: 0=auto·1=cool·3=heat·4=vent). NB: markoceri's lib
+    # mislabels 1941 as drive_status — the on-car diff proved it's the fan air-volume.
+    fan_level: int = 0
+    recirculation: bool = False
+    climate_mode: int | None = None
+
     @property
     def v2l_active(self) -> bool:
         """True when the AC port is in V2L / bidirectional-discharge mode (powering an external
         load). The DELIVERED power is gated separately on real discharge current (1178)."""
         return self.ac_port_mode == 2
+
+    @property
+    def climate_mode_label(self) -> str:
+        """Human label for the base climate mode (signal 3713); '' if unknown / no data."""
+        return {0: "auto", 1: "cool", 3: "heat", 4: "vent"}.get(self.climate_mode, "")
 
     def fingerprint(self) -> tuple:
         """Compact snapshot of signals that indicate car activity."""
@@ -475,6 +488,9 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
         climate_cooling=int(sig.get("2669") or 0) == 2,
         climate_heating=int(sig.get("2681") or 0) == 2,
         climate_defrost=int(sig.get("1945") or 0) == 2,
+        fan_level=int(sig.get("1941") or 0),                        # 1941 acAirVolume: fan level 1-7
+        recirculation=int(sig.get("1943") or 0) == 1,              # 1943: 1=recirc(in) / 0=fresh(out)
+        climate_mode=int(sig["3713"]) if sig.get("3713") is not None else None,  # 3713: 0 auto/1 cool/3 heat/4 vent
         trunk_open=int(sig.get("1281") or 0) != 0,
         windows_open=any(bool(w) for w in win_states),
         sunshade_open=int(sig.get("1724") or 0) != 0,

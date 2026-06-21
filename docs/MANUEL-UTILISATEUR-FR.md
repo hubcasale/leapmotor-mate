@@ -1,6 +1,6 @@
 # LeapMotor Mate — Manuel utilisateur
 
-> **Version de Mate :** v1.27.0 · **Langue :** Français (première édition)
+> **Version de Mate :** v1.28.0 · **Langue :** Français (première édition)
 > Ce manuel s'adresse à celles et ceux qui *utilisent* Mate, et non à ceux qui le développent. Il explique
 > comment le configurer depuis le début et ce que fait chaque page. Pour les détails techniques internes, voir `ARCHITECTURE.md`.
 
@@ -311,6 +311,18 @@ car c'est la première échéance atteinte qui compte.
 - activer le **chauffage des sièges**, du **volant** et des **rétroviseurs** (là où c'est pris en charge) ;
 - gérer la **limite de charge**.
 
+La carte climatisation comporte une rangée de **tuiles de mode** (A/C AUTO · Refroidir · Chauffer · Ventiler ·
+Dégivrage) : celle qui correspond au **mode réel de la voiture s'allume**, une seule à la fois, comme dans
+l'application officielle. En dessous, trois commandes : un **curseur de température**, un **curseur de
+ventilation** (1–7) et un **interrupteur de recyclage** (air frais / recyclage).
+
+- Dans les **trois modes manuels** (Refroidir, Chauffer, Ventiler), vous réglez à la fois la **température
+  cible** et la **vitesse de ventilation** : la voiture **reste dans ce mode et conserve la valeur** choisie.
+- En **AUTO**, c'est la voiture qui gère elle-même la ventilation et le recyclage : ces deux commandes
+  **affichent la valeur actuelle mais restent en lecture seule** (la température, elle, reste réglable).
+- La **Ventilation Rapide** enclenche de façon fiable la vraie ventilation (**air seulement, ni chaud ni
+  froid**) depuis n'importe quel état.
+
 Quand vous envoyez une commande, Mate met aussitôt à jour l'interface de façon « optimiste », puis confirme à
 la lecture suivante. Si le cloud accepte mais que la voiture ne confirme pas en quelques secondes, vous voyez
 un avis **ambre** (« envoyé, ça a peut-être marché ») — ce n'est pas une erreur : souvent la commande aboutit
@@ -356,8 +368,10 @@ La page comporte trois parties :
 ### Véhicule
 **(menu : Véhicule)** — La fiche **état complet** de la voiture : tous les capteurs disponibles sur votre
 modèle (charge, autonomie, température intérieure, rapport, portes, vitres, pneus, verrouillages, état de
-charge…). Mate n'affiche **que ce que votre voiture rapporte réellement** (certains modèles n'exposent pas
-certaines données).
+charge…). Mate lit désormais aussi, en direct, les réglages de **climatisation** : la **vitesse de ventilation**
+(1–7), le **recyclage de l'air** (air frais / recyclage) et le **mode de climatisation actif** (AUTO /
+Refroidissement / Chauffage / Ventilation). Mate n'affiche **que ce que votre voiture rapporte réellement**
+(certains modèles n'exposent pas certaines données).
 
 ### Wallbox
 **(menu : Wallbox)** — Si vous avez connecté une wallbox (voir [Intégrations](#8-les-intégrations-en-détail)),
@@ -454,7 +468,7 @@ Envoie la télémétrie de la voiture à ABRP pour la planification d'itinérair
 
 ### MQTT → Home Assistant
 Publie l'état de la voiture (charge, autonomie, position, portes, état de charge…) sous forme d'**entités dans
-Home Assistant**, avec **auto-discovery**. Vous pouvez aussi **commander** la voiture depuis les entités de HA — y compris une **limite de charge** (`number` modifiable) pour régler le SoC cible. Trois nouvelles entités V2L en lecture seule sont publiées : **`V2L Active`** (binary sensor), **`V2L Power`** (W) et **`V2L Session Energy`** (Wh).
+Home Assistant**, avec **auto-discovery**. Vous pouvez aussi **commander** la voiture depuis les entités de HA — y compris une **limite de charge** (`number` modifiable) pour régler le SoC cible. Les réglages de climatisation sont également exposés : **Vitesse de ventilation** (`number` modifiable, 1–7), **Recyclage** (`switch` modifiable) et **Mode climatisation** (capteur : AUTO / Refroidissement / Chauffage / Ventilation). Trois entités V2L en lecture seule sont aussi publiées : **`V2L Active`** (binary sensor), **`V2L Power`** (W) et **`V2L Session Energy`** (Wh).
 
 1. Préparez un **broker MQTT** (généralement le module complémentaire *Mosquitto* dans Home Assistant).
 2. Dans *Paramètres → MQTT*, activez **Activé** et renseignez :
@@ -554,7 +568,7 @@ données **avec sa `secret.key`**.
 
 ---
 
-> 📌 **Note de maintenance du manuel.** Ce document décrit la version **v1.27.0**. Quand quelque chose de
+> 📌 **Note de maintenance du manuel.** Ce document décrit la version **v1.28.0**. Quand quelque chose de
 > visible par l'utilisateur change (une nouvelle page, une option, un flux), mettez à jour la section
 > correspondante et la ligne de version en haut. Il est conçu comme base pour les traductions (EN/FR/DE) : la
 > structure est volontairement la même que celle de l'interface.

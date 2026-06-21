@@ -751,7 +751,19 @@ def unlock():            return _session.execute(lambda api, vin: api.unlock_veh
 def open_trunk():        return _session.execute(lambda api, vin: api.open_trunk(vin))
 def close_trunk():       return _session.execute(lambda api, vin: api.close_trunk(vin))
 def find_car():          return _session.execute(lambda api, vin: api.find_vehicle(vin))
-def ac_on():             return _session.execute(lambda api, vin: api.ac_switch(vin))
+def ac_on():
+    """A/C ON in AUTO — like the official app's A/C button. operate=auto + mode=nohotcold tells the
+    car to self-manage cool/heat (and recirc) toward the target temp → climate mode 3713=0 (AUTO),
+    so NO manual mode (cool/heat/vent) is engaged. Target temp kept from the last reading (def 24).
+    The OLD ac_switch() merely toggled power and RESUMED the last manual mode (e.g. cool), which made
+    the car cool and wrongly lit the Quick-Cool tile (reported on-car 2026-06-21)."""
+    import db_reader as _dr
+    st = _dr.get_latest_status() or {}
+    try: temp = max(18, min(int(float(st.get("climate_target_temp") or 24)), 32))
+    except (TypeError, ValueError): temp = 24
+    body = json.dumps({"circle": "in", "mode": "nohotcold", "operate": "auto", "position": "all",
+                       "temperature": str(temp), "windlevel": "5", "wshld": "0"}, separators=(",", ":"))
+    return _session.execute(lambda api, vin: api._remote_control(vin=vin, action="ac_on", cmd_content=body))
 # B10 A/C full-OFF: the working payload is ac_switch with operate=off (drives acSwitch
 # signal 1938 → 0). Found empirically on-car 2026-06-06 — the lib's ac_off() sends
 # operate=close, which on the B10 only flips the HVAC to AUTO (never off). Reported
@@ -759,23 +771,96 @@ def ac_on():             return _session.execute(lambda api, vin: api.ac_switch(
 def ac_off():            return _session.execute(lambda api, vin: api.ac_switch(vin, params={"operate": "off"}))
 def quick_cool():        return _session.execute(lambda api, vin: api.quick_cool(vin))
 def quick_heat():        return _session.execute(lambda api, vin: api.quick_heat(vin))
-def windshield_defrost():return _session.execute(lambda api, vin: api.windshield_defrost(vin))
+def windshield_defrost():
+    # Windshield defrost = cmd 170 with wshld=2 (reads back as signal 1945=2). Matches the official
+    # app EXACTLY (captured on-car 2026-06-21: on=1, mode=0, defr/1945=2, fresh air, fan 7). The lib's
+    # dedicated windshield_defrost ACTION (no params) wrongly engaged plain HEAT (mode 3, defr stayed 0).
+    body = json.dumps({"circle": "out", "mode": "nohotcold", "operate": "auto", "position": "all",
+                       "temperature": "26", "windlevel": "7", "wshld": "2"}, separators=(",", ":"))
+    return _session.execute(lambda api, vin: api._remote_control(vin=vin, action="ac_on", cmd_content=body))
 # Rapid ventilation + temperature: the whole climate is cmd 170 (kerniger payload). "ac_on"
 # maps to cmd 170. mode wind = pure ventilation; temperature field sets the target & starts the climate.
 def quick_vent():
-    body = json.dumps({"circle": "in", "mode": "wind", "operate": "manual", "position": "all",
-                       "temperature": "26", "windlevel": "7", "wshld": "0"}, separators=(",", ":"))
+    # Pure ventilation = mode "wind" (reads back as signal 3713=4) + FRESH AIR (circle=out, recirc off)
+    # + fan 4. CRITICAL: the target temperature must NOT sit below the cabin, or the car engages COOLING
+    # instead of plain vent — seen on-car 2026-06-21: a hardcoded temp=26 with a ~28° cabin came back as
+    # mode 1 (cool), never 4 (vent). So we send the CURRENT CABIN temp as the target → zero heat/cool
+    # delta → the car just blows air. (The lib's HvacMode enum 0/1/3 is incomplete; the cloud accepts
+    # "wind" — ClimateMode.WIND confirms it.)
+    # Pure ventilation via operate=MANUAL + mode=NOHOTCOLD — the recipe proven on-car (2026-06-21 12:57:
+    # the experimental "A/C MANUAL" button, from off/mode-3 → on=1, 3713=4 vent) and the one the OFFICIAL
+    # app effectively uses: it engages mode 4 from ANY starting state. The old mode="wind" did NOT engage
+    # from a persisted manual mode (12:51 on-car: from mode-3 it stayed mode-3 — "quick_vent NON ingrana").
+    # nohotcold = neither hot nor cold, so the target temp can't trigger cooling/heating; circle=out =
+    # fresh air + fan 4, matching the app's captured vent (on=1, mode=4, recirc=0, fan=4).
+    body = json.dumps({"circle": "out", "mode": "nohotcold", "operate": "manual", "position": "all",
+                       "temperature": "26", "windlevel": "4", "wshld": "0"}, separators=(",", ":"))
     return _session.execute(lambda api, vin: api._remote_control(vin=vin, action="ac_on", cmd_content=body))
 def set_climate_temp(temp, inside=None):
-    """Set target temp 18–32 °C. Auto mode: cool if cabin warmer than target, heat if cooler, else vent."""
+    """Set the target temp 18–32 °C while PRESERVING the current climate mode (so changing the target
+    NEVER switches the mode): in AUTO (3713=0) it stays AUTO (operate=auto → the car keeps managing
+    cool/heat itself toward the new target); in a manual mode (cool/heat/vent) it keeps that mode.
+    Recirc + fan preserved from the last reading. `inside` is unused now (the car decides) but kept
+    for call-site compatibility. Confirmed on-car 2026-06-21: operate=auto → mode 0, no manual tile."""
     try:
         t = max(18, min(int(round(float(temp))), 32))
     except (TypeError, ValueError):
         return False, "bad temp"
-    mode = "cold" if (inside is not None and inside > t) else ("hot" if (inside is not None and inside < t) else "wind")
-    body = json.dumps({"circle": "in", "mode": mode, "operate": "manual", "position": "all",
-                       "temperature": str(t), "windlevel": "5", "wshld": "0"}, separators=(",", ":"))
+    import db_reader as _dr
+    st = _dr.get_latest_status() or {}
+    mode_tok = {1: "cold", 3: "hot", 4: "wind"}.get(st.get("climate_mode"))
+    operate, mode = ("manual", mode_tok) if mode_tok else ("auto", "nohotcold")   # AUTO(0)/unknown → AUTO
+    circle = "in" if st.get("recirculation") else "out"
+    try:
+        fan = max(1, min(int(st.get("fan_level") or 5), 7))
+    except (TypeError, ValueError):
+        fan = 5
+    body = json.dumps({"circle": circle, "mode": mode, "operate": operate, "position": "all",
+                       "temperature": str(t), "windlevel": str(fan), "wshld": "0"}, separators=(",", ":"))
     return _session.execute(lambda api, vin: api._remote_control(vin=vin, action="ac_on", cmd_content=body))
+
+# ── Fan level (signal 1941) + recirculation (signal 1943) — both validated on-car 2026-06-20 ──
+# Change ONE field while PRESERVING the rest of the panel (mode/recirc/temp/fan), read from the last
+# stored position so there's no extra cloud round-trip. ac_on (cmd 170) with mode cold/hot/wind +
+# windlevel is the SAME path set_climate_temp already ships, so cool/heat keep working at the chosen
+# fan. The car rejects windlevel 0 (verified on-car) → clamp to 1-7.
+_MODE_TOKEN = {1: "cold", 3: "hot", 4: "wind"}     # signal 3713 → ac_on MANUAL mode token
+def _climate_ctx():
+    """(operate, mode_token, circle, fan, temp) from the latest stored position — PRESERVES the panel
+    on a single-field change without a cloud fetch. AUTO (3713=0) / unknown → operate=auto+nohotcold,
+    so a fan/recirc tweak NEVER kicks the car out of AUTO (the old default 'wind' did → it went vent)."""
+    import db_reader as _dr
+    st = _dr.get_latest_status() or {}
+    tok = _MODE_TOKEN.get(st.get("climate_mode"))
+    operate, mode = ("manual", tok) if tok else ("auto", "nohotcold")
+    circle = "in" if st.get("recirculation") else "out"
+    try: fan = max(1, min(int(st.get("fan_level") or 3), 7))
+    except (TypeError, ValueError): fan = 3
+    try: temp = max(18, min(int(float(st.get("climate_target_temp") or 26)), 32))
+    except (TypeError, ValueError): temp = 26
+    return operate, mode, circle, fan, temp
+def _send_ac_on(operate, mode, circle, windlevel, temp):
+    body = json.dumps({"circle": circle, "mode": mode, "operate": operate, "position": "all",
+                       "temperature": str(temp), "windlevel": str(windlevel), "wshld": "0"},
+                      separators=(",", ":"))
+    return _session.execute(lambda api, vin: api._remote_control(vin=vin, action="ac_on", cmd_content=body))
+def set_fan_level(level):
+    """Set the A/C fan to a 1-7 level (signal 1941), preserving mode/recirc/temp. 0 → clamped to 1."""
+    try: lvl = max(1, min(int(level), 7))
+    except (TypeError, ValueError): return False, "bad fan level"
+    operate, mode, circle, _fan, temp = _climate_ctx()
+    return _send_ac_on(operate, mode, circle, lvl, temp)
+def set_recirc(on):
+    """Toggle air recirculation (circle in=recirc / out=fresh, signal 1943), preserving mode/fan/temp."""
+    operate, mode, _circle, fan, temp = _climate_ctx()
+    return _send_ac_on(operate, mode, "in" if on else "out", fan, temp)
+def recirc_toggle():
+    """Flip recirculation vs the last stored state — lets the climate_tile button (single cmd with an
+    on/off label) toggle it like the other climate tiles."""
+    import db_reader as _dr
+    cur = (_dr.get_latest_status() or {}).get("recirculation")
+    return set_recirc(not cur)
+
 # Window position is a 0–100% in the UI, but cmd 230's native range is model-specific: the B10 uses
 # 0–10 (10 = fully open, >10 is silently ignored — confirmed on-car), the T03 0–100 (#62). Map the UI
 # % to the model's native value via its full-open scale. cmd 230 is GLOBAL — all four windows move
