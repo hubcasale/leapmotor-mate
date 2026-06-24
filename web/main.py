@@ -25,7 +25,7 @@ import mqtt_check
 import auth
 import update_check
 
-MATE_VERSION = "1.32.0"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "1.32.1"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 import demo
@@ -1667,15 +1667,23 @@ async def save_mqtt(request: Request):
 @app.post("/api/settings/mqtt/test", response_class=HTMLResponse)
 async def test_mqtt(request: Request):
     """Try to connect to the broker with the values currently in the form (before
-    saving), so the user can verify host/port/credentials/TLS first."""
+    saving), so the user can verify host/port/credentials/TLS first.
+
+    The password field is masked — it renders as •••••••• and never carries the real
+    value — so an EMPTY submit means "use the saved password", the same convention as
+    Save (set_secret only on a non-empty value) and the status dot. Without this
+    fallback, clicking Test without retyping the password would test with NO password
+    and report "Not authorised", even though the running bridge (which uses the saved
+    password) stays green — the exact mismatch reported in issue #91."""
     form = await request.form()
+    mqtt_pass = (form.get("mqtt_pass") or "").strip() or db_reader.get_secret("mqtt_pass", "") or None
     import asyncio
     ok, reason = await asyncio.get_event_loop().run_in_executor(
         None, lambda: mqtt_check.check_connection(
             form.get("mqtt_broker", ""),
             form.get("mqtt_port", "1883"),
             form.get("mqtt_user") or None,
-            form.get("mqtt_pass") or None,
+            mqtt_pass,
             form.get("mqtt_tls") in ("1", "on", "true"),
             form.get("mqtt_tls_insecure") in ("1", "on", "true"),
         ))
