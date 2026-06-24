@@ -3,6 +3,11 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.31.0] — 2026-06-24
+
+### Added
+- **Polish language (Polski). 🇵🇱** The whole UI is now available in Polish — the app, the settings **and** the first-run setup wizard — selectable in **Settings → Language**, or auto-detected from the browser on first launch. Dates use Polish month names, and the **złoty (zł)** is available as the display currency. Community translation contributed by **@irek** (#90), completed with the latest v1.30.0 strings, the setup wizard, Polish month names and `lang_pl` in every language, and normalised to the repo's line endings.
+
 ## [1.30.0] — 2026-06-24
 
 ### Added

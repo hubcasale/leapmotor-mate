@@ -61,7 +61,7 @@ LeapMotor Mate is free and open-source, developed in my spare time. If it's usef
 - **Remote control** — lock, windows, trunk, panoramic roof, **climate** (cool / heat / ventilation / defrost, A/C on-off, target temperature), **heated & ventilated seats** (per-seat level), **heated steering wheel & mirrors**, find car, battery preheat, **unlock charge cable**.
 - **Navigation** — search an address and **send the destination straight to the car's built‑in navigation**. Shows the car's current address too. Address lookup is keyless by default (OpenStreetMap) with an optional API key (Geoapify/LocationIQ/TomTom) for better house‑number coverage.
 - **Independent** — polls the Leapmotor cloud directly (configurable 10–30 s). No dependency on the phone app or Home Assistant; polling the cloud does **not** wake or drain the car. It isn't real-time, so a **Refresh** button (in the sidebar, and the mobile header) pulls the car's latest state on demand.
-- **Multilingual UI** — English · Italiano · Français · Deutsch.
+- **Multilingual UI** — English · Italiano · Français · Deutsch · **Polski 🆕**.
 - **Currency** — pick your display currency from 30 world currencies (€, $, £, CHF, kr, zł…); every cost reformats to it, with the right symbol placement and decimals.
 - **Units** — choose **Metric**, **Imperial UK** (miles & mph, but °C) or **Imperial US** (miles, °F, psi). Distances, speeds, temperatures and tyre pressures display in your chosen system. It's display-only — your stored data always stays metric, so you can switch any time with nothing lost.
 - **Diagnostics** — a *Settings → Diagnostics* card with a read-only system snapshot, the recent poller/web logs and the car's current raw signals (with Copy), plus a one-click **downloadable bundle** to attach to a GitHub issue. Personal info (VIN — including where it's embedded in the MQTT topic, credentials, e-mail and **exact GPS coordinates**) is **always masked** in the exported logs.
@@ -166,7 +166,7 @@ Everything is configured from the web UI (**Settings**), no YAML needed:
 
 - **Polling interval** — parked (default 30 s) and driving (default 10 s). Faster catches trips/charges sooner; slower means fewer API calls. Polling the cloud does not wake or drain the car.
 - **Charge prices** — flat or time-of-use, on the dedicated *Charge Prices* page (see below).
-- **Language & currency** — English / Italiano / Français / Deutsch, and your display currency (€, $, £, CHF… 30 currencies). The number format (decimal/thousands separator) follows the selected language.
+- **Language & currency** — English / Italiano / Français / Deutsch / **Polski 🆕**, and your display currency (€, $, £, CHF, zł… 30 currencies). The number format (decimal/thousands separator) follows the selected language.
 
 ### Charge prices
 
@@ -295,7 +295,7 @@ LeapMotor Mate è gratuito e open-source, sviluppato nel tempo libero. Se ti è 
 - **Controllo remoto** — blocco, finestrini, bagagliaio, tetto panoramico, **clima** (raffredda / riscalda / ventilazione / sbrinamento, A/C on-off, temperatura), **sedili riscaldati e ventilati** (livello per sedile), **volante e specchietti riscaldati**, trova auto, preriscaldo batteria, **sblocco cavo di ricarica**.
 - **Navigazione** — cerca un indirizzo e **invia la destinazione direttamente al navigatore di bordo dell'auto**. Mostra anche l'indirizzo attuale dell'auto. La ricerca indirizzi funziona senza chiave (OpenStreetMap) con una chiave API opzionale (Geoapify/LocationIQ/TomTom) per una copertura migliore dei civici.
 - **Indipendente** — interroga direttamente il cloud Leapmotor (configurabile 10–30 s). Nessuna dipendenza dall'app o da Home Assistant; interrogare il cloud **non** sveglia né scarica l'auto. Non è in tempo reale, quindi un pulsante **Aggiorna** (barra laterale, e nell'header su mobile) recupera lo stato attuale dell'auto su richiesta.
-- **UI multilingua** — Italiano · English · Français · Deutsch.
+- **UI multilingua** — Italiano · English · Français · Deutsch · **Polski 🆕**.
 - **Valuta** — scegli la valuta di visualizzazione tra 30 valute mondiali (€, $, £, CHF, kr, zł…); ogni costo si riformatta con simbolo e decimali corretti.
 - **Unità di misura** — scegli **Metrico**, **Imperiale UK** (miglia e mph, ma °C) o **Imperiale US** (miglia, °F, psi). Distanze, velocità, temperature e pressioni gomme si mostrano nel sistema scelto. È **solo visualizzazione**: i dati restano sempre in metrico, quindi puoi cambiare quando vuoi senza perdere nulla.
 - **Diagnostica** — una scheda in *Impostazioni → Diagnostica* con uno snapshot di sistema in sola lettura, i log recenti poller/web e i segnali grezzi attuali dell'auto (con Copia), più un **bundle scaricabile** con un clic da allegare a una issue su GitHub. Le info personali (VIN — anche dove è incorporato nel topic MQTT, credenziali, e-mail e **coordinate GPS esatte**) sono **sempre mascherate** nei log esportati.
@@ -392,7 +392,7 @@ Tutto si configura dalla UI web (**Impostazioni**), senza YAML:
 
 - **Intervallo di polling** — parcheggiata (default 30 s) e in marcia (default 10 s). Più veloce rileva prima viaggi/ricariche; più lento riduce le chiamate. Interrogare il cloud non sveglia né scarica l'auto.
 - **Prezzi di ricarica** — fisso o a fasce orarie, dalla pagina dedicata *Prezzi di ricarica* (vedi sotto).
-- **Lingua e valuta** — Italiano / English / Français / Deutsch, e la valuta di visualizzazione (€, $, £, CHF… 30 valute). Il formato numero (separatore decimale/migliaia) segue la lingua selezionata.
+- **Lingua e valuta** — Italiano / English / Français / Deutsch / **Polski 🆕**, e la valuta di visualizzazione (€, $, £, CHF, zł… 30 valute). Il formato numero (separatore decimale/migliaia) segue la lingua selezionata.
 
 ### Prezzi di ricarica
 
