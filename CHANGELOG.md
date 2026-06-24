@@ -3,7 +3,11 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.29.2] — 2026-06-23
+## [1.29.3] — 2026-06-24
+
+### Fixed
+- **Command feedback on the Prepare Car page.** Sending an immediate preparation or saving/deleting a schedule gave no on-screen feedback, so it wasn't clear whether the command had been sent, was waiting for the car, or hadn't fired at all (the cloud round-trip can take many seconds). Each of these now shows a **⏳ "Sending…" / "Saving…"** indicator the moment you submit, which stays until the car responds and is then replaced by the ✓/✗ result — matching the rest of the app.
+- **"Charging" status label no longer looks stuck on.** On the Charges page the live panel's heading always read "Charging" (a section title in English), which in other languages reads as the live state — so it looked like the car was always charging even when the panel's own badge correctly said "Not charging". The heading is now a neutral **"Charging status"**; the real state is shown only by the badge. (Reported by riri19, #85.)
 
 ### Added
 - **Delete account / Factory reset.** Settings now has a destructive **🗑️ Delete account / Reset** action (next to Log out) that wipes *everything* — the account, all trips, charges, positions and every setting (MQTT / wallbox / prices / Home Assistant) — and reopens the setup wizard as a brand-new install. Unlike **Log out** (which keeps your history, keyed to the car), this keeps nothing except the app-level certificate on disk, so re-onboarding still needs only your e-mail, password and PIN. It is **type-to-confirm** (you must type `RESET`) because it cannot be undone.
