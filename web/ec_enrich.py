@@ -30,12 +30,18 @@ _STABLE_TOL_REL  = 0.05        # converged. The cloud quantizes EC to 0.1, so th
 _STABLE_BACKSTOP_AGE_S = 90 * 60  # hard backstop: a usable value seen at least twice and this old is
                                   # final — lock it even if the two reads keep wobbling or never
                                   # repeat, so enrichment ALWAYS completes on its own (no manual lock).
-_MIN_PLAUSIBLE_EFF = 5         # kWh/100km — first incompleteness signal: an EC implying less than this
-                               # is suspect (no EV sustains it), but NOT proof alone — a long descent /
-                               # heavy regen can be genuinely this low → it must coincide with signal 2.
-_MAX_EC_SOC_SHORTFALL = 0.5    # second signal: a real getEC ≈ the physical battery delta (empirically
-                               # median getEC/SoC ≈ 0.93). Below HALF the SoC delta = the cloud only
-                               # captured a fraction of the trip (riri19 #96: 0.5 vs 5.8 kWh).
+_MIN_PLAUSIBLE_EFF = 5         # kWh/100km — LOW floor: an EC implying less than this is suspect (no EV
+                               # sustains it), but NOT proof alone — a long descent / heavy regen can be
+                               # genuinely this low → must coincide with the SoC shortfall.
+_MAX_EC_SOC_SHORTFALL = 0.5    # ...and: a real getEC ≈ the physical battery delta (empirically median
+                               # getEC/SoC ≈ 0.93). Below HALF the SoC delta = the cloud captured only a
+                               # fraction of the trip (riri19 #96: 0.5 vs 5.8 kWh).
+_MAX_PLAUSIBLE_EFF = 60        # kWh/100km — HIGH ceiling: above this is suspect, but a short cold/hard
+                               # burst can read high → must coincide with the SoC overshoot.
+_MAX_EC_SOC_OVERSHOOT = 2.0    # ...and: getEC ABOVE this × the SoC delta = over-attributed (riri19 #98).
+                               # Typical on VERY SHORT trips: the window's 2-min pre-pad (A/C, standby,
+                               # pre-conditioning) dwarfs the tiny drive and inflates getEC several-fold
+                               # past what actually left the battery (1 km: 1.2 kWh getEC vs 0.2 SoC).
 _lock = threading.Lock()
 _running = False
 _bg_started = False
@@ -54,20 +60,24 @@ def _soc_energy_kwh(d: dict, dist: float):
     return (soc_eff / 100 * dist) if (soc_eff and dist and dist > 0) else None
 
 
-def _ec_incomplete(ec: dict, dist: float, soc_energy) -> bool:
-    """True when a getEC reading is an INCOMPLETE cloud aggregation, not a real (possibly low) value —
-    the #96 guard. Requires BOTH: (1) implied efficiency < _MIN_PLAUSIBLE_EFF AND (2) total below
-    _MAX_EC_SOC_SHORTFALL of the trip's physical SoC battery delta. A genuine low-consumption trip
-    (descent / heavy regen) has a low SoC delta too, so its low getEC is consistent (cond. 2 fails) and
-    is accepted; with no SoC reference we can't claim incompleteness, so we accept."""
-    if not ec or not dist or dist <= 0:
+def _ec_implausible(ec: dict, dist: float, soc_energy) -> bool:
+    """True when a getEC reading is physically implausible vs the trip's SoC battery delta → keep the
+    estimate instead of applying it. Two SYMMETRIC cases, each needing BOTH an absolute-efficiency
+    signal AND a SoC-mismatch signal (so a genuinely low/high but consistent trip is still accepted;
+    with no SoC reference we can't judge → accept):
+      • INCOMPLETE (#96): eff < _MIN_PLAUSIBLE_EFF AND total < _MAX_EC_SOC_SHORTFALL × SoC
+        — the cloud captured only a fraction of the trip.
+      • OVER-ATTRIBUTED (#98): eff > _MAX_PLAUSIBLE_EFF AND total > _MAX_EC_SOC_OVERSHOOT × SoC
+        — typical on very short trips, where the window's 2-min pre-pad (A/C/standby) dwarfs the drive."""
+    if not ec or not dist or dist <= 0 or not soc_energy:
         return False
     total = ec.get("total_kwh") or 0
-    if total / dist * 100 >= _MIN_PLAUSIBLE_EFF:   # plausible on its own → keep
-        return False
-    if not soc_energy:                             # no physical reference → can't claim incomplete
-        return False
-    return total < soc_energy * _MAX_EC_SOC_SHORTFALL
+    eff = total / dist * 100
+    if eff < _MIN_PLAUSIBLE_EFF and total < soc_energy * _MAX_EC_SOC_SHORTFALL:
+        return True                                # too low → incomplete (#96)
+    if eff > _MAX_PLAUSIBLE_EFF and total > soc_energy * _MAX_EC_SOC_OVERSHOOT:
+        return True                                # too high → over-attributed (#98)
+    return False
 
 
 def _enabled() -> bool:
@@ -146,13 +156,13 @@ def _sweep_now() -> None:
             dist = t.get("distance_km") or 0
             age = now - e
             tried = (t.get("ec_tried") or 0) + 1
-            # Incompleteness guard (#96): a fresh trip's EC is written incrementally; discard a reading
-            # that's BOTH implausibly low AND a fraction of the physical SoC battery delta — an
-            # incomplete aggregation, not a real value → treat as a miss and keep retrying. (A genuinely
-            # low-consumption trip whose SoC agrees passes — _ec_incomplete needs both signals.)
+            # Plausibility guard (#96 low / #98 high): discard a reading that's physically implausible
+            # vs the SoC battery delta — too low (incomplete aggregation) OR too high (over-attributed,
+            # short-trip pre-pad). Treat as a miss → keep retrying / stay SoC. A genuinely low/high but
+            # SoC-consistent trip passes (_ec_implausible needs both an efficiency and a SoC signal).
             soc_e = _soc_energy_kwh(t, dist)
-            if _ec_incomplete(ec, dist, soc_e):
-                log.info("EC trip %s: incomplete read %.2f kWh (SoC≈%.2f kWh) — discarded (age %.0fm, try %d)",
+            if _ec_implausible(ec, dist, soc_e):
+                log.info("EC trip %s: implausible read %.2f kWh (SoC≈%.2f kWh) — discarded (age %.0fm, try %d)",
                          t["id"], ec.get("total_kwh") or 0, soc_e or 0, age / 60, tried)
                 ec = None
             if not ec:
@@ -238,15 +248,15 @@ def convert_trip(trip_id: int) -> dict:
         except Exception:  # noqa: BLE001
             pass
         return {"ok": False, "reason": reason}
-    # Incompleteness guard (#96) — mirrors the auto-sweep: refuse a getEC that is BOTH implausibly low
-    # AND a fraction of the physical SoC battery delta (an incomplete cloud aggregation). Applying it
-    # would overwrite the reliable SoC estimate with a partial figure (the v1.34.0 bug). A genuinely
-    # low trip (descent/regen) whose SoC agrees is accepted; only a value far below the battery delta is
-    # rejected. The manual button must not do what the background sweep refuses to.
+    # Plausibility guard (#96 low / #98 high) — mirrors the auto-sweep: refuse a getEC that is
+    # physically implausible vs the SoC battery delta — too low (incomplete cloud aggregation) OR too
+    # high (over-attributed, e.g. a very short trip whose 2-min window pre-pad dwarfs the drive).
+    # Applying it would overwrite the reliable SoC estimate; a genuinely low/high but SoC-consistent
+    # trip is still accepted. The manual button must not do what the background sweep refuses to.
     soc_e = _soc_energy_kwh(grp, dist)
-    if _ec_incomplete(ec, dist, soc_e):
+    if _ec_implausible(ec, dist, soc_e):
         db_reader.store_trip_ec(trip_id, None, dist, apply_energy=False)  # record attempt, change nothing
-        log.info("convert_trip %s: incomplete getEC %.2f kWh over %.1f km (SoC≈%.2f kWh) — kept SoC estimate",
+        log.info("convert_trip %s: implausible getEC %.2f kWh over %.1f km (SoC≈%.2f kWh) — kept SoC estimate",
                  trip_id, ec.get("total_kwh") or 0, dist, soc_e or 0)
         return {"ok": False, "reason": "implausible"}
     # Over-attribution guard: when the cloud merged this trip with a CLOSE FOLLOWING trip, this trip's

@@ -308,6 +308,49 @@ def test_convert_trip_incomplete_caught_via_raw_soc_when_efficiency_missing(tmp_
     assert _row(pdb)[1] == 0 and _row(pdb)[0] is None              # nothing applied
 
 
+def test_convert_trip_overattributed_short_kept_estimate(tmp_path, monkeypatch):
+    """#98 (mirror of #96): on a very short trip the cloud over-attributes getEC (the window's 2-min
+    pre-pad dwarfs the drive) → an impossible efficiency far ABOVE the battery delta. Convert must
+    refuse it and keep the estimate. riri19's case: 1 km, SoC 71.0→70.7 (~0.2 kWh), cloud 1.2 kWh."""
+    pdb = D.Database(str(tmp_path / "t.db"))
+    monkeypatch.setattr(db_reader, "DB_PATH", str(tmp_path / "t.db"))
+    db_reader.set_setting("battery_capacity_kwh", "65.0")
+    ended = datetime.now(timezone.utc) - timedelta(minutes=120)
+    started = ended - timedelta(minutes=4)
+    pdb._conn.execute(
+        "INSERT INTO trips (id, vehicle_id, started_at, ended_at, distance_km, efficiency_kwh_100km,"
+        " start_soc, end_soc) VALUES (1, 1, ?, ?, 1.0, 19.5, 71.0, 70.7)",
+        (started.isoformat(), ended.isoformat()))
+    pdb._conn.commit()
+    monkeypatch.setattr(command_client, "get_energy_breakdown_range", lambda b, e: _ec(1.2))
+    res = ec_enrich.convert_trip(1)
+    assert res["ok"] is False and res["reason"] == "implausible"
+    assert _row(pdb)[3] == pytest.approx(19.5)   # estimate kept, not the impossible 120 kWh/100km
+
+
+def test_convert_trip_high_but_soc_consistent_accepted(tmp_path, monkeypatch):
+    """The high-side guard needs BOTH signals: a short trip with a high implied efficiency (>60) but
+    whose getEC still matches the battery delta (overshoot < 2×) is real (cold/hard burst), not
+    over-attributed → accepted. 1.5 km, SoC 80→79.2 (~0.52 kWh on a 65 kWh pack), cloud 1.0 kWh →
+    eff 66.7 kWh/100km but ratio ~1.9 → applied."""
+    pdb = D.Database(str(tmp_path / "t.db"))
+    monkeypatch.setattr(db_reader, "DB_PATH", str(tmp_path / "t.db"))
+    db_reader.set_setting("battery_capacity_kwh", "65.0")
+    ended = datetime.now(timezone.utc) - timedelta(minutes=120)
+    started = ended - timedelta(minutes=6)
+    pdb._conn.execute(
+        "INSERT INTO trips (id, vehicle_id, started_at, ended_at, distance_km, efficiency_kwh_100km,"
+        " start_soc, end_soc) VALUES (1, 1, ?, ?, 1.5, 66.7, 80.0, 79.2)",
+        (started.isoformat(), ended.isoformat()))
+    pdb._conn.commit()
+    monkeypatch.setattr(command_client, "get_energy_breakdown_range", lambda b, e: _ec(1.0))
+    res = ec_enrich.convert_trip(1)
+    assert res["ok"] is True                       # high but consistent with the battery → applied
+    ec_kwh, stable, _t, eff, _soc = _row(pdb)
+    assert stable == 1 and ec_kwh == pytest.approx(1.0)
+    assert eff == pytest.approx(66.7, abs=0.1)     # 1.0 / 1.5 km * 100
+
+
 # ── recovery: per-trip "Revert to estimate" ──────────────────────────────────
 
 def test_revert_trip_ec_restores_estimate(tmp_path, monkeypatch):

@@ -3,6 +3,11 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.34.2] — 2026-06-29
+
+### Fixed
+- **"Convert with official data" no longer applies an over-inflated cloud figure on very short trips.** On a ~1 km trip the cloud's official consumption (`getEC`) can come back several times larger than the energy that actually left the battery — its window includes the ~2 minutes before you start driving (A/C, standby), which dwarfs a tiny drive — giving an impossible figure like **120 kWh/100 km**. The plausibility guard is now **symmetric**: it refuses a value that is both absurdly **high** *and* far above the trip's real battery use, exactly as it already did for absurdly **low** / incomplete values (#96), keeping the reliable estimate. The message now notes that on very short trips the cloud isn't precise. (Reported in #98.)
+
 ## [1.34.1] — 2026-06-29
 
 ### Fixed
