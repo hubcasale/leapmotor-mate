@@ -3,6 +3,11 @@
 All notable changes to LeapMotor Mate are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.35.1] — 2026-06-30
+
+### Fixed
+- **Official trip consumption (`getEC`) no longer occasionally comes back empty and drops a trip to the estimate.** The query now starts from the **last moment the car was confirmed OFF** (the sample just before power-on) instead of the first poll that detected "Ready". Polling is periodic (~30 s while the car is off), so that first "Ready" poll can land a few seconds *after* the cloud's session anchor — making the official figure return nothing and the trip fall back to the SoC estimate. Anchoring to the last "off" sample is guaranteed to be before the anchor at any polling cadence, so the official figure is caught reliably. (The same trip could succeed on one device and miss on another purely from polling phase — a 4-second difference was enough.)
+
 ## [1.35.0] — 2026-06-29
 
 This release makes Mate use the car's real **power-on (Ready) signal** to bound both the official trip consumption and the battery-drain calculation — replacing time-based guesses with the exact moments the car was switched on and off.

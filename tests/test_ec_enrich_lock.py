@@ -444,6 +444,33 @@ def test_guards_stay_for_single_trip_even_with_ready_session(tmp_path, monkeypat
     assert ec_enrich.convert_trip(1)["reason"] == "implausible"
 
 
+def test_trip_ec_window_begins_at_last_off_not_first_on(tmp_path, monkeypatch):
+    """#117 regression: the getEC window must begin at on_lo (the LAST ready=0 sample before the
+    session), NOT at sess['on'] (the first ready=1 poll). The real power-on (= cloud anchor) sits
+    between the two, within one poll interval; sess['on'] can land AFTER the anchor → getEC None and
+    the trip wrongly drops to SoC. on_lo is a sample where the car was provably OFF → ≤ the anchor."""
+    pdb = _setup(tmp_path, monkeypatch, age_min=120)
+    tr = dict(db_reader._get().execute("SELECT * FROM trips WHERE id=1").fetchone())
+    on = datetime.fromisoformat(tr["started_at"]); off = datetime.fromisoformat(tr["ended_at"])
+    c = pdb._conn
+    for dt in (90, 60, 30):                          # off-cadence ready=0 samples before the trip
+        c.execute("INSERT INTO positions (vehicle_id, recorded_at, ready) VALUES (1,?,0)",
+                  ((on - timedelta(seconds=dt)).isoformat(),))
+    t = on
+    while t <= off:                                  # ready=1 from the trip start onward
+        c.execute("INSERT INTO positions (vehicle_id, recorded_at, ready) VALUES (1,?,1)", (t.isoformat(),))
+        t += timedelta(seconds=30)
+    c.execute("INSERT INTO positions (vehicle_id, recorded_at, ready) VALUES (1,?,0)",
+              ((off + timedelta(minutes=2)).isoformat(),))
+    c.commit()
+    sess = db_reader.ready_session(tr)
+    assert sess["on_lo"] is not None and sess["on_lo"] < sess["on"]          # last off precedes first on
+    assert abs(sess["on_lo"] - int((on - timedelta(seconds=30)).timestamp())) <= 1   # = the −30 s sample
+    b, e = db_reader.trip_ec_window(tr)
+    assert b == sess["on_lo"]                                                # window starts at on_lo …
+    assert b < sess["on"]                                                    # … NOT at sess['on'] (#117)
+
+
 # ── recovery: per-trip "Revert to estimate" ──────────────────────────────────
 
 def test_revert_trip_ec_restores_estimate(tmp_path, monkeypatch):

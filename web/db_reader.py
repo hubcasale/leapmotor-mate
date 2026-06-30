@@ -952,16 +952,18 @@ def trip_epoch_window(trip: dict):
 
 
 def trip_ec_window(trip: dict, pad_s: int = 120):
-    """Window for the getEC QUERY: start a bit BEFORE the trip (T0 − pad_s), end EXACTLY at the trip
-    end (T1).
+    """Window for the getEC QUERY.
 
-    getEC stamps a driving session's whole energy at ONE instant near the session start (≈ ready /
-    leaving Park), slightly BEFORE Mate's movement-based `started_at` (verified on trip 165: the
-    anchor sits ~15-20 s before T0 → a query starting at T0 misses it → 0.1 kWh, but starting ~2 min
-    earlier catches the full 2.8). So:
-      START = T0 − pad_s, CLAMPED to the midpoint with the PREVIOUS trip (never into its energy).
-      END   = T1, with NO padding — the energy is at the start anchor, and T1 + pad would risk
-              landing in the FUTURE (getEC then returns None) and could reach the NEXT trip.
+    getEC stamps a driving session's whole energy at ONE instant — the cloud anchor ≈ the real
+    Ready-on (power-on). A query [begin, end] returns that energy only when begin ≤ anchor ≤ end. So:
+      START = on_lo, the LAST ready=0 sample before the session (the car was provably OFF there →
+              guaranteed ≤ the anchor, at ANY poll cadence). NOT sess["on"] (the first ready=1 poll):
+              that can sit up to a poll interval (~30 s cold) AFTER the anchor → getEC None and the
+              trip wrongly drops to SoC (#117 — verified same trip: one account caught it at
+              on=08:33:09, another missed at 08:33:13, a 4 s knife-edge; on_lo=08:32:59 catches both).
+              No magic pad. FALLBACK (no ready data): T0 − pad_s clamped to the previous trip midpoint.
+      END   = T1, with NO padding — the energy is at the START anchor, so any end past it works; T1 is
+              always past the anchor, and T1 + pad would risk the FUTURE (None) / the next trip.
 
     CAVEAT — the cloud's SESSION ≠ Mate's TRIP. The session runs from READY (power-on) until the car
     is switched OFF, so it can span SEVERAL Mate trips + long idle in Park (verified 22/06: trips
@@ -976,12 +978,13 @@ def trip_ec_window(trip: dict, pad_s: int = 120):
     b, e = trip_epoch_window(trip)
     if not b or not e:
         return (None, None)
-    # PRIMARY: the REAL session start (Ready-on, PID 1258) when we have it — the exact cloud anchor,
-    # no guessing (verified: Ready-on = the getEC anchor). end stays T1.
+    # PRIMARY: begin = on_lo (last ready=0 before the session) — provably ≤ the cloud anchor at any
+    # cadence, so getEC always catches it. NOT sess["on"] (first ready=1 poll), which can land a poll
+    # interval AFTER the anchor → None (#117). end stays T1 (always past the start anchor).
     sess = ready_session(trip)
-    if sess:
-        return (int(sess["on"]), int(e))
-    # FALLBACK (old trips with no ready data): T0 − pad, clamped to the previous trip's midpoint.
+    if sess and sess.get("on_lo") is not None:
+        return (int(sess["on_lo"]), int(e))
+    # FALLBACK (no ready data, or no off-sample before the session): T0 − pad, clamped to prev midpoint.
     db = _get()
     begin = b - pad_s
     prev = db.execute(
@@ -1051,6 +1054,11 @@ def ready_session(trip: dict):
     if sess is None:
         return None
     on, off = sess
+    # on_lo = last ready=0 sample BEFORE the run = lower bracket of the real Ready-on. The true
+    # power-on (= getEC anchor) sits between on_lo and `on` (≤ one poll interval), so on_lo is
+    # provably ≤ the anchor → the safe getEC begin (see trip_ec_window). None only if the run starts
+    # at the scan edge with no preceding off-sample (caller then uses its fallback).
+    on_lo = max((ts for ts, rd in samples if ts < on and rd == 0), default=None)
     # Count finalized, non-merged trips whose span falls inside the session.
     olo = datetime.fromtimestamp(on - _READY_DEBOUNCE_S, timezone.utc).isoformat()
     ohi = datetime.fromtimestamp(off + _READY_DEBOUNCE_S, timezone.utc).isoformat()
@@ -1063,7 +1071,9 @@ def ready_session(trip: dict):
         ts0, ts1 = _trip_epoch(tr["started_at"]), _trip_epoch(tr["ended_at"])
         if ts0 and ts1 and ts0 >= on - _READY_DEBOUNCE_S and ts1 <= off + _READY_DEBOUNCE_S:
             ids.append(tr["id"])
-    return {"on": int(on), "off": int(off), "n_trips": len(ids), "trip_ids": ids}
+    return {"on": int(on), "off": int(off),
+            "on_lo": int(on_lo) if on_lo is not None else None,
+            "n_trips": len(ids), "trip_ids": ids}
 
 
 def get_trips_needing_ec(cutoff_iso: str, limit: int = 5, min_age_s: int = 600,
