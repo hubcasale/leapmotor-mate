@@ -108,6 +108,11 @@ jobs:
       # docs/DOCKERHUB.md — the full README is bilingual and over Docker Hub's 25 KB limit.
       - name: Sync Docker Hub description
         if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        # Cosmetic only (the repo's README/description text on Docker Hub) — never the image
+        # itself, which the two build-and-push steps above already handled. A token scoped to
+        # "Read & Write" (not "Read, Write, Delete") gets a 403 here; that must not fail the
+        # whole publish run over a description nobody's pull depends on.
+        continue-on-error: true
         uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77  # v4
         with:
           username: ${{ env.DOCKERHUB_USERNAME }}
