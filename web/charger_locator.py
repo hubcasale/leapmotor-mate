@@ -102,11 +102,20 @@ def _osm_address(tags: dict) -> "str | None":
     return ", ".join(parts) or None
 
 
-def _socket_info(tags: dict) -> str:
+def _socket_info(tags: dict):
     """Best-effort 'DC · CCS · 300 kW' summary from the community socket:* /
     maxoutput tags (sparsely mapped — empty string when nothing usable).
-    AC/DC is inferred: CCS/CHAdeMO sockets → DC, Type 2 → AC, and a max output
-    ≥ 50 kW implies DC even when the socket tags are missing."""
+    Returns (display_text, current_strict, kw).
+
+    The DISPLAY text's own AC/DC prefix is lenient — inferred as DC from a
+    max output ≥ 50 kW when the explicit socket tags are missing, same as
+    before. `current_strict`, the second return value, is NOT: it is only
+    ever "AC"/"DC"/"AC/DC" when an explicit socket:ccs / socket:type2_combo /
+    socket:chademo / socket:type2* tag says so, never from the kw fallback.
+    That fallback is itself a power-threshold guess (against the station's
+    own spec this time, not the car's curve — but still a guess), fine for a
+    cosmetic label, NOT fine to feed into money-affecting classification —
+    see classify_from_station()."""
     kinds = []
     for key, label in _SOCKETS:
         if _has(tags, key) and label not in kinds:
@@ -117,13 +126,16 @@ def _socket_info(tags: dict) -> str:
             m = re.search(r"\d+(?:[.,]\d+)?", str(v))
             if m:
                 kw = max(kw, float(m.group(0).replace(",", ".")))
-    dc = any(_has(tags, k) for k in _DC_SOCKETS) or kw >= 50
-    ac = any(_has(tags, k) for k in _AC_SOCKETS)
-    current = "AC/DC" if (ac and dc) else "DC" if dc else "AC" if ac else ""
+    dc_explicit = any(_has(tags, k) for k in _DC_SOCKETS)
+    ac_explicit = any(_has(tags, k) for k in _AC_SOCKETS)
+    dc = dc_explicit or kw >= 50
+    current = "AC/DC" if (ac_explicit and dc) else "DC" if dc else "AC" if ac_explicit else ""
+    current_strict = ("AC/DC" if (ac_explicit and dc_explicit) else
+                       "DC" if dc_explicit else "AC" if ac_explicit else "")
     parts = ([current] if current else []) + kinds
     if kw:
         parts.append(f"{_fmt_kw(kw)} kW")
-    return " · ".join(parts)
+    return " · ".join(parts), current_strict, (kw or None)
 
 
 def _query(lat: float, lon: float, radius_m: int, limit: int, tries: int = 2):
@@ -198,18 +210,21 @@ def find_station_candidates(lat: float, lon: float):
         if name:
             url = (f"https://www.openstreetmap.org/{e['type']}/{e['id']}"
                    if e.get("type") and e.get("id") else None)
-            cands.append({"name": name, "info": _socket_info(tags), "lat": la, "lon": lo,
-                          "address": _osm_address(tags), "url": url,
+            info, current, kw = _socket_info(tags)
+            cands.append({"name": name, "info": info, "current": current, "kw": kw,
+                          "lat": la, "lon": lo, "address": _osm_address(tags), "url": url,
                           "dist_m": int(_dist_m(lat, lon, la, lo))})
     for s in (ocm or []):
         if s.get("name"):
             cands.append({"name": s["name"], "info": s.get("info") or "",
+                          "current": s.get("current") or "", "kw": s.get("kw"),
                           "lat": s["lat"], "lon": s["lon"],
                           "address": s.get("address"), "url": s.get("url"),
                           "dist_m": s["dist_m"]})
     for s in (pun or []):
         if s.get("name"):
             cands.append({"name": s["name"], "info": s.get("info") or "",
+                          "current": s.get("current") or "", "kw": s.get("kw"),
                           "lat": s["lat"], "lon": s["lon"],
                           "address": None, "url": s.get("url"), "dist_m": s["dist_m"]})
     tried = [els, ocm if _ocm_key() else None, pun if _in_italy(lat, lon) else None]
@@ -284,9 +299,10 @@ def find_nearby(lat: float, lon: float, radius_m: int, limit: int = 25, name_fil
         tags = e.get("tags", {})
         url = (f"https://www.openstreetmap.org/{e['type']}/{e['id']}"
                if e.get("type") and e.get("id") else None)
+        info, _current, _kw = _socket_info(tags)
         out.append({"name": _label(tags), "lat": la, "lon": lo,
                     "dist_m": int(_dist_m(lat, lon, la, lo)),
-                    "info": _socket_info(tags),
+                    "info": info,
                     "address": _osm_address(tags), "url": url})
     out.extend(ocm or [])
     for t in (tom or []):
@@ -334,7 +350,7 @@ def _borrow_url(lat: float, lon: float, ocm: list, els: list) -> "str | None":
     return None
 
 
-_MERGE_FIELDS = ("name", "info", "avail", "address", "url")
+_MERGE_FIELDS = ("name", "info", "avail", "address", "url", "current", "kw")
 
 
 def _url_rank(url: "str | None") -> int:
@@ -365,6 +381,34 @@ def _merge_richer(a: dict, b: dict) -> dict:
     if _url_rank(other.get("url")) > _url_rank(base.get("url")):
         base["url"] = other["url"]
     return base
+
+
+def classify_from_station(option: dict, dc_min: float, hpc_min: float) -> "str | None":
+    """AC/FAST/HPC from a resolved station candidate's OWN declared current/power —
+    not the car's measured curve (see auto_detect_charge_type_from_power in db_reader,
+    which can only ever tell AC from DC, never DC from HPC, because that figure is the
+    car's own charging curve, not the charger's rating). A station's own registry data
+    doesn't have that problem — but only when it's unambiguous. Called from the
+    charger-locator sweep ONLY when the resolved site had exactly one candidate within
+    a tight confidence radius (see _sweep_body) — this function itself only adds the
+    second layer: refusing a verdict when even that one candidate's own data is mixed
+    or missing.
+
+    `current` must be the STRICT signal (explicit socket/connector tags only — see
+    _socket_info's current_strict, OCM's CurrentTypeID, PUN's Tipologia_di_alimentazione),
+    never a power-inferred guess — otherwise this just reintroduces the same mistake
+    against a different power figure.
+
+    None (→ stays manual / falls through to the car-curve AC/FAST sweep) when:
+    - `current` is "AC/DC" (a real hybrid pillar — genuinely ambiguous which one this
+      particular charge used) or empty/unknown (nothing usable in the source data).
+    - `current` is "DC" but no usable kW is known — HPC vs plain DC needs a number."""
+    cur, kw = option.get("current"), option.get("kw")
+    if cur == "AC":
+        return "AC"                                      # explicit AC-only socket tag(s)
+    if cur == "DC" and kw:
+        return "HPC" if kw > hpc_min else "FAST"          # the STATION's own rated power
+    return None
 
 
 # ── Open Charge Map (optional, free per-user API key) ────────────────────────
@@ -425,8 +469,12 @@ def _ocm_stations(lat: float, lon: float, radius_m: int, limit: int = 100):
         # login-gate on this route specifically); the plain path shows the station
         # publicly, no account needed — verified live against a real ID.
         url = f"https://openchargemap.org/poi/details/{poi_id}" if poi_id else None
+        # `cur` here is OCM's own per-connector CurrentTypeID — a genuine registry
+        # field, not power-inferred, so (unlike OSM's lenient display current) it's
+        # trustworthy as-is for classify_from_station().
         out.append({"name": name, "lat": la, "lon": lo, "dist_m": int(d),
-                    "info": " · ".join(parts), "address": address, "url": url})
+                    "info": " · ".join(parts), "current": "/".join(cur), "kw": (kw or None),
+                    "address": address, "url": url})
     return out
 
 
@@ -697,9 +745,13 @@ def _pun_parse(lat: float, lon: float, feats: list) -> list:
         info = " · ".join(([cur] if cur else []) + ([f"{_fmt_kw(kw)} kW"] if kw else []))
         avail = sum(1 for _a in conns if _a.get("Stato") == "AVAILABLE")
         la0, lo0 = a0["Latitudine_EVSE"], a0["Longitudine_EVSE"]
+        # `cur` is PUN's own Tipologia_di_alimentazione — a genuine per-connector
+        # registry field (mandatory AFIR reporting), not power-inferred, so it's
+        # trustworthy as-is for classify_from_station().
         out.append({"name": name, "lat": la0, "lon": lo0,
                     "dist_m": int(_dist_m(lat, lon, la0, lo0)),
-                    "info": info, "avail": f"{avail}/{len(conns)}"})
+                    "info": info, "current": cur, "kw": (kw or None),
+                    "avail": f"{avail}/{len(conns)}"})
     return out
 
 
@@ -750,6 +802,8 @@ def _sweep_body(limit: int) -> int:
     if not cands:
         return 0
     known = db_reader.get_labelled_locations()  # incl. '' sentinels (looked up, nothing)
+    dc_min = float(db_reader.get_setting("charge_dc_min_kw", "11") or 11)
+    hpc_min = float(db_reader.get_setting("charge_hpc_min_kw", "50") or 50)
     named = 0
     called = False
     for c in cands:
@@ -757,6 +811,12 @@ def _sweep_body(limit: int) -> int:
         reuse = next(((n, u) for la, lo, n, u in known
                       if _dist_m(lat, lon, la, lo) <= _REUSE_RADIUS_M), None)
         if reuse is not None:
+            # Name-only, deliberately: no fresh options/ambiguity/current/kw data to
+            # check here, and propagating a TYPE across two different charges just
+            # because they're geographically close is a real risk (e.g. two different
+            # pillars at the same car park, tagged differently on purpose) — not one
+            # worth taking. This charge falls through to the car-curve sweep or a
+            # manual pick, same as before this feature existed.
             db_reader.set_charge_location_name(c["id"], reuse[0], reuse[1])
             named += bool(reuse[0])
             continue
@@ -777,6 +837,19 @@ def _sweep_body(limit: int) -> int:
         if name:
             named += 1
             log.info("charger locator: charge #%s → %s", c["id"], name)
+        # Type classification is far stricter than the name pick above: only when the
+        # nearest site resolved to exactly ONE candidate (no mixed-type site, no
+        # conflicting source data) AND it's close enough (tighter than the label
+        # radius) that a genuinely different, farther site can't plausibly be the one
+        # this charge actually used AND the charge doesn't already have a type (never
+        # overwrite a human's own badge pick or an earlier auto-assignment).
+        if (not c["location_type"] and len(options) == 1
+                and options[0].get("dist_m", 10**9) <= _REUSE_RADIUS_M):
+            verdict = classify_from_station(options[0], dc_min, hpc_min)
+            if verdict:
+                db_reader.update_charge_type(c["id"], verdict)
+                log.info("charger locator: charge #%s → %s (from station data)",
+                          c["id"], verdict)
     return named
 
 

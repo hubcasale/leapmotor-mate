@@ -315,6 +315,8 @@
     "adv_vampire_hours_help": "Postoje krótsze niż ta wartość są ukrywane na wykresie — krótki postój ekstrapoluje pojedynczy krok SoC do wysokiej wartości %/dzień.",
     "adv_dc_label": "Próg mocy AC/DC",
     "adv_dc_help": "Ładowania powyżej tej mocy są klasyfikowane jako DC (szybkie ładowanie). Zwiększ, jeśli masz wallbox 22 kW AC, żeby jego sesje nie były oznaczane jako DC.",
+    "adv_hpc_label": "Próg mocy HPC stacji",
+    "adv_hpc_help": "Dotyczy tylko ładowań klasyfikowanych automatycznie dzięki lokalizacji stacji (poniżej): stacja, której deklarowana moc przekracza tę wartość, zostaje sklasyfikowana jako HPC zamiast DC. Nigdy nie jest wywnioskowana z mocy zmierzonej przez Twój samochód.",
     "adv_soh_temp_label": "Próg zimna dla stanu zdrowia baterii",
     "adv_soh_temp_help": "Ładowania, których minimalna temperatura baterii jest poniżej tego progu, są widoczne ale wykluczone z szacunku Stanu Zdrowia — zimny pakiet LFP wskazuje za nisko i zaniżałby zdrowie. Ustaw 0, żeby uwzględnić każde ładowanie.",
     "adv_reset": "Przywróć domyślne",

@@ -2501,6 +2501,7 @@ async def settings_page(request: Request):
                 "vampire_min_drop_pct": db_reader.get_setting("vampire_min_drop_pct", "0.2"),
                 "vampire_min_hours": db_reader.get_setting("vampire_min_hours", "1"),
                 "charge_dc_min_kw": db_reader.get_setting("charge_dc_min_kw", "11"),
+                "charge_hpc_min_kw": db_reader.get_setting("charge_hpc_min_kw", "50"),
                 "wallbox_auto_home": db_reader.get_setting("wallbox_auto_home", "0"),
                 "default_drive_mode": db_reader.get_setting("default_drive_mode", ""),
                 "default_one_pedal": db_reader.get_setting("default_one_pedal", ""),
@@ -4751,6 +4752,7 @@ _ADVANCED_DEFAULTS = {
     "vampire_min_drop_pct":       (0.2, 0.1, 2.0),
     "vampire_min_hours":          (1.0, 1.0, 12.0),
     "charge_dc_min_kw":           (11.0, 11.0, 32.0),
+    "charge_hpc_min_kw":          (50.0, 32.0, 350.0),
     "soh_temp_min_c":             (15.0, 0.0, 25.0),
 }
 

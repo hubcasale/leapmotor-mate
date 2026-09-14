@@ -823,7 +823,7 @@ def get_account_user() -> str:
 # a secret — the values are stored verbatim.
 AUDITED_SETTINGS = (
     "poll_parked", "poll_driving", "charge_detect_min_a", "charge_reconstruct_min_pct",
-    "vampire_min_drop_pct", "vampire_min_hours", "charge_dc_min_kw",
+    "vampire_min_drop_pct", "vampire_min_hours", "charge_dc_min_kw", "charge_hpc_min_kw",
     "soh_temp_min_c", "map_station_min_sessions", "positions_retention_days",
 )
 
@@ -2530,14 +2530,33 @@ def auto_detect_charge_type_from_power() -> int:
 
     Runs on every page render, like its HOME siblings (one SELECT, normally 0 rows), unconditionally
     — unlike them, this reads a real measurement rather than an inferred proxy, so it carries no
-    opt-in setting. Must run AFTER both HOME sweeps in `_ctx()`: it only ever sees what they left
-    `location_type IS NULL`. Returns how many were typed."""
+    setting of its own. Must run AFTER both HOME sweeps in `_ctx()`: it only ever sees what they
+    left `location_type IS NULL`.
+
+    ⏳ Yields to geolocation when that's on: `charger_locator`'s background sweep can tell HPC
+    from plain DC too, from the STATION's own declared power rather than the car's curve — a
+    strictly better answer, when it has one (web/charger_locator.py:classify_from_station). That
+    sweep is async and rate-limited (at most once per 30 min), while this one runs synchronously
+    on every render — left unchecked, this would almost always claim a DC-eligible charge as flat
+    FAST within seconds, long before geolocation ever got a chance, permanently blocking the HPC
+    upgrade (this only ever touches `location_type IS NULL`, never revisits a charge once typed).
+    So, only while `charger_locator` is on, a charge with a GPS fix additionally has to wait for
+    `location_name IS NOT NULL` — a sentinel the geolocation sweep already writes the moment it
+    has looked, empty string included when it found nothing (see get_labelled_locations's own
+    docstring) — before this sweep will touch it. A charge with no GPS fix can never be resolved
+    by geolocation regardless, so it's exempted from the wait. When `charger_locator` is off,
+    behaves exactly as before this existed — immediate, no wait.
+
+    Returns how many were typed."""
     dc_min = float(get_setting("charge_dc_min_kw", "11") or 11)
+    geo_on = get_setting("charger_locator", "0") == "1"
+    extra = (" AND (location_name IS NOT NULL OR latitude IS NULL OR longitude IS NULL"
+             " OR latitude = 0 OR longitude = 0)") if geo_on else ""
     try:
         rows = _get().execute(
             "SELECT id FROM charges WHERE vehicle_id = COALESCE(?, vehicle_id) "
             "AND location_type IS NULL AND ended_at IS NOT NULL "
-            "AND COALESCE(reconstructed, 0) = 0 AND max_power_kw > ?",
+            "AND COALESCE(reconstructed, 0) = 0 AND max_power_kw > ?" + extra,
             (_current_vehicle_id(), dc_min)
         ).fetchall()
     except sqlite3.Error:   # fresh install — charges table not created yet
@@ -2571,9 +2590,12 @@ def has_location_lookup_candidates() -> bool:
 
 
 def get_location_lookup_candidates(limit: int = 40) -> list[dict]:
+    """`location_type` is included so the sweep can check "already typed" (never
+    overwrite a human's own badge pick) without a second query per candidate."""
     try:
         rows = _get().execute(
-            f"SELECT id, latitude, longitude FROM charges WHERE vehicle_id = COALESCE(?, vehicle_id) "
+            f"SELECT id, latitude, longitude, location_type FROM charges "
+            f"WHERE vehicle_id = COALESCE(?, vehicle_id) "
             f"AND {_LOCATION_CANDIDATES_WHERE} "
             "ORDER BY started_at DESC LIMIT ?", (_current_vehicle_id(), limit)).fetchall()
     except sqlite3.Error:

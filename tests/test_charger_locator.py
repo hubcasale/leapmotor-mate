@@ -429,6 +429,103 @@ def test_maybe_sweep_guards(tmp_path, monkeypatch):
     assert spawned == [CL.sweep_now]
 
 
+# ── station-based AC/DC/HPC classification (fork-only) ────────────────────────
+# classify_from_station() reads the STATION's own declared current/power — trustworthy
+# in a way the car's measured curve (db_reader.auto_detect_charge_type_from_power) isn't,
+# but only ever applied by the sweep when a single site resolves unambiguously and close.
+
+def test_classify_from_station_ac_needs_no_kw():
+    assert CL.classify_from_station({"current": "AC", "kw": None}, 11, 50) == "AC"
+    assert CL.classify_from_station({"current": "AC", "kw": 150}, 11, 50) == "AC"
+
+
+def test_classify_from_station_dc_splits_on_the_stations_own_kw():
+    assert CL.classify_from_station({"current": "DC", "kw": 45}, 11, 50) == "FAST"
+    assert CL.classify_from_station({"current": "DC", "kw": 150}, 11, 50) == "HPC"
+    assert CL.classify_from_station({"current": "DC", "kw": 50}, 11, 50) == "FAST"  # boundary, not >
+
+
+def test_classify_from_station_refuses_without_a_clean_signal():
+    assert CL.classify_from_station({"current": "DC", "kw": None}, 11, 50) is None   # DC, no kW to split on
+    assert CL.classify_from_station({"current": "AC/DC", "kw": 150}, 11, 50) is None  # mixed pillar
+    assert CL.classify_from_station({"current": "", "kw": 150}, 11, 50) is None       # unknown current
+    assert CL.classify_from_station({}, 11, 50) is None
+
+
+def test_sweep_classifies_type_from_an_unambiguous_close_match(tmp_path, monkeypatch):
+    """A single, close, unambiguous DC option gets BOTH the name and the type — the
+    station's own declared power decides FAST vs HPC, never the car's measured curve."""
+    pdb = _setup(tmp_path, monkeypatch)
+    _charge(pdb, 1, lat=45.0, lon=9.0)
+    monkeypatch.setattr(CL, "find_station_candidates", lambda lat, lon: (
+        [{"name": "Ionity Binasco", "current": "DC", "kw": 150, "dist_m": 20,
+          "url": "https://openstreetmap.org/node/1"}], True))
+    assert CL.sweep_now() == 1
+    row = _row(pdb, 1)
+    assert row["location_name"] == "Ionity Binasco"
+    assert row["location_type"] == "HPC"
+
+
+def test_sweep_never_classifies_an_ambiguous_site(tmp_path, monkeypatch):
+    """Two disagreeing options at the nearest site → the name still picks the nearest
+    (unchanged existing behaviour), but the type is left alone — for the car-curve sweep
+    or a manual pick — never guessed between two candidates."""
+    pdb = _setup(tmp_path, monkeypatch)
+    _charge(pdb, 1, lat=45.0, lon=9.0)
+    monkeypatch.setattr(CL, "find_station_candidates", lambda lat, lon: (
+        [{"name": "Ionity Binasco", "current": "DC", "kw": 150, "dist_m": 20},
+         {"name": "Be Charge", "current": "AC", "kw": 11, "dist_m": 25}], True))
+    assert CL.sweep_now() == 1
+    row = _row(pdb, 1)
+    assert row["location_name"] == "Ionity Binasco"      # nearest, unchanged behaviour
+    assert row["location_type"] is None
+
+
+def test_sweep_never_classifies_a_match_beyond_the_confidence_radius(tmp_path, monkeypatch):
+    """Unambiguous but farther than the tight confidence radius used for typing (tighter
+    than the 150 m label radius) — still gets named, never typed: too far to be confident
+    it's really the charger the car used rather than some other, unmapped one closer by."""
+    pdb = _setup(tmp_path, monkeypatch)
+    _charge(pdb, 1, lat=45.0, lon=9.0)
+    monkeypatch.setattr(CL, "find_station_candidates", lambda lat, lon: (
+        [{"name": "Ionity Binasco", "current": "DC", "kw": 150, "dist_m": 120}], True))
+    assert CL.sweep_now() == 1
+    row = _row(pdb, 1)
+    assert row["location_name"] == "Ionity Binasco"
+    assert row["location_type"] is None
+
+
+def test_sweep_never_overwrites_an_existing_type(tmp_path, monkeypatch):
+    """A charge the user (or an earlier sweep) already typed is never silently
+    reclassified — even by an otherwise-perfect unambiguous close match."""
+    pdb = _setup(tmp_path, monkeypatch)
+    _charge(pdb, 1, lat=45.0, lon=9.0, ctype="AC")   # already typed by hand
+    monkeypatch.setattr(CL, "find_station_candidates", lambda lat, lon: (
+        [{"name": "Ionity Binasco", "current": "DC", "kw": 150, "dist_m": 20,
+          "url": "https://openstreetmap.org/node/1"}], True))
+    assert CL.sweep_now() == 1
+    row = _row(pdb, 1)
+    assert row["location_name"] == "Ionity Binasco"      # name still fills in
+    assert row["location_type"] == "AC"                  # type untouched
+
+
+def test_sweep_never_propagates_type_through_the_reuse_cache(tmp_path, monkeypatch):
+    """A charge resolved via the 80 m reuse-cache shortcut (no fresh
+    find_station_candidates call) gets only the name copied across, never a type — no
+    fresh ambiguity/current/kw data exists for that specific charge, and two genuinely
+    different pillars can sit within reuse range of each other."""
+    pdb = _setup(tmp_path, monkeypatch)
+    _charge(pdb, 1, lat=45.0, lon=9.0, name="Ionity Binasco",
+            url="https://openstreetmap.org/node/1")   # resolved earlier
+    _charge(pdb, 2, lat=45.00027, lon=9.0)             # ~30 m away — hits the reuse path
+    monkeypatch.setattr(CL, "find_station_candidates",
+                        lambda *a: (_ for _ in ()).throw(AssertionError("network hit")))
+    assert CL.sweep_now() == 1
+    row = _row(pdb, 2)
+    assert row["location_name"] == "Ionity Binasco"
+    assert row["location_type"] is None
+
+
 # ── find_nearby (Navigation page) ─────────────────────────────────────────────
 
 def test_find_nearby_sorted_with_generic_and_info(monkeypatch):
@@ -464,11 +561,22 @@ def test_find_nearby_dedupes_site_columns(monkeypatch):
 
 
 def test_current_type_inference():
-    assert CL._socket_info({"socket:type2": "2"}) == "AC · Type 2"
-    assert CL._socket_info({"socket:ccs": "1"}) == "DC · CCS"
-    assert CL._socket_info({"maxoutput": "150"}) == "DC · 150 kW"       # ≥50 kW ⇒ DC
-    assert CL._socket_info({"maxoutput": "22"}) == "22 kW"              # ambiguous: no guess
-    assert CL._socket_info({}) == ""
+    """_socket_info returns (display_text, current_strict, kw). The display text keeps its
+    lenient ≥50 kW ⇒ DC fallback for cosmetic purposes; current_strict never uses that
+    fallback — it's None-equivalent ("") whenever there's no explicit socket tag, exactly
+    so classify_from_station can never be fed a power-inferred guess as if it were the
+    station's own declared connector type."""
+    assert CL._socket_info({"socket:type2": "2"}) == ("AC · Type 2", "AC", None)
+    assert CL._socket_info({"socket:ccs": "1"}) == ("DC · CCS", "DC", None)
+    text, current, kw = CL._socket_info({"maxoutput": "150"})
+    assert text == "DC · 150 kW"       # display text: ≥50 kW ⇒ DC (lenient fallback)
+    assert current == ""               # current_strict: no explicit socket tag ⇒ unknown
+    assert kw == 150.0
+    text, current, kw = CL._socket_info({"maxoutput": "22"})
+    assert text == "22 kW"             # ambiguous: no guess
+    assert current == ""
+    assert kw == 22.0
+    assert CL._socket_info({}) == ("", "", None)
 
 
 # ── Open Charge Map (optional keyed source, merged with OSM) ──────────────────

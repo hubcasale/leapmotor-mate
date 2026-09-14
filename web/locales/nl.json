@@ -315,6 +315,8 @@
     "adv_vampire_hours_help": "Stilstandperiodes korter dan dit worden niet in de grafiek getoond — een korte stop rekent één SoC-stapje door tot een groot %/dag-tempo.",
     "adv_dc_label": "AC/DC-vermogensdrempel",
     "adv_dc_help": "Laadbeurten boven dit vermogen worden als DC (snelladen) ingedeeld. Verhoog hem als je een 22 kW AC-wallbox hebt, zodat die sessies niet als DC bestempeld worden.",
+    "adv_hpc_label": "HPC-vermogensdrempel van het laadpunt",
+    "adv_hpc_help": "Geldt alleen voor laadsessies die automatisch worden geclassificeerd via het opzoeken van laadpunten (hieronder): een laadpunt waarvan het opgegeven vermogen deze drempel overschrijdt, wordt geclassificeerd als HPC in plaats van DC. Nooit afgeleid van het gemeten vermogen van je auto.",
     "adv_soh_temp_label": "Koudegrens voor batterijconditie",
     "adv_soh_temp_help": "Laadbeurten waarvan de laagste batterijtemperatuur hieronder ligt, worden wel getoond maar tellen niet mee in de conditieschatting — een koud LFP-pakket leest laag uit en zou de conditie te laag inschatten. Zet op 0 om elke laadbeurt mee te tellen.",
     "adv_reset": "Terug naar standaardwaarden",

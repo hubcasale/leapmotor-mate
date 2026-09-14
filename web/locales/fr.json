@@ -315,6 +315,8 @@
     "adv_vampire_hours_help": "Les arrêts plus courts que cette durée sont masqués du graphique — un arrêt court extrapole un seul pas de SoC en un taux %/jour élevé.",
     "adv_dc_label": "Seuil de puissance AC/DC",
     "adv_dc_help": "Les charges au-dessus de cette puissance sont classées DC (charge rapide). Augmentez-le si vous avez une borne AC de 22 kW pour que ses sessions ne soient pas étiquetées DC.",
+    "adv_hpc_label": "Seuil de puissance HPC de la borne",
+    "adv_hpc_help": "S'applique uniquement aux recharges classées automatiquement via la localisation des bornes (ci-dessous) : une borne dont la puissance déclarée dépasse ce seuil devient HPC au lieu de DC. Jamais déduit de la puissance mesurée de votre voiture.",
     "adv_soh_temp_label": "Seuil de froid (santé batterie)",
     "adv_soh_temp_help": "Les recharges dont la température batterie minimale est inférieure à ce seuil sont affichées mais exclues de l'estimation de l'état de santé — à froid, une batterie LFP lit bas et sous-estimerait la santé. Mettez 0 pour toutes les inclure.",
     "adv_reset": "Réinitialiser",

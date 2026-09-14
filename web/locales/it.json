@@ -315,6 +315,8 @@
     "adv_vampire_hours_help": "Le soste più brevi di questo valore sono nascoste dal grafico — una sosta breve estrapola un singolo gradino di SoC in un tasso %/giorno elevato.",
     "adv_dc_label": "Soglia potenza AC/DC",
     "adv_dc_help": "Le ricariche sopra questa potenza sono classificate DC (ricarica rapida). Alzala se hai una wallbox AC da 22 kW così le sue sessioni non vengono etichettate DC.",
+    "adv_hpc_label": "Soglia di potenza HPC della colonnina",
+    "adv_hpc_help": "Si applica solo alle ricariche classificate automaticamente tramite la localizzazione colonnine (sotto): una colonnina la cui potenza dichiarata supera questo valore diventa HPC invece di DC. Mai dedotta dalla potenza misurata della tua auto.",
     "adv_soh_temp_label": "Soglia freddo salute batteria",
     "adv_soh_temp_help": "Le ricariche con temperatura minima batteria sotto questo valore sono mostrate ma escluse dalla stima dello stato di salute — a freddo l'LFP legge basso e falserebbe la salute. Metti 0 per includerle tutte.",
     "adv_reset": "Ripristina predefiniti",
