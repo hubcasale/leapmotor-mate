@@ -431,8 +431,11 @@ def test_maybe_sweep_guards(tmp_path, monkeypatch):
 
 # ── station-based AC/DC/HPC classification (fork-only) ────────────────────────
 # classify_from_station() reads the STATION's own declared current/power — trustworthy
-# in a way the car's measured curve (db_reader.auto_detect_charge_type_from_power) isn't,
-# but only ever applied by the sweep when a single site resolves unambiguously and close.
+# in a way a car's own measured curve isn't (it can only ever tell AC from DC, never DC
+# from HPC — Mate has no automatic type-from-power sweep at all any more, see PR #284).
+# Even so, the sweep only ever writes this as a SUGGESTION (type_suggested), never
+# applies it — the badge shows it, the owner still has to click. Applied only when a
+# single site resolves unambiguously and close.
 
 def test_classify_from_station_ac_needs_no_kw():
     assert CL.classify_from_station({"current": "AC", "kw": None}, 11, 50) == "AC"
@@ -452,9 +455,10 @@ def test_classify_from_station_refuses_without_a_clean_signal():
     assert CL.classify_from_station({}, 11, 50) is None
 
 
-def test_sweep_classifies_type_from_an_unambiguous_close_match(tmp_path, monkeypatch):
-    """A single, close, unambiguous DC option gets BOTH the name and the type — the
-    station's own declared power decides FAST vs HPC, never the car's measured curve."""
+def test_sweep_suggests_type_from_an_unambiguous_close_match(tmp_path, monkeypatch):
+    """A single, close, unambiguous DC option gets the name AND a type SUGGESTION — the
+    station's own declared power decides FAST vs HPC, never a car's measured curve.
+    location_type itself is NEVER touched by this: it stays NULL until a human clicks."""
     pdb = _setup(tmp_path, monkeypatch)
     _charge(pdb, 1, lat=45.0, lon=9.0)
     monkeypatch.setattr(CL, "find_station_candidates", lambda lat, lon: (
@@ -463,13 +467,14 @@ def test_sweep_classifies_type_from_an_unambiguous_close_match(tmp_path, monkeyp
     assert CL.sweep_now() == 1
     row = _row(pdb, 1)
     assert row["location_name"] == "Ionity Binasco"
-    assert row["location_type"] == "HPC"
+    assert row["location_type"] is None
+    assert row["type_suggested"] == "HPC"
 
 
-def test_sweep_never_classifies_an_ambiguous_site(tmp_path, monkeypatch):
+def test_sweep_never_suggests_a_type_at_an_ambiguous_site(tmp_path, monkeypatch):
     """Two disagreeing options at the nearest site → the name still picks the nearest
-    (unchanged existing behaviour), but the type is left alone — for the car-curve sweep
-    or a manual pick — never guessed between two candidates."""
+    (unchanged existing behaviour), but no suggestion is written — never guessed
+    between two candidates."""
     pdb = _setup(tmp_path, monkeypatch)
     _charge(pdb, 1, lat=45.0, lon=9.0)
     monkeypatch.setattr(CL, "find_station_candidates", lambda lat, lon: (
@@ -479,12 +484,14 @@ def test_sweep_never_classifies_an_ambiguous_site(tmp_path, monkeypatch):
     row = _row(pdb, 1)
     assert row["location_name"] == "Ionity Binasco"      # nearest, unchanged behaviour
     assert row["location_type"] is None
+    assert row["type_suggested"] is None
 
 
-def test_sweep_never_classifies_a_match_beyond_the_confidence_radius(tmp_path, monkeypatch):
-    """Unambiguous but farther than the tight confidence radius used for typing (tighter
-    than the 150 m label radius) — still gets named, never typed: too far to be confident
-    it's really the charger the car used rather than some other, unmapped one closer by."""
+def test_sweep_never_suggests_a_type_beyond_the_confidence_radius(tmp_path, monkeypatch):
+    """Unambiguous but farther than the tight confidence radius used for suggesting a type
+    (tighter than the 150 m label radius) — still gets named, no suggestion: too far to be
+    confident it's really the charger the car used rather than some other, unmapped one
+    closer by."""
     pdb = _setup(tmp_path, monkeypatch)
     _charge(pdb, 1, lat=45.0, lon=9.0)
     monkeypatch.setattr(CL, "find_station_candidates", lambda lat, lon: (
@@ -493,11 +500,13 @@ def test_sweep_never_classifies_a_match_beyond_the_confidence_radius(tmp_path, m
     row = _row(pdb, 1)
     assert row["location_name"] == "Ionity Binasco"
     assert row["location_type"] is None
+    assert row["type_suggested"] is None
 
 
-def test_sweep_never_overwrites_an_existing_type(tmp_path, monkeypatch):
-    """A charge the user (or an earlier sweep) already typed is never silently
-    reclassified — even by an otherwise-perfect unambiguous close match."""
+def test_sweep_never_suggests_a_type_on_an_already_typed_charge(tmp_path, monkeypatch):
+    """A charge the user (or a confirmed suggestion) already typed is never given a
+    suggestion — even by an otherwise-perfect unambiguous close match. Covers BOTH the
+    caller's own check in _sweep_body and set_charge_type_suggestion's own SQL guard."""
     pdb = _setup(tmp_path, monkeypatch)
     _charge(pdb, 1, lat=45.0, lon=9.0, ctype="AC")   # already typed by hand
     monkeypatch.setattr(CL, "find_station_candidates", lambda lat, lon: (
@@ -507,12 +516,13 @@ def test_sweep_never_overwrites_an_existing_type(tmp_path, monkeypatch):
     row = _row(pdb, 1)
     assert row["location_name"] == "Ionity Binasco"      # name still fills in
     assert row["location_type"] == "AC"                  # type untouched
+    assert row["type_suggested"] is None                 # no suggestion overwrites it either
 
 
-def test_sweep_never_propagates_type_through_the_reuse_cache(tmp_path, monkeypatch):
+def test_sweep_never_propagates_a_suggestion_through_the_reuse_cache(tmp_path, monkeypatch):
     """A charge resolved via the 80 m reuse-cache shortcut (no fresh
-    find_station_candidates call) gets only the name copied across, never a type — no
-    fresh ambiguity/current/kw data exists for that specific charge, and two genuinely
+    find_station_candidates call) gets only the name copied across, never a suggestion —
+    no fresh ambiguity/current/kw data exists for that specific charge, and two genuinely
     different pillars can sit within reuse range of each other."""
     pdb = _setup(tmp_path, monkeypatch)
     _charge(pdb, 1, lat=45.0, lon=9.0, name="Ionity Binasco",
@@ -524,6 +534,35 @@ def test_sweep_never_propagates_type_through_the_reuse_cache(tmp_path, monkeypat
     row = _row(pdb, 2)
     assert row["location_name"] == "Ionity Binasco"
     assert row["location_type"] is None
+    assert row["type_suggested"] is None
+
+
+def test_set_charge_type_suggestion_is_a_pure_proposal(tmp_path, monkeypatch):
+    """Direct unit: writes ONLY type_suggested, never location_type or cost — and refuses
+    to overwrite an already-typed charge's field, independent of any caller's own check."""
+    pdb = _setup(tmp_path, monkeypatch)
+    _charge(pdb, 1, lat=45.0, lon=9.0)
+    _charge(pdb, 2, lat=45.0, lon=9.0, ctype="HOME")
+    db_reader.set_charge_type_suggestion(1, "HPC")
+    db_reader.set_charge_type_suggestion(2, "AC")   # #2 already typed — must be a no-op
+    row1, row2 = _row(pdb, 1), _row(pdb, 2)
+    assert row1["type_suggested"] == "HPC" and row1["location_type"] is None
+    assert row2["type_suggested"] is None and row2["location_type"] == "HOME"
+
+
+def test_confirming_a_type_clears_a_stale_suggestion(tmp_path, monkeypatch):
+    """Whichever way a charge gets confirmed — accepting the suggestion or overriding it —
+    update_charge_type must clear type_suggested: once location_type is real, a leftover
+    guess sitting in the column is stale and must never resurface (e.g. if the charge were
+    ever reset to unconfirmed again by some future feature)."""
+    pdb = _setup(tmp_path, monkeypatch)
+    _charge(pdb, 1, lat=45.0, lon=9.0)
+    db_reader.set_charge_type_suggestion(1, "HPC")
+    assert _row(pdb, 1)["type_suggested"] == "HPC"
+    db_reader.update_charge_type(1, "FAST")   # owner picked something else entirely
+    row = _row(pdb, 1)
+    assert row["location_type"] == "FAST"
+    assert row["type_suggested"] is None
 
 
 # ── find_nearby (Navigation page) ─────────────────────────────────────────────

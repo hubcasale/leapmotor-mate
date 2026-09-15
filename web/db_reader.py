@@ -2202,6 +2202,11 @@ def update_charge_type(charge_id: int, location_type: str,
     if _charges_have_cost_manual(db):
         set_cols.append("cost_manual=?")
         params.append(new_cost_manual)
+    if _charges_have_type_suggested(db):
+        # A literal, not a placeholder — no owner-typed value ever flows into this one. Confirming
+        # ANY type here (accepting a geolocation suggestion or overriding it) makes that guess
+        # stale, whichever it was — see set_charge_type_suggestion.
+        set_cols.append("type_suggested=NULL")
     params.append(charge_id)
     db.execute(f"UPDATE charges SET {', '.join(set_cols)} WHERE id=?", params)
     db.commit()
@@ -2229,6 +2234,22 @@ def update_charge_type(charge_id: int, location_type: str,
             update_charge_type(oid, location_type, _segment=True, _free=free,
                                _no_cost=(bool(out.get("cost_manual")) or bool(gross and gross > 0)))
     return out
+
+
+def set_charge_type_suggestion(charge_id: int, type_suggested: str) -> None:
+    """Geolocation's best guess at an unconfirmed charge's type (web/charger_locator.py:
+    classify_from_station) — written ALONGSIDE location_type, never INTO it, and never through
+    update_charge_type: this must never price a charge or claim it the way a real confirmation
+    does. The badge shows it as a one-click suggestion the owner still has to confirm (or
+    override) — a guess, however confident, is not a click. The `location_type IS NULL` guard
+    is redundant with the caller's own check (web/charger_locator.py:_sweep_body) but cheap
+    insurance against ever overwriting an already-typed charge's suggestion field."""
+    db = _conn_rw()
+    if not _charges_have_type_suggested(db):
+        return
+    db.execute("UPDATE charges SET type_suggested=? WHERE id=? AND location_type IS NULL",
+               (type_suggested, charge_id))
+    db.commit()
 
 
 def repair_merged_charge_pieces() -> int:
@@ -7888,6 +7909,15 @@ def _charges_have_cost_manual(db) -> bool:
     guarded rather than left bare like `is_free`, because this one gates money."""
     try:
         return any(r[1] == "cost_manual" for r in db.execute("PRAGMA table_info(charges)"))
+    except sqlite3.Error:
+        return False
+
+
+def _charges_have_type_suggested(db) -> bool:
+    """Whether the charges table carries the (fork-only) type_suggested column yet. Same
+    per-call reasoning as `_charges_have_gross`."""
+    try:
+        return any(r[1] == "type_suggested" for r in db.execute("PRAGMA table_info(charges)"))
     except sqlite3.Error:
         return False
 

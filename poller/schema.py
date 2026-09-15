@@ -401,6 +401,13 @@ def ensure_schema(conn) -> None:
     if "cost_manual" not in ccols:
         conn.execute("ALTER TABLE charges ADD COLUMN cost_manual INTEGER DEFAULT 0")
         conn.execute("UPDATE charges SET cost_manual = 1 WHERE location_type = 'MANUAL'")
+    # migration (fork-only): the charger-locator sweep's best guess at an unconfirmed charge's
+    # type, from the STATION's own declared power — never written INTO location_type, only
+    # alongside it, so it can only ever become a one-click SUGGESTION on the badge, never an
+    # automatic type (let alone a price) the owner never asked for. See
+    # web/charger_locator.py:classify_from_station / set_charge_type_suggestion.
+    if "type_suggested" not in ccols:
+        conn.execute("ALTER TABLE charges ADD COLUMN type_suggested TEXT DEFAULT NULL")
     # migration: #237 — the car's own odometer at the moment the charge started. Written by the
     # poller from the same frame that opens the charge, TYPED by the owner on a charge they add by
     # hand, and back-filled once from `positions` for sessions already in the DB (see

@@ -384,22 +384,22 @@ def _merge_richer(a: dict, b: dict) -> dict:
 
 
 def classify_from_station(option: dict, dc_min: float, hpc_min: float) -> "str | None":
-    """AC/FAST/HPC from a resolved station candidate's OWN declared current/power —
-    not the car's measured curve (see auto_detect_charge_type_from_power in db_reader,
-    which can only ever tell AC from DC, never DC from HPC, because that figure is the
-    car's own charging curve, not the charger's rating). A station's own registry data
-    doesn't have that problem — but only when it's unambiguous. Called from the
-    charger-locator sweep ONLY when the resolved site had exactly one candidate within
-    a tight confidence radius (see _sweep_body) — this function itself only adds the
-    second layer: refusing a verdict when even that one candidate's own data is mixed
-    or missing.
+    """AC/FAST/HPC from a resolved station candidate's OWN declared current/power — not a
+    measurement of the car, which can only ever tell AC from DC, never DC from HPC, because a
+    car's charging curve reflects its own SoC/battery temperature, not the charger's rating.
+    A station's own registry data doesn't have that problem — but only when it's unambiguous.
+    Called from the charger-locator sweep ONLY when the resolved site had exactly one candidate
+    within a tight confidence radius (see _sweep_body) — this function itself only adds the
+    second layer: refusing a verdict when even that one candidate's own data is mixed or
+    missing. The result is written as a SUGGESTION only (set_charge_type_suggestion), never
+    applied — the badge shows it, the owner still has to click.
 
     `current` must be the STRICT signal (explicit socket/connector tags only — see
     _socket_info's current_strict, OCM's CurrentTypeID, PUN's Tipologia_di_alimentazione),
     never a power-inferred guess — otherwise this just reintroduces the same mistake
     against a different power figure.
 
-    None (→ stays manual / falls through to the car-curve AC/FAST sweep) when:
+    None (→ no suggestion; the badge stays plain "❓ Unconfirmed" for a manual pick) when:
     - `current` is "AC/DC" (a real hybrid pillar — genuinely ambiguous which one this
       particular charge used) or empty/unknown (nothing usable in the source data).
     - `current` is "DC" but no usable kW is known — HPC vs plain DC needs a number."""
@@ -837,18 +837,20 @@ def _sweep_body(limit: int) -> int:
         if name:
             named += 1
             log.info("charger locator: charge #%s → %s", c["id"], name)
-        # Type classification is far stricter than the name pick above: only when the
-        # nearest site resolved to exactly ONE candidate (no mixed-type site, no
-        # conflicting source data) AND it's close enough (tighter than the label
-        # radius) that a genuinely different, farther site can't plausibly be the one
-        # this charge actually used AND the charge doesn't already have a type (never
-        # overwrite a human's own badge pick or an earlier auto-assignment).
+        # Type SUGGESTION is far stricter than the name pick above, and — unlike the name — is
+        # never applied: only when the nearest site resolved to exactly ONE candidate (no
+        # mixed-type site, no conflicting source data) AND it's close enough (tighter than the
+        # label radius) that a genuinely different, farther site can't plausibly be the one this
+        # charge actually used AND the charge doesn't already have a type (never overwrite a
+        # human's own badge pick or an earlier auto-assignment) does this write anything — and
+        # even then it only ever writes a PROPOSAL (set_charge_type_suggestion), never the type
+        # itself: the badge shows it, the owner still clicks.
         if (not c["location_type"] and len(options) == 1
                 and options[0].get("dist_m", 10**9) <= _REUSE_RADIUS_M):
             verdict = classify_from_station(options[0], dc_min, hpc_min)
             if verdict:
-                db_reader.update_charge_type(c["id"], verdict)
-                log.info("charger locator: charge #%s → %s (from station data)",
+                db_reader.set_charge_type_suggestion(c["id"], verdict)
+                log.info("charger locator: charge #%s → %s (suggested, from station data)",
                           c["id"], verdict)
     return named
 

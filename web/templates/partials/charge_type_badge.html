@@ -1,4 +1,5 @@
 {% set ct = charge_types.get(charge.location_type) %}
+{% set suggested_ct = charge_types.get(charge.type_suggested) if not ct else None %}
 <div id="charge-type-{{ charge.id }}" class="charge-type-selector">
   {# The real total paid, independent of the type badge next to it — sits BEFORE it, since the
      price is typed once and never changes what the type dropdown offers. #}
@@ -11,6 +12,18 @@
                    padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;
                    display:flex;align-items:center;gap:5px">
       {{ ct.icon }} {{ ct.label }} <span style="font-size:9px;opacity:.7">▼</span>
+    </button>
+    {% elif suggested_ct %}
+    {# A geolocation guess, never applied on its own — dashed border + trailing "?" mark it as
+       proposed rather than final, in the SUGGESTED type's own color so the owner sees what was
+       guessed without opening the dropdown. One click inside still confirms or overrides it. #}
+    <button onclick="document.getElementById('ct-menu-{{ charge.id }}').classList.toggle('hidden')"
+            title="{{ t('charge_type_suggested_hint') }}"
+            style="background:{{ suggested_ct.color }}22;color:{{ suggested_ct.color }};
+                   border:1px dashed {{ suggested_ct.color }}aa;
+                   padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;
+                   display:flex;align-items:center;gap:5px">
+      {{ suggested_ct.icon }} {{ suggested_ct.label }}? <span style="font-size:9px;opacity:.7">▼</span>
     </button>
     {% else %}
     <button onclick="document.getElementById('ct-menu-{{ charge.id }}').classList.toggle('hidden')"
@@ -27,9 +40,30 @@
                 padding:4px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
       {% if not ct %}
       <div style="padding:5px 10px 7px;margin-bottom:3px;font-size:11px;font-weight:700;
-                  color:#fbbf24;border-bottom:1px solid #334155">{{ t('charge_confirm_q') }}</div>
+                  color:#fbbf24;border-bottom:1px solid #334155">
+        {{ t('charge_type_suggested_q') if suggested_ct else t('charge_confirm_q') }}
+      </div>
+      {% endif %}
+      {% if suggested_ct %}
+      {# The suggestion, promoted to the top — clicking it is the "OK" that just confirms it,
+         same hx-post as every other row below. #}
+      <form hx-post="api/charges/{{ charge.id }}/type"
+            hx-target="#charge-type-{{ charge.id }}"
+            hx-swap="outerHTML"
+            style="margin:0">
+        <input type="hidden" name="location_type" value="{{ charge.type_suggested }}">
+        <button type="submit"
+                onclick="document.getElementById('ct-menu-{{ charge.id }}').classList.add('hidden')"
+                style="width:100%;text-align:left;padding:7px 12px;border-radius:7px;font-size:13px;
+                       cursor:pointer;background:{{ suggested_ct.color }}33;
+                       color:{{ suggested_ct.color }};border:none;display:flex;align-items:center;gap:8px">
+          {{ suggested_ct.icon }} {{ suggested_ct.label }}
+          <span style="margin-left:auto;font-size:10px;opacity:.85">{{ t('charge_type_suggested_tag') }}</span>
+        </button>
+      </form>
       {% endif %}
       {% for key, info in charge_types.items() %}
+      {% if key != charge.type_suggested %}
       <form hx-post="api/charges/{{ charge.id }}/type"
             hx-target="#charge-type-{{ charge.id }}"
             hx-swap="outerHTML"
@@ -44,6 +78,7 @@
           {% if charge.location_type == key %}<span style="margin-left:auto;font-size:10px">✓</span>{% endif %}
         </button>
       </form>
+      {% endif %}
       {% endfor %}
     </div>
   </div>
