@@ -1,6 +1,15 @@
 # Builds the GHCR image (docker-publish.yml, multi-arch amd64+arm64 via buildx).
 # The HA add-on PULLS this prebuilt image, so there's no per-arch build override any more —
 # always the slim base. BUILD_FROM stays overridable for ad-hoc local builds only.
+# 🔴 Moving this to 3.13 or later: Python 3.13 turns VERIFY_X509_STRICT on by default in
+# ssl.create_default_context(), and Leapmotor's certificates cannot pass it — their app-gateway
+# server certificate carries basicConstraints CA:FALSE together with keyCertSign, which strict
+# verification refuses ("Key usage keyCertSign invalid for non-CA cert"), and so does the
+# application certificate in certs/. It is a template error across their PKI; nothing here can
+# reissue either. Measured 28/09/2026 against the live gateway on one OpenSSL (3.6.3): 3.12
+# completed the handshake, 3.14 refused it. The cloud client clears the flag explicitly for its
+# own pinned-CA context (leapmotor_cloud.transport.tls_context, mate-api 0.1.0a12), so a bump is
+# safe — but if every cloud call ever dies at stage=transport right after one, this is why.
 ARG BUILD_FROM=python:3.12-slim
 FROM ${BUILD_FROM}
 
@@ -8,7 +17,7 @@ LABEL \
     io.hass.name="LeapMotor Mate" \
     io.hass.description="Trip tracking and remote control for Leapmotor vehicles" \
     io.hass.type="addon" \
-    io.hass.version="3.16.0"
+    io.hass.version="4.6.0"
 
 WORKDIR /app
 
@@ -25,7 +34,9 @@ COPY run.sh  /run.sh
 RUN chmod a+x /run.sh
 
 ENV PYTHONUNBUFFERED=1
-ENV CERT_DIR=/app/certs
+ENV CERT_DIR=/data/certs
+ENV DATA_CERT_DIR=/data/certs
+ENV MATE_API_V2=1
 ENV DB_PATH=/data/leapmotor_mate.db
 
 # MateBetaTesterOnly flag. 0 in the official image (the research code stays inert); the CI

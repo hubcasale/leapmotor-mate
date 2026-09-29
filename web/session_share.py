@@ -142,6 +142,9 @@ def ensure_account_cert(api) -> bool:
     asleep car that poll-fails a lot), which otherwise surfaces as "Could not find the TLS
     certificate file" and forces an unnecessary, rate-limit-risky re-login (#64). Returns True if
     the files are present (or were just restored), False if we couldn't materialize them."""
+    if getattr(api, '_mate_new_api', False) is True:
+        from leapmotor_cloud.certificate_validation import certificate_usable
+        return certificate_usable(api.account_cert_file, api.account_key_file)
     acf = getattr(api, "account_cert_file", None)
     akf = getattr(api, "account_key_file", None)
     if acf and akf and os.path.exists(acf) and os.path.exists(akf):
@@ -178,13 +181,22 @@ def ensure_account_cert(api) -> bool:
 def _shared_login(self) -> None:
     """Replacement for api.login: restore the shared token first; do a real login only
     when there is no recent shared session (or a just-restored one failed within the
-    guard window). After a real login, persist the new session for the other process."""
+    guard window). After a real login, persist the new session for the other process.
+    The real login is told to `api.on_login`, as the 4.x bridge tells it from its own."""
     if time.time() - getattr(self, "_mate_restore_at", 0) > _GUARD_S:
         self._mate_restore_at = time.time()
         if _restore(self):
             log.info("Reusing shared session token (no login)")
             return
-    type(self).login(self)   # original, unpatched class login
+    hook = getattr(self, "on_login", None)
+    try:
+        type(self).login(self)   # original, unpatched class login
+    except Exception as exc:
+        if hook:
+            hook(exc)
+        raise
+    if hook:
+        hook(None)
     _save(self)
     log.info("New login — shared session saved")
 
@@ -195,8 +207,34 @@ def _shared_token_refresh(self) -> None:
     _save(self)
 
 
+# What the cloud says when the session behind a request is dead. Anything else that raises is a
+# request that did not work — a timeout, a missing certificate, a frame that would not parse. The
+# 4.x bridge names the stage a sign-in failed at: the cloud's own rejection is a refusal, a
+# transport or certificate failure on the way to it is not.
+REFUSED_MARKS = ("session rejected", "session unavailable", "unauthori", "authentication",
+                 "token", "login", "stage=cloud_rejection")
+
+# A login the 4.x bridge put off locally, inside a minute of the last attempt: the cloud saw nothing.
+DEFERRED_MARKS = ("temporarily deferred",)
+
+
+def login_attempted(exc) -> bool:
+    return not any(m in str(exc).lower() for m in DEFERRED_MARKS)
+
+
+def error_outcome(exc) -> tuple[str, str]:
+    """('refused' | 'failed', reason) for a request or a login that raised — one rule for both
+    processes. Refused is the cloud's word on the session; an attempt the bridge put off never
+    reached the cloud, so it is a failed request, whatever its wording."""
+    low = str(exc).lower()
+    refused = login_attempted(exc) and any(m in low for m in REFUSED_MARKS)
+    return ("refused" if refused else "failed"), f"{type(exc).__name__}: {exc}"
+
+
 def install(api):
     """Route every login / token-refresh through the shared-session logic."""
+    if getattr(api, '_mate_new_api', False) is True:
+        return api
     try:
         api.login = types.MethodType(_shared_login, api)
         api.token_refresh = types.MethodType(_shared_token_refresh, api)

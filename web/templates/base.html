@@ -112,14 +112,6 @@
       font-weight: 700;
       color: white;
     }
-    /* A grid of label+value pairs whose values must line up across a row. The label is what
-       varies: in a narrow cell it wraps in some languages and not in others, and since the
-       value simply follows it, one value ended up 18px lower than the one beside it. Reserving
-       the two-line height for every label in the grid puts them back on a shared baseline.
-       3em = two lines at this font-size and line-height, so it follows the type rather than a
-       hard-coded pixel count. Scoped to .stat-pairs: .stat-label itself is used all over the
-       app, mostly where nothing wraps and the extra height would only add slack. */
-    .stat-pairs .stat-label { min-height: 3em; }
     /* A fixed 3-up row of counters leaves each tile about 100px on a phone, and the label inside
        is one uppercase word that cannot wrap. Dutch BINNENKORT measures 83px there, so it touches
        both edges — which reads as badly centred rather than merely tight, and is what @adoewa
@@ -570,6 +562,29 @@
   </script>
 
   <script>
+    // The menu keeps its place across a page. Seventeen items are taller than the window they sit
+    // in (measured: 822 px of nav in 524 px at 1280x800), every page is a full load, and the
+    // sidebar was rebuilt scrolled to the top — so the item you had just used was off screen again
+    // and reaching Settings meant scrolling down every single time. Same mechanism as the <main>
+    // scroll below: sessionStorage, so it is this tab's own and nothing is remembered for tomorrow.
+    (function () {
+      const nav = document.querySelector('#sidebar nav');
+      if (!nav) return;
+      const KEY = 'lm_nav_scroll';
+      try {
+        const at = parseFloat(sessionStorage.getItem(KEY) || '0');
+        if (at > 0) nav.scrollTop = at;
+      } catch (e) { /* private window, blocked storage: the menu simply starts at the top */ }
+      function remember() {
+        try { sessionStorage.setItem(KEY, String(nav.scrollTop)); } catch (e) {}
+      }
+      // Written on the scroll itself, not on a timer: a click on a nav link navigates away, and a
+      // pending timer would never fire.
+      nav.addEventListener('scroll', remember, {passive: true});
+    })();
+  </script>
+
+  <script>
     // Global idle-aware auto-refresh: keep display pages fresh without a manual reload. Reloads
     // every N seconds (from <body data-autorefresh>, 0 = disabled) but ONLY when the page is idle —
     // never while a form field is focused, an interaction happened in the last 20s, an HTMX request
@@ -855,8 +870,8 @@
         if (!rc) { location.reload(); return; }
         htmx.ajax(rc.verb, rc.path, {
           source: d.elt, target: tgt, swap: tgt.getAttribute('hx-swap') || 'innerHTML'
-        });
-      });
+        }).catch(function () {});   // rejected when the retry is aborted, times out or fails to send: every one of
+      });                           // those is an htmx event the listeners above already act on
       box.appendChild(msg);
       box.appendChild(btn);
       host.insertBefore(box, tgt.nextSibling);
@@ -872,5 +887,40 @@
   })();
   </script>
 
+{# One tooltip for the whole app: any element with data-tip="…" shows it on hover, on tap and on
+   keyboard focus. The browser's own `title` needs a second of hovering, never shows on touch and
+   not at all inside the Home Assistant app. Delegated on the document, so content swapped in by
+   HTMX gets it too. Lines break only where the text has a newline — a fact sheet is not prose. #}
+<div id="mate-tip" class="hidden fixed z-[1100] pointer-events-none rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-1.5 text-[11px] leading-snug text-slate-200 shadow-lg max-w-[min(20rem,90vw)] whitespace-pre-line" role="tooltip"></div>
+<script>
+  (function () {
+    var tip = document.getElementById('mate-tip'), cur = null;
+    function place(x, y) {
+      var w = tip.offsetWidth, h = tip.offsetHeight;
+      var l = Math.min(x + 12, window.innerWidth - w - 8), t = y + 16;
+      if (t + h > window.innerHeight - 8) t = y - h - 10;
+      tip.style.left = Math.max(8, l) + 'px'; tip.style.top = Math.max(8, t) + 'px';
+    }
+    function show(el, x, y) { cur = el; tip.textContent = el.getAttribute('data-tip'); tip.classList.remove('hidden'); place(x, y); }
+    function hide() { cur = null; tip.classList.add('hidden'); }
+    function at(e) { return e.target && e.target.closest ? e.target.closest('[data-tip]') : null; }
+    document.addEventListener('pointermove', function (e) {
+      if (e.pointerType !== 'mouse') return;
+      var el = at(e); if (!el) return hide();
+      if (el !== cur) show(el, e.clientX, e.clientY); else place(e.clientX, e.clientY);
+    });
+    document.addEventListener('pointerdown', function (e) {
+      var el = at(e); if (!el) return hide();
+      if (el === cur && !tip.classList.contains('hidden')) return hide();   // a second tap closes it
+      show(el, e.clientX, e.clientY);
+    });
+    document.addEventListener('focusin', function (e) {
+      var el = at(e); if (!el) return hide();
+      var r = el.getBoundingClientRect(); show(el, r.left, r.bottom);
+    });
+    document.addEventListener('focusout', hide);
+    document.addEventListener('scroll', hide, true);
+  })();
+</script>
 </body>
 </html>

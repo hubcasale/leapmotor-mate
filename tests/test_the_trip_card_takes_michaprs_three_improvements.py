@@ -8,11 +8,13 @@ its ideas introduce NO new number and are simply better, so they come across:
   2. the secondary readings folded into a native disclosure instead of always-open rows.
 
 His third — the electricity and the fuel as two COLUMNS instead of two stacked blocks — was built,
-measured on the rendered page and reverted. It is right on his screen and wrong on ours: his card is
-the full width of a phone, while this page is `lg:grid-cols-3` and the card sits in the first column.
-A two-column rule inside it measured **87px per column at a 1024px viewport and 148px at 1600px**,
-and area 3 splits its own width again into two cells — about 70px for "5.4 L/100km". The last test
-below holds that decision so it is not re-taken without measuring again.
+measured on the rendered page and reverted on 13/09: this page is `lg:grid-cols-3` and the card sits
+in the first column, and with our 13–24px figures and a second split inside area 3 it did not fit
+(**87px per column at a 1024px viewport, 148px at 1600px**, ~70px for "5.4 L/100km").
+📍 It was TAKEN on 18/09/2026 in his own compact form (beta D #31, approved by Silvio), after
+measuring again on the rendered page: 73px per box at a 1024px window, enough for his 10–16px type
+with one figure per line — see test_the_trip_summary_is_in_boxes_for_every_car. The last test below
+still holds the part that stands: no viewport breakpoint around the pair.
 
 Rendered, not grepped: a source-level check would pass on a template that prints
 ``{'name': 'Euro'…}`` or resolves ``cost100_val`` to nothing.
@@ -61,8 +63,9 @@ def _trip(**over):
          "cost_per_kwh": 0.279, "fuel_used_l": 5.28, "fuel_l_100km": 5.4, "engine_ran": True,
          "engine_km": 62.0, "fuel_start_pct": 30.8, "fuel_end_pct": 20.3, "reconstructed": 0,
          "positions": [], "start_odometer_km": 12000.0, "end_odometer_km": 12097.0,
-         "avg_speed_kmh": 83.0, "max_speed_kmh": 130.0, "elevation_gain_m": None,
-         "elevation_loss_m": None, "outside_temp_start_c": None, "outside_temp_end_c": None,
+         "avg_speed_kmh": 83.0, "median_speed_kmh": 88.0, "max_speed_kmh": 130.0, "max_power_kw": None, "max_regen_kw": None,
+         "battery_temp_max_c": None, "battery_temp_min_c": None, "elevation_gain_m": None,
+         "elevation_loss_m": None, "outside_temp_start_c": None, "outside_temp_end_c": None, "outside_temp_max_c": None, "outside_temp_min_c": None, "driving_min": None, "stopped_min": None, "unknown_min": None,
          "elevation_profile_available": False, "ec_pending": False, "paid_kwh": None,
          "free_kwh": None, "fuel_price_per_l": 1.829,
          # the plain-electric branch of the energy tile, taken when is_reev is off
@@ -156,20 +159,19 @@ def test_the_folded_rows_keep_their_spacing_and_their_content():
     one child, so the spacing has to move inward with them or the list renders flush."""
     html = _render()
     body = html[html.index("<details"):]
-    assert "space-y-3" in body[:body.index("start_soc")], "the rows lost the spacing of the card"
-    for key in ("start_soc", "end_soc", "start_odometer", "avg_speed", "gps_points"):
+    assert "space-y-3" in body[:body.index(">soc<")], "the rows lost the spacing of the card"
+    for key in (">soc<", ">odometer<", "avg_speed", "gps_points"):
         assert key in body, f"{key} fell out of the card when it was folded"
 
 
 # ── 3 · the one that was measured and NOT taken ───────────────────────────────────────────────
 def test_the_two_energy_areas_are_not_put_side_by_side_at_a_viewport_breakpoint():
-    """⛔ Built, measured on the rendered page, reverted — and held here so it is not re-taken on
-    the strength of how good it looks on a phone screenshot.
-
-    The card is the first column of an `lg:grid-cols-3` page, so a viewport-width rule inside it
-    measured 87px per column at 1024px and 148px at 1600px, and area 3 halves its own width again:
-    ~70px for "5.4 L/100km". @michapr's version is right on HIS screen because his card is the full
-    width of a phone.
+    """The card is the first column of an `lg:grid-cols-3` page, so a VIEWPORT rule says nothing
+    about the room a box inside it has: the page is at its widest exactly where the column is at its
+    narrowest (73px per box at a 1024px window, measured 18/09/2026). The pair is side by side at
+    every width since then, sized for that column — which is why no breakpoint belongs around it.
+    On 13/09 the same pair behind a breakpoint, with our larger type, measured 87px per column at
+    1024px and ~70px for "5.4 L/100km", and was reverted.
 
     The assertion is deliberately narrow — a VIEWPORT breakpoint (`md:`/`lg:`/`xl:` + grid-cols-2)
     around these two areas. A future version driven by the CARD's own width (a container query),

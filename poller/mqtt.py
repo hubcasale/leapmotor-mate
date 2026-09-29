@@ -6,6 +6,7 @@ or publish errors are logged, never raised to the poller loop.
 """
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 
@@ -29,6 +30,29 @@ _BEACON = "mate_instance"
 # simply reads `unknown`, which is the honest answer. Only an empty string is falsy in Jinja, so a
 # real "0" still goes through.
 _EMPTY_NONE = "{{ value if value else none }}"
+# The data-link sensor expires on its own: it is published from every branch of the poll, so the
+# only way it goes quiet is a poller that has stopped — and then `unavailable` is the truth. The
+# web's heartbeat rule (two parked cadences and a minute) at the slowest cadence Settings allows:
+# the web recomputes its grace from the cadence set, this is fixed at discovery.
+_LINK_EXPIRE_S = 2 * 600 + 60
+# Whether the readings can be trusted, as the Overview judges it: fresh · no_new_data ·
+# age_unknown · login_refused · fetch_failed. Published from EVERY branch of the poll (see
+# publish_link), so a refused session reaches HA as `login_refused` rather than as an entity
+# that quietly went stale. Since when, the error and the next attempt ride along as attributes.
+_LINK_SENSOR = ("data_link", "Data Link", {"icon": "mdi:cloud-check-variant",
+                                            "expire": _LINK_EXPIRE_S, "attrs": True})
+
+
+def _sensor_conf(prefix, vin, key, name, extra) -> dict:
+    """One sensor's discovery config from its (key, name, extra) line."""
+    c = {"name": name, "state_topic": f"{prefix}/{vin}/{key}"}
+    if "unit" in extra: c["unit_of_measurement"] = extra["unit"]
+    if "dc" in extra: c["device_class"] = extra["dc"]
+    if "icon" in extra: c["icon"] = extra["icon"]
+    if "tpl" in extra: c["value_template"] = extra["tpl"]
+    if "expire" in extra: c["expire_after"] = extra["expire"]
+    if extra.get("attrs"): c["json_attributes_topic"] = f"{prefix}/{vin}/{key}/attributes"
+    return c
 
 
 class MqttService:
@@ -66,6 +90,8 @@ class MqttService:
         self.is_beta = bool(is_beta)
         self.config_sig = None
         self._own_vins = set()          # VINs WE publish for — a command for any other is refused
+        self._access_published = {}
+        self._link_discovery_sent = set()   # VINs whose data_link entity has been announced
         self._discovery_sent: set = set()   # VINs whose discovery has been published
         # #144 — temperature topic keys a car has never reported, and what we last told HA about
         # them, both PER VIN. 🔴 One set for the bridge would have judged both cars by whichever was
@@ -132,6 +158,7 @@ class MqttService:
             self.client.subscribe(f"{self.topic_prefix}/+/+/set")
             self.client.subscribe(f"{self.topic_prefix}/+/{_BEACON}")
             self._discovery_sent.clear()   # resend discovery for every car after a reconnect
+            self._link_discovery_sent.clear()
         else:
             log.error("MQTT: connect refused (code %d)", rc)
 
@@ -146,6 +173,16 @@ class MqttService:
                 self._handle_beacon(vin, payload)
                 return
             if not self.on_command:
+                return
+            # A command is an action for NOW. The broker hands a RETAINED message to every new
+            # subscription, and these topics are re-subscribed on every connect — so a command left
+            # retained by anything on the broker (HA sends them unretained; a script or an automation
+            # publishing with retain does not) ran again at every restart: an unlock, a trunk, a
+            # climate start, wherever the car was parked.
+            if msg.retain and (msg.topic.endswith("/command") or msg.topic.endswith("/set")):
+                log.warning("MQTT: ignoring a RETAINED command on %s (%r) — a command is only run "
+                            "when it is sent, not replayed from the broker. Clear it with an empty "
+                            "retained publish on that topic.", msg.topic, payload)
                 return
             # The command topics are wildcards — `<prefix>/+/command` takes ANY vin — and the vin was
             # handed straight to the cloud API. Two installs sharing a prefix therefore each executed
@@ -172,6 +209,41 @@ class MqttService:
 
     # ── Publishing ────────────────────────────────────────────────────────────
 
+    def _access_signature(self, vin):
+        if os.environ.get("MATE_API_V2") != "1":
+            return None
+        from ui_command_access import COMMANDS, allowed, snapshot_key, account_hash, account_username
+        try:
+            username = account_username(self.get_setting)
+            snapshot = json.loads(self.get_setting(snapshot_key(vin), '{}'))
+            # Effective permissions include freshness/account matching, but not the
+            # timestamp itself: healthy refreshes must not republish every entity.
+            return (account_hash(username), tuple(allowed(snapshot, username, vin, key)
+                                                  for key in sorted(COMMANDS)))
+        except Exception:
+            return ('unavailable',)
+
+    def _command_visible(self, vin, key):
+        if os.environ.get("MATE_API_V2") == "1":
+            key = {'climate_auto': 'ac_on', 'climate_cool': 'quick_cool',
+                   'climate_heat': 'quick_heat', 'climate_vent': 'quick_vent',
+                   'fan_level': 'set_fan_level', 'recirculation': 'set_recirc',
+                   'door_lock': 'lock', 'lock_toggle': 'lock',
+                   'trunk': 'open_trunk', 'charge_limit': 'set_charge_limit',
+                   'charge_schedule': 'save_charge_schedule'}.get(key, key)
+            # The cloud decides what may be SENT; what Home Assistant SHOWS also keeps what was
+            # measured on the car, exactly as the page does — the European T03 declares
+            # STEERING_WHEEL and heated seats it has no hardware for (#144), and the two surfaces
+            # must not disagree about the same car.
+            feat = capability_profile.COMMAND_FEATURE.get(key)
+            if feat and capability_profile.model_hidden(self._facts(vin)[1], feat):
+                return False
+            from ui_command_access import command_allowed
+            return command_allowed(vin, key, self.get_setting)
+        abilities, car_type = self._facts(vin)
+        return capability_profile.command_shown(vin, key, self.get_setting,
+                                                abilities=abilities, car_type=car_type)
+
     def publish_status(self, data, abilities=None, car_type=None, absent_temps=None):
         """One car's state. `abilities` and `car_type` describe THIS car — with two on the account
         they differ, and everything the bridge gates is gated on them.
@@ -193,9 +265,12 @@ class MqttService:
             return  # still (re)connecting — try again next cycle
         # Discovery per CAR: each one is its own Home Assistant device, and the second car's
         # entities never appear if one flag says "already sent" for the whole bridge.
-        if self.discovery_enabled and data.vin not in self._discovery_sent:
+        access = self._access_signature(data.vin)
+        if self.discovery_enabled and (data.vin not in self._discovery_sent
+                or self._access_published.get(data.vin) != access):
             self.publish_discovery(data)
             self._discovery_sent.add(data.vin)
+            self._access_published[data.vin] = access
         elif (self.discovery_enabled
               and self.absent_temps.get(data.vin, set()) != self._temps_published.get(data.vin)):
             # ⚠️ Discovery runs ONCE per car per connection, and this answer CHANGES: it needs 50
@@ -248,7 +323,7 @@ class MqttService:
                 st["energy_wh"] = 0.0
                 st["last_mono"] = now
                 st["active"] = True
-            net_w = max(0.0, data.charge_current_a - st["i0_a"]) * data.charge_voltage_v
+            net_w = max(0.0, (data.charge_current_a or 0.0) - st["i0_a"]) * (data.charge_voltage_v or 0.0)
             if st["last_mono"] is not None:
                 dt_h = (now - st["last_mono"]) / 3600.0
                 if 0 < dt_h <= 5 / 60:                     # ignore sleep/offline gaps > 5 min
@@ -257,7 +332,7 @@ class MqttService:
             return True, round(net_w), round(st["energy_wh"], 1)
         # not in V2L → remember this idle current to seed the next session's baseline; reset live values
         st["active"] = False
-        st["prev_current"] = data.charge_current_a
+        st["prev_current"] = data.charge_current_a or 0.0
         return False, 0, 0.0
 
     def _handle_beacon(self, vin, payload):
@@ -372,39 +447,9 @@ class MqttService:
             pub("frame_ts", None)
             pub("data_age", None)
         self._publish_evcc(base, data)
-        self._publish_ota_notice(base)
         self.client.publish(f"{base}/location",
                             json.dumps({"latitude": data.latitude, "longitude": data.longitude}),
                             retain=True)
-
-    def _publish_ota_notice(self, base):
-        """The software-update notice the poller found in the account inbox (#277 @HaJeeEs).
-
-        Read from settings the poll loop already wrote — the inbox scan runs every 10 minutes on its
-        own schedule, so this entity costs NO cloud request, only two retained messages.
-
-        🔴 Two things it is not. It is ACCOUNT-level: the inbox belongs to the account, so on a
-        multi-vehicle install the same notice goes out under every VIN, which is what the Overview
-        already shows whichever car is selected — publishing it under one car would hide it from the
-        other's Home Assistant device. And it says "there is an update message", not "your car has
-        an update pending": the cloud exposes no OTA status, no available version and no installed
-        version (client.check_ota), so the title and the send time are all there is to carry.
-
-        Attributes go out with the state, empty ones included: a retained title left under an OFF
-        entity would read as an update still waiting."""
-        get = self.get_setting or (lambda k, d="": d)
-        available = get("ota_available", "") == "1"
-        title = get("ota_title", "") or None
-        raw = get("ota_time", "")
-        sent = None
-        if raw:
-            try:
-                sent = datetime.fromtimestamp(int(raw) / 1000, tz=timezone.utc).isoformat()
-            except (TypeError, ValueError, OSError):
-                sent = None     # a malformed timestamp must never cost the notification itself
-        self.client.publish(f"{base}/ota_notice", "ON" if available else "OFF", retain=True)
-        self.client.publish(f"{base}/ota_notice/attrs",
-                            json.dumps({"title": title, "sent": sent}), retain=True)
 
     def _publish_evcc(self, base, data):
         """EVCC-friendly boolean mirrors of plug/charging/climate.
@@ -432,6 +477,26 @@ class MqttService:
             v = "" if value is None else str(value)
         self.client.publish(f"{self.topic_prefix}/{vin}/{key}", v, retain=True)
 
+    def publish_link(self, vin, state: str, attrs: dict) -> None:
+        """The data-link state, from every branch of the poll — with no frame to hand, so nothing
+        of _publish_sensors applies. Connects like publish_status does, so a poller that starts
+        into an outage still says `login_refused` instead of nothing — and announces the entity
+        itself, since the discovery that rides on a frame may be a long time coming."""
+        if not self.client and not self.connect():
+            return
+        if not self.client.is_connected():
+            return
+        if self.discovery_enabled and vin not in self._link_discovery_sent:
+            key, name, extra = _LINK_SENSOR
+            device_id = f"{self.topic_prefix}_mate_{vin.lower()}"
+            conf = _sensor_conf(self.topic_prefix, vin, key, name, extra)
+            conf.update({"unique_id": f"{device_id}_{key}", "device": self._device(vin)})
+            self.client.publish(f"{_DISC}/sensor/{device_id}/{key}/config", json.dumps(conf), retain=True)
+            self._link_discovery_sent.add(vin)
+        base = f"{self.topic_prefix}/{vin}"
+        self.client.publish(f"{base}/data_link", state, retain=True)
+        self.client.publish(f"{base}/data_link/attributes", json.dumps(attrs), retain=True)
+
     def _device(self, vin):
         """The HA device this car's entities hang off. Extracted so the temperature re-check can
         rebuild the identical descriptor — a second copy that drifted would create a second device.
@@ -454,6 +519,10 @@ class MqttService:
         device = self._device(vin)
 
         def cfg(component, key, conf):
+            if (os.environ.get("MATE_API_V2") == "1" and "command_topic" in conf
+                    and not self._command_visible(vin, key)):
+                self.client.publish(f"{_DISC}/{component}/{device_id}/{key}/config", "", retain=True)
+                return
             conf.update({"unique_id": f"{device_id}_{key}", "device": device})
             self.client.publish(f"{_DISC}/{component}/{device_id}/{key}/config",
                                 json.dumps(conf), retain=True)
@@ -463,9 +532,11 @@ class MqttService:
             ("range", "Range", {"unit": "km", "icon": "mdi:map-marker-distance"}),
             ("odometer", "Odometer", {"dc": "distance", "unit": "km", "icon": "mdi:counter"}),
             ("speed", "Speed", {"dc": "speed", "unit": "km/h"}),
-            ("charge_power", "Charge Power", {"dc": "power", "unit": "kW"}),
-            ("charge_voltage", "Charge Voltage", {"dc": "voltage", "unit": "V"}),
-            ("charge_current", "Charge Current", {"dc": "current", "unit": "A"}),
+            # Empty-to-none like the current and voltage below: a power the car cannot vouch for is ""
+            ("charge_power", "Charge Power", {"dc": "power", "unit": "kW", "tpl": _EMPTY_NONE}),
+            # Empty-to-none like climate_power below: a frame without 1177/1178 is published as ""
+            ("charge_voltage", "Charge Voltage", {"dc": "voltage", "unit": "V", "tpl": _EMPTY_NONE}),
+            ("charge_current", "Charge Current", {"dc": "current", "unit": "A", "tpl": _EMPTY_NONE}),
             ("charge_time_remaining", "Charge Time Remaining", {"dc": "duration", "unit": "min"}),
             ("v2l_power", "V2L Power", {"dc": "power", "unit": "W", "icon": "mdi:home-lightning-bolt"}),
             ("v2l_energy_session", "V2L Session Energy", {"unit": "Wh", "icon": "mdi:lightning-bolt"}),
@@ -482,6 +553,7 @@ class MqttService:
             ("frame_ts", "Data Timestamp", {"dc": "timestamp", "icon": "mdi:car-clock", "tpl": _EMPTY_NONE}),
             ("data_age", "Data Age", {"dc": "duration", "unit": "s",
                                       "icon": "mdi:timer-sand", "tpl": _EMPTY_NONE}),
+            _LINK_SENSOR,
             ("climate_mode", "Climate Mode", {"icon": "mdi:air-conditioner"}),
             # Empty-to-none like frame_ts and data_age above: the car stops reporting 1348 the
             # moment the climate is off, `pub()` writes "" for an absent value, and a `power` entity
@@ -490,12 +562,8 @@ class MqttService:
                                                 "icon": "mdi:air-conditioner", "tpl": _EMPTY_NONE}),
         ]
         for key, name, extra in sensors:
-            c = {"name": name, "state_topic": f"{prefix}/{vin}/{key}"}
-            if "unit" in extra: c["unit_of_measurement"] = extra["unit"]
-            if "dc" in extra: c["device_class"] = extra["dc"]
-            if "icon" in extra: c["icon"] = extra["icon"]
-            if "tpl" in extra: c["value_template"] = extra["tpl"]
-            cfg("sensor", key, c)
+            cfg("sensor", key, _sensor_conf(prefix, vin, key, name, extra))
+        self._link_discovery_sent.add(vin)
 
         # The three temperatures live in their own pass because they are the only entities gated on a
         # MEASUREMENT that keeps changing (#144): a car that has never once sent one does not get the
@@ -540,23 +608,27 @@ class MqttService:
             ("window_rl", "Window Rear Left", "window"), ("window_rr", "Window Rear Right", "window"),
             ("sunshade_open", "Sunshade", "window"),
             ("any_door_open", "Any Door", "door"), ("windows_open", "Any Window", "window"),
-            # Account-level, not this car's: see _publish_ota_notice. `update` is the HA device
-            # class whose ON reads "update available", which is exactly what the inbox says.
-            ("ota_notice", "OTA Update Notice", "update"),
         ]
         for key, name, dc in binaries:
             conf = {"name": name, "state_topic": f"{prefix}/{vin}/{key}",
                     "payload_on": "ON", "payload_off": "OFF", "device_class": dc}
-            if key == "ota_notice":
-                # The message title and its send time — the only detail the cloud gives us.
-                conf["json_attributes_topic"] = f"{prefix}/{vin}/ota_notice/attrs"
-                conf["icon"] = "mdi:cellphone-arrow-down"
             if key == "locked":
                 # HA's `lock` device_class is inverted (on = unlocked, off = locked).
                 # We publish ON = locked, so swap the payloads → a locked car shows
                 # "Locked" (not "Unlocked"). The published topic value is unchanged.
                 conf["payload_on"], conf["payload_off"] = "OFF", "ON"
             cfg("binary_sensor", key, conf)
+
+        # Withdrawn (#277): the notice was fed by the account message inbox, and Mate is required to
+        # run on an account the car is SHARED with — which receives no vehicle notices at all. On
+        # three real owners' bundles the scan found one in 44 successful reads: none. An empty
+        # payload on the retained config topic is what actually REMOVES it; simply not publishing
+        # leaves every existing installation with a frozen entity nobody can get rid of. The state
+        # topics are cleared too, so no "ON" outlives the entity that explained it.
+        # → tests/test_the_ota_notice_is_retired.py
+        self.client.publish(f"{_DISC}/binary_sensor/{device_id}/ota_notice/config", "", retain=True)
+        self.client.publish(f"{prefix}/{vin}/ota_notice", "", retain=True)
+        self.client.publish(f"{prefix}/{vin}/ota_notice/attrs", "", retain=True)
 
         # Fan level (signal 1941) as a writable HA NUMBER (1-7) and air recirculation (signal 1943)
         # as a writable HA SWITCH — both validated on-car 2026-06-20. state_topic mirrors the live
@@ -657,9 +729,13 @@ class MqttService:
             ("open_sunshade", "Open Sunshade", "mdi:window-shutter-open"),
             ("close_sunshade", "Close Sunshade", "mdi:window-shutter"),
             ("find_car", "Find Car", "mdi:car-search"),
+            ("battery_preheat", "Preheat Battery", "mdi:radiator"),
             ("unlock_charger", "Unlock Charge Cable", "mdi:ev-plug-type2"),
-            # Climate is exposed as momentary buttons (not a switch): the API has no
-            # single on/off toggle, only distinct mode commands + ac_switch to deactivate.
+            # Climate is exposed as momentary buttons (not a switch): the API has no single
+            # on/off toggle, only distinct mode commands + ac_switch to deactivate. A/C Auto
+            # is the plain "on" (operate=auto: the car picks cool or heat itself) — the web
+            # UI always had it, the bridge did not until #292 asked for it.
+            ("climate_auto", "A/C Auto", "mdi:air-conditioner"),
             ("climate_cool", "Quick Cool", "mdi:snowflake"),
             ("climate_heat", "Quick Heat", "mdi:fire"),
             ("climate_vent", "Quick Ventilation", "mdi:fan"),
@@ -682,9 +758,7 @@ class MqttService:
             # Model-aware: hide command buttons confirmed broken on THIS car (e.g. A/C Off on
             # the B10). Clearing the retained config makes HA drop a button that was published
             # before it was classified as broken. Unknown/working commands are always shown.
-            _ab, _ct = self._facts(vin)
-            if capability_profile.command_shown(vin, key, self.get_setting,
-                                                abilities=_ab, car_type=_ct):
+            if self._command_visible(vin, key):
                 cfg("button", key, {"name": name, "command_topic": f"{prefix}/{vin}/command",
                                     "payload_press": key, "icon": icon})
             else:

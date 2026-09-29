@@ -25,9 +25,18 @@
      a sibling (not a <button>), so it stays fully visible. */
   #hero-cmds.cmds-busy button{pointer-events:none;opacity:.45}
 </style>
-<div class="mb-6">
-  <h1 class="text-2xl font-bold text-white">{{ t('overview_title') }}</h1>
-  <p class="text-slate-400 text-sm mt-1">{{ vehicle.car_type if vehicle else 'LeapMotor' }} {{ t('live_status') }}</p>
+<div class="mb-6 flex flex-wrap items-start justify-between gap-3">
+  <div>
+    <h1 class="text-2xl font-bold text-white">{{ t('overview_title') }}</h1>
+    <p class="text-slate-400 text-sm mt-1">{{ vehicle.car_type if vehicle else 'LeapMotor' }} {{ t('live_status') }}</p>
+  </div>
+  {# Whether the data on this page can be trusted — beside the heading, where a glance lands
+     first, on its own refresh so it stays current between the cards' own reloads. #}
+  {% if data_link %}
+  <div id="link-pill" class="w-full sm:w-auto sm:max-w-[36rem]" hx-get="api/link-pill" hx-trigger="every 30s" hx-swap="innerHTML">
+    {% include "partials/link_pill.html" %}
+  </div>
+  {% endif %}
 </div>
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -65,9 +74,28 @@
     </div>
     {% if last_charge %}
     <div class="space-y-3">
-      <div class="flex justify-between items-center">
-        <span class="stat-label">{{ t('energy_added') }}</span>
-        <span class="text-xl font-bold text-yellow-400">+{{ (last_charge.energy_added_kwh or 0)|dec(1) }} kWh</span>
+      {# The same figure the charge card leads with, and the same second line under it — decided
+         in db_reader.charge_energy_view for both. It used to say the battery figure alone, beside
+         a cost computed on the wallbox counter: a €/kWh that exists on no other screen. #}
+      {% set e = charge_energy(last_charge) %}
+      <div>
+        <div class="flex justify-between items-center">
+          <span class="stat-label">{{ t('energy') }}</span>
+          <span class="text-xl font-bold text-yellow-400">+{{ e.headline_kwh|dec(1) }} kWh
+            {% if e.headline == 'wallbox' %}<span class="text-[10px] font-normal text-blue-400" title="{{ t('wallbox_billed_help') }}">🔌 {{ t('wallbox_billed') }}</span>
+            {% elif e.headline == 'delivered' %}<span class="text-[10px] font-normal text-blue-400" title="{{ t('cal_kwh_delivered_help') }}">🔌 {{ t('cal_kwh_delivered') }}</span>
+            {% else %}<span class="text-[10px] font-normal text-slate-400" title="{{ t('energy_in_battery_help') }}">🔋 {{ t('energy_in_battery') }} (DC)</span>{% endif %}
+          </span>
+        </div>
+        {% if e.headline != 'battery' %}
+        <div class="text-right text-[10px] text-slate-400" title="{{ t('wallbox_billed_help') if e.headline == 'wallbox' else t('energy_in_battery_help') }}">
+          🔋 {{ e.battery_kwh|dec(1) }} kWh {{ t('energy_in_battery') }} (DC){% if e.wallbox_eff is not none %} · {{ t('efficiency') }} {{ e.wallbox_eff|dec(0) }}%{% endif %}
+        </div>
+        {% elif e.gross_kwh %}
+        <div class="text-right text-[10px] text-slate-400" title="{{ t('gross_kwh_help') }}">
+          🔌 {{ e.gross_kwh|dec(2) }} kWh {{ t('gross_kwh_short') }}{% if e.gross_eff is not none %} · {{ t('efficiency') }} {{ e.gross_eff|dec(0) }}% ({{ t('gross_kwh_lost') }} {{ e.gross_lost_kwh|dec(1) }} kWh){% endif %}
+        </div>
+        {% endif %}
       </div>
       <div class="flex justify-between text-sm">
         <span class="text-slate-400">{{ t('soc') }}</span>
@@ -114,40 +142,123 @@
 
   <!-- Map (last known position) -->
   <div class="card md:col-span-1 lg:col-span-1 min-h-64">
-    {% if status and status.latitude and status.longitude %}
-    <div class="stat-label mb-3">{{ t('last_position') }}</div>
-    <div id="map" class="w-full rounded-lg" style="height:280px"></div>
     <link rel="stylesheet" href="static/vendor/leaflet/leaflet.css"/>
     <script src="static/vendor/leaflet/leaflet.js"></script>
-    <script>
-      const map = L.map('map').setView([{{ status.latitude }}, {{ status.longitude }}], 15);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap',
-        // OSM blocks tiles with no Referer; send the page origin so they load in privacy-strict Firefox.
-        referrerPolicy: 'origin'
-      }).addTo(map);
-      const icon = L.divIcon({
-        html: '<div style="background:#14b8a6;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 0 6px rgba(0,0,0,0.5)"></div>',
-        iconSize: [14,14], iconAnchor: [7,7]
-      });
-      {# When the CAR last reported this position, not when we last wrote a row. The poller records
-         a row every 30 s while parked even when the cloud is re-serving one frozen frame, so
-         last_seen_s said "22 seconds ago" over a marker that had not moved in sixteen hours —
-         which is exactly what @rop12770 was looking at in #232 while asking why his car was in the
-         sea. data_age_s comes from the frame's own timestamp and is always measured (see
-         _data_age); it is None only for a car that reports no clock at all, and there
-         last_seen_s is the best we have. #}
-      L.marker([{{ status.latitude }}, {{ status.longitude }}], {icon}).addTo(map)
-        .bindPopup('{{ vehicle.car_type if vehicle else "Leapmotor" }} — {{ ago(status.data_age_s if status.data_age_s is not none else status.last_seen_s) }}').openPopup();
-    </script>
-    {% else %}
-    <div class="flex items-center justify-center h-64 text-slate-500">
-      <div class="text-center">
-        <div class="text-4xl mb-2">🗺</div>
-        <div>{{ t('last_position') }}</div>
+    <div id="map-box"{% if last_position.lat is none %} style="display:none"{% endif %}>
+      {# The heading, not a popup on the map, says how old the position is: a popup covered the
+         map above the car and was cut off near an edge. The car's name is at the top of the page. #}
+      <div class="stat-label mb-3">{{ t('last_position') }} <span id="map-when" class="normal-case whitespace-nowrap">{% if last_position.ago %}({{ last_position.ago }}){% endif %}</span></div>
+      <div id="map" class="w-full rounded-lg" style="height:280px"></div>
+    </div>
+    <div id="map-empty"{% if last_position.lat is not none %} style="display:none"{% endif %}>
+      <div class="flex items-center justify-center h-64 text-slate-500">
+        <div class="text-center">
+          <div class="text-4xl mb-2">🗺</div>
+          <div>{{ t('last_position') }}</div>
+        </div>
       </div>
     </div>
-    {% endif %}
+    {# The marker follows the car. It was drawn once, at page load, beside a status card that
+       refreshes itself — so the page said "6 s ago" over a position from whenever it was opened.
+       The page embeds main._last_position for its first paint, and the map polls the same builder
+       at /api/last-position, as often as it says. One request at a time, and none while the tab is
+       hidden: a reply can never arrive after a newer one and move the marker back. A request is
+       given one interval, body included, and aborted after it — a reply that late is older than
+       the next one would be, and a connection a proxy left hanging must not stop the map for good.
+       A reply without a usable interval keeps the last one; a reply that says there is no
+       position brings the placeholder back, and anything else that is not a position is treated
+       like a failed poll. The map pans only when the car moves — further than a parked car's GPS
+       wanders — and then recentres on it once it comes within a quarter of the view from an edge,
+       before it reaches the edge. Never under the owner's hand: a move that arrives while the map
+       is being dragged, flung or zoomed waits until it settles; and never because the owner panned
+       away from a car standing still. Local data only; nothing here reaches Leapmotor. #}
+    <script>
+      (function () {
+        const START_ZOOM = 15;
+        const FOLLOW_EDGE = 0.25;   // recentre once the car is within a quarter of the view from an edge
+        const STILL_M = 5;          // a parked car's GPS wanders under a metre; less is not the car moving
+        const MAX_TIMER_MS = 2 ** 31 - 1;   // setTimeout fires a longer delay at once
+        const box = document.getElementById('map-box');
+        const empty = document.getElementById('map-empty');
+        const when = document.getElementById('map-when');
+        let map = null, marker = null, refreshS = null, timer = null, busy = false;
+        let gesture = false, follow = false;   // the owner is moving the map; a car move waits for it
+
+        function show(pos) {
+          if (pos === null || typeof pos !== 'object') return;   // not a reply: as if the poll failed
+          // Keep the last good interval: a missing or broken one would make the timer and the
+          // deadline fire at once, and the map would ask without pause.
+          const s = Number(pos.refresh_s);
+          if (Number.isInteger(s) && s > 0 && s * 1000 <= MAX_TIMER_MS) refreshS = s;
+          if (pos.lat === null || pos.lon === null) {             // no position (yet): the placeholder
+            box.style.display = 'none';
+            empty.style.display = '';
+            return;
+          }
+          if (typeof pos.lat !== 'number' || typeof pos.lon !== 'number') return;   // as if it failed
+          const reappears = box.style.display === 'none';
+          box.style.display = '';
+          empty.style.display = 'none';
+          const at = L.latLng(pos.lat, pos.lon);
+          when.textContent = '(' + pos.ago + ')';
+          if (!map) {
+            map = L.map('map').setView(at, START_ZOOM);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              attribution: '© OpenStreetMap',
+              // OSM blocks tiles with no Referer; send the page origin so they load in privacy-strict Firefox.
+              referrerPolicy: 'origin'
+            }).addTo(map);
+            const icon = L.divIcon({
+              html: '<div style="background:#14b8a6;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 0 6px rgba(0,0,0,0.5)"></div>',
+              iconSize: [14,14], iconAnchor: [7,7]
+            });
+            // Nothing to open on it any more: not a button, not a tab stop.
+            marker = L.marker(at, {icon, interactive: false, keyboard: false}).addTo(map);
+            map.on('movestart', function () { gesture = true; });
+            map.on('moveend', function () { gesture = false; followCar(); });
+            return;
+          }
+          if (reappears) map.invalidateSize();   // a resize while it was hidden measured it as 0×0
+          if (marker.getLatLng().distanceTo(at) >= STILL_M) follow = true;
+          marker.setLatLng(at);
+          followCar();
+        }
+
+        // Recentre on a car that moved and now sits near an edge — once the map is still: a panTo
+        // while the owner drags, flings or zooms would fight the gesture or be dropped by it.
+        function followCar() {
+          if (!follow || gesture) return;
+          follow = false;
+          const at = marker.getLatLng();
+          if (!map.getBounds().pad(-FOLLOW_EDGE).contains(at)) map.panTo(at);
+        }
+
+        function schedule() {
+          clearTimeout(timer);
+          timer = setTimeout(refresh, refreshS * 1000);
+        }
+
+        function refresh() {
+          clearTimeout(timer);
+          // Hidden: visibilitychange picks it up again. Busy: the request in flight reschedules.
+          if (document.hidden || busy) return;
+          busy = true;
+          const ctl = new AbortController();
+          const deadline = setTimeout(function () { ctl.abort(); }, refreshS * 1000);
+          fetch('api/last-position', { cache: 'no-store', signal: ctl.signal })
+            .then(function (r) { return r.ok ? r.json() : null; })   // an abort rejects this too
+            .then(function (pos) { if (pos) show(pos); })
+            .catch(function () {})
+            .finally(function () { clearTimeout(deadline); busy = false; schedule(); });
+        }
+
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) refresh();
+        });
+        show({{ last_position | tojson }});
+        schedule();
+      })();
+    </script>
   </div>
 
   <!-- Recent trips -->
@@ -273,8 +384,9 @@ document.addEventListener('htmx:afterRequest', function(e) {
   sending = false;                                   // the HTTP request finished (cloud accepted / refused)
   var name = (path.split('api/command/')[1] || '').replace(/\/$/, '');
   var res = document.getElementById('hero-cmd-result');
-  if (e.detail.successful && res && !res.querySelector('[data-warn]')) {
-    res.innerHTML = '';                              // no "✓ Done": the pill + the ⏳ are the only feedback
+  var accepted = res && res.querySelector('[data-accepted]');
+  if (e.detail.successful && res && (accepted || !res.querySelector('[data-warn]'))) {
+    if (!accepted) res.innerHTML = '';                // retain the unconfirmed acceptance notice
     // Start the hidden 10 s floor + (movement only) the real-confirm wait. The ⏳ + red stay until both end.
     busySlot = slotOf(name); busyUntil = Date.now() + BUSY_MS; busyStart = Date.now();
     pendingExpect = CONFIRM[name] || null;

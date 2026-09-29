@@ -122,11 +122,21 @@ CREATE TABLE IF NOT EXISTS charges (
     ac_energy_kwh    REAL,         -- wallbox energy a HOME charge is billed on = sum of the counter's rises
     wallbox_energy_start_kwh REAL, -- last wallbox counter reading seen (running baseline for that sum)
     wb_stuck_kwh     REAL,         -- #215: kWh the CAR reported drawing while the counter never moved
+    wb_dark_min      REAL,         -- #295: minutes this charge was open at the wallbox with NO counter
+                                   -- reading taken — time nobody measured, so the AC total is short
+                                   -- by an unknown amount. Counted in minutes, never in kWh: with
+                                   -- no reading there is nothing to count kWh from.
     gross_kwh        REAL,         -- #222: kWh the CHARGER says it delivered, TYPED BY THE OWNER.
                                    -- Never measured by Mate and never mixed with the measured
                                    -- figures: it prices the charge (like a wallbox meter does at
                                    -- home) and shows the conversion loss. The energy Mate reports
                                    -- and totals stays the battery (DC) one — see _billed_kwh.
+    gross_kwh_from   INTEGER,      -- the row whose gross_kwh covers THIS row: its own id, or the
+                                   -- merged charge's parent when the figure was typed on the merged
+                                   -- card. Merging rewrites no row, so this is the only record of
+                                   -- which pieces a typed figure was typed for; a merged charge's
+                                   -- energy counts that figure once for those pieces and every
+                                   -- other piece on its own. Written by the web with the figure.
     solar_kwh        REAL,         -- #272: kWh of this charge that came off the owner's own roof,
                                    -- TYPED BY THE OWNER. Subtracted from the measured wallbox
                                    -- energy before pricing, so only the grid share is billed.
@@ -218,6 +228,22 @@ CREATE TABLE IF NOT EXISTS offline_gaps (
     energy_kwh     REAL               -- ΔSoC × the capacity in force then; 0 when the SoC rose
 );
 CREATE INDEX IF NOT EXISTS idx_offline_gaps_vehicle ON offline_gaps(vehicle_id, started_at);
+
+-- One row per poll and per login attempt, so "is Mate getting data?" is answered from a table
+-- instead of counted by hand out of the log (#300). `outcome` is what the REQUEST did; the frame's
+-- own age sits beside it, measured at poll time, because an answer can carry a frame that is hours
+-- old and a repeated frame can still be current. Kept a week.
+CREATE TABLE IF NOT EXISTS poll_log (
+    id           INTEGER PRIMARY KEY,
+    at           TEXT NOT NULL,       -- UTC ISO, the poll clock
+    vehicle_id   INTEGER,             -- NULL on a login row: the session is the account's
+    kind         TEXT NOT NULL,       -- 'poll' | 'login'
+    outcome      TEXT NOT NULL,       -- poll: answer|empty|failed|refused · login: ok|refused|failed
+    frame_age_s  INTEGER,             -- poll+answer: host clock − car clock; NULL = no clock, or ahead
+    process      TEXT,                -- login: 'poller' | 'web'
+    reason       TEXT                 -- failed/refused: the error, truncated
+);
+CREATE INDEX IF NOT EXISTS idx_poll_log_at ON poll_log(at);
 """
 
 
@@ -236,6 +262,17 @@ def ensure_schema(conn) -> None:
     Idempotent by construction (every step is `IF NOT EXISTS` or `if column not in ...`) and cheap:
     a handful of PRAGMAs on a database that is already up to date."""
     conn.executescript(SCHEMA)
+    conn.execute("""CREATE TABLE IF NOT EXISTS charging_places (
+        id INTEGER PRIMARY KEY, vehicle_id INTEGER NOT NULL,
+        name TEXT NOT NULL, latitude REAL NOT NULL, longitude REAL NOT NULL,
+        radius_m REAL NOT NULL, rate REAL NOT NULL, enabled INTEGER NOT NULL DEFAULT 1
+    )""")
+    place_cols = {r[1] for r in conn.execute("PRAGMA table_info(charges)")}
+    for column, kind in (("charging_place_id", "INTEGER"), ("charging_place_name", "TEXT"),
+                         ("charging_place_rate", "REAL"), ("charging_place_source", "TEXT")):
+        if column not in place_cols:
+            conn.execute(f"ALTER TABLE charges ADD COLUMN {column} {kind}")
+
     # migration: add battery_min_temp if missing (existing DBs)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(positions)").fetchall()}
     if "climate_target_temp" not in cols:
@@ -250,6 +287,18 @@ def ensure_schema(conn) -> None:
         conn.execute("ALTER TABLE positions ADD COLUMN climate_cooling INTEGER DEFAULT NULL")
     if "climate_heating" not in cols:
         conn.execute("ALTER TABLE positions ADD COLUMN climate_heating INTEGER DEFAULT NULL")
+    # The SoH estimate asks, once per charge, whether anyone was sitting in the car with the cabin
+    # heater or cooler running — a charge like that has its energy/SoC ratio distorted and is left
+    # out of the figure. `LIMIT 1` makes it look cheap; it is the opposite, because the answer is
+    # almost always "no" and proving a negative without an index means reading every frame in the
+    # window. Measured on a real database: 618.05 ms for 33 charges, `SCAN positions`, none of them
+    # with the cabin in use. With this index the plan is a SEARCH and the same 33 cost 0.10 ms.
+    # Partial, so it holds 2081 rows out of 374 511 and costs nothing to keep.
+    # 🔴 HERE, not in SCHEMA: on a database made before these columns existed they arrive with the
+    # ALTERs just above, and an index on them inside the schema script fails on a fresh database and
+    # takes the WHOLE script down with it — 1037 red tests the first time.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_positions_cabin_use ON positions(vehicle_id, recorded_at)"
+                 " WHERE climate_cooling = 1 OR climate_heating = 1")
     if "climate_defrost" not in cols:
         conn.execute("ALTER TABLE positions ADD COLUMN climate_defrost INTEGER DEFAULT NULL")
     if "trunk_open" not in cols:
@@ -285,6 +334,14 @@ def ensure_schema(conn) -> None:
     # discharge must NOT be counted as standby/vampire drain).
     if "ac_port_mode" not in cols:
         conn.execute("ALTER TABLE positions ADD COLUMN ac_port_mode INTEGER DEFAULT NULL")
+    # V2L samples are a handful among hundreds of thousands of frames, and every page asks whether
+    # the car has used V2L lately. Without this the question is a scan of the whole window — 19731
+    # rows and 12.7 ms on a real database, four times that on an add-on, for an answer that is
+    # almost always "no". Partial, so it holds only the V2L rows and costs nothing to keep.
+    # 🔴 HERE, not in SCHEMA: the column it indexes is added by the ALTER above, so an index on it
+    # inside the schema script fails on a fresh database and takes the WHOLE script down with it.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_positions_v2l ON positions(vehicle_id, recorded_at)"
+                 " WHERE ac_port_mode = 2")
     # migration: extended climate panel (validated on-car 2026-06-20) — fan level (1941 acAirVolume,
     # 1-7), recirculation (1943: 1=recirc / 0=fresh), base climate mode (3713: 0 auto/1 cool/3 heat/4 vent).
     if "fan_level" not in cols:
@@ -338,9 +395,28 @@ def ensure_schema(conn) -> None:
     # migration: #215 — energy the car reported drawing while the wallbox counter stood still
     if "wb_stuck_kwh" not in ccols:
         conn.execute("ALTER TABLE charges ADD COLUMN wb_stuck_kwh REAL")
+    # migration: #295 — minutes a charge sat open at the wallbox with no counter reading taken
+    if "wb_dark_min" not in ccols:
+        conn.execute("ALTER TABLE charges ADD COLUMN wb_dark_min REAL")
     # migration: #222 — the charger's own kWh, typed in for a public charge
     if "gross_kwh" not in ccols:
         conn.execute("ALTER TABLE charges ADD COLUMN gross_kwh REAL")
+    # Backfill which pieces a legacy reading covers, without repricing stored costs. A group entry
+    # cleared its children's costs: infer that scope when the parent has an automatic price.
+    # With no parent price or a manual total, entry order is ambiguous; retain own positive readings.
+    # Pieces with their own costs stay independent; unpriced pieces without readings use the parent.
+    if "gross_kwh_from" not in ccols:
+        conn.execute("ALTER TABLE charges ADD COLUMN gross_kwh_from INTEGER")
+        conn.execute("UPDATE charges SET gross_kwh_from=id WHERE gross_kwh > 0")
+        if "merged_into_id" in ccols:
+            # Older schemas encode manual pricing in the type, before cost_manual is added below.
+            automatic = "COALESCE(location_type, '') != 'MANUAL'"
+            if "cost_manual" in ccols:
+                automatic += " AND COALESCE(cost_manual, 0) = 0"
+            conn.execute("UPDATE charges SET gross_kwh_from=merged_into_id WHERE merged_into_id IN "
+                         "(SELECT id FROM charges WHERE gross_kwh > 0) AND cost IS NULL "
+                         "AND (COALESCE(gross_kwh, 0) <= 0 OR merged_into_id IN "
+                         f"(SELECT id FROM charges WHERE cost IS NOT NULL AND {automatic}))")
     # migration: #272 — the owner's own solar kWh, subtracted from the wallbox energy before pricing
     if "solar_kwh" not in ccols:
         conn.execute("ALTER TABLE charges ADD COLUMN solar_kwh REAL")
@@ -348,6 +424,14 @@ def ensure_schema(conn) -> None:
     # cloud during the charge, so it was never seen live — recorded from the SoC delta instead).
     if "reconstructed" not in ccols:
         conn.execute("ALTER TABLE charges ADD COLUMN reconstructed INTEGER DEFAULT 0")
+    # migration: WHY the charge stopped (#289). Reading a duration cannot tell a cable that came
+    # out from a car that fell asleep with Mate still watching — and on the bundle that started
+    # this, 9 of 13 charges are the second. One word, written at the close; diagnostic only, so
+    # nothing prices or counts on it. NULL means the row predates this column and nothing else:
+    # every path that writes a charge names its reason.
+    # → tests/test_a_charge_records_why_it_closed.py
+    if "close_reason" not in ccols:
+        conn.execute("ALTER TABLE charges ADD COLUMN close_reason TEXT DEFAULT NULL")
     # migration: public charging-station label, resolved by the web layer from OSM
     # (web/charger_locator.py; '' = looked up, nothing found). Display-only — it never
     # feeds charge detection, costs or the HOME/AC/FAST/HPC location_type.
@@ -476,6 +560,11 @@ def ensure_schema(conn) -> None:
     tpcols = {r[1] for r in conn.execute("PRAGMA table_info(trip_positions)").fetchall()}
     if "elevation_m" not in tpcols:
         conn.execute("ALTER TABLE trip_positions ADD COLUMN elevation_m REAL")
+    # migration: the poll's readings the trip detail shows, kept with each point so they outlive the
+    # positions retention — battery power (kW, + out of the pack), coldest cell, range, outside air.
+    for _c in ("power_kw", "battery_temp_c", "range_km", "outside_temp_c"):
+        if _c not in tpcols:
+            conn.execute(f"ALTER TABLE trip_positions ADD COLUMN {_c} REAL")
     # migration: geohash (7 chars ≈ 150m cell) of start/end lat-lon — the "similar trips"
     # comparator's fast pre-filter (web/db_reader.py get_similar_trips groups candidates by
     # this before validating the actual route). Set at trip creation/finalize (below) going

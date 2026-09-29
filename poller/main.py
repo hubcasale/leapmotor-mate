@@ -1,4 +1,5 @@
 """LeapMotor Mate — vehicle data poller."""
+import mate_api  # explicit independent runtime; no sitecustomize hook
 import json
 import logging
 import os
@@ -11,10 +12,12 @@ _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 
 import abrp
 import energy_snapshots
+import quirks
 import ready_automation
+import session_share
 from client import (LeapmotorMateClient, set_charge_current_min, EmptyStatusError,
                     seed_coord_signs, get_coord_signs)
-from db import Database
+from db import Database, log_login
 from mqtt import MqttService
 from outside_temp import OutsideTempSampler
 from recorder import Recorder
@@ -302,6 +305,7 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
             elif cmd == "open_sunshade":  api.open_sunshade(vin)
             elif cmd == "close_sunshade": api.close_sunshade(vin)
             elif cmd == "find_car":    api.find_vehicle(vin)
+            elif cmd == "battery_preheat": api.battery_preheat(vin)
             elif cmd == "unlock_charger": api.unlock_charger(vin)
             elif cmd == "charge_limit":   # writable HA number (#77): value = target SoC %
                 try:
@@ -350,6 +354,27 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
                     api.close_trunk(vin);  optimistic = ("trunk_open", False)
                 else:
                     return
+            elif cmd == "climate_auto":
+                # Plain "turn the climate on", the web UI's A/C AUTO tile (ac_on): operate=auto +
+                # mode=nohotcold tells the car to self-manage cool/heat toward the target temp
+                # (climate mode 3713=0), so NO manual mode is engaged. Target temp from THIS car's
+                # last panel reading. Same body as web/command_client.ac_on — #292 asked for it
+                # from an automation and the bridge had neither a button nor this branch.
+                _m, _c, _f, _tmp = _climate_ctx_from_db(db, vin)
+                try:
+                    _tmp = max(18, min(int(float(_tmp)), 32))
+                except (TypeError, ValueError):
+                    _tmp = 24
+                operate, mode = "auto", "nohotcold"
+                if _mqtt_car_type(client, vin) == "T03":
+                    # #67: the T03 silently ignores operate=auto, and 'nohotcold' has no manual
+                    # twin — fall back to cold, the one mode confirmed to start its A/C on-car.
+                    operate, mode = "manual", "cold"
+                api._remote_control(vin=vin, action="ac_on", cmd_content=json.dumps(
+                    {"circle": "in", "mode": mode, "operate": operate, "position": "all",
+                     "temperature": str(_tmp), "windlevel": "5", "wshld": "0"},
+                    separators=(",", ":")))
+                optimistic = ("climate_on", True)
             elif cmd == "climate_cool":
                 api.quick_cool(vin);         optimistic = ("climate_on", True)
             elif cmd == "climate_heat":
@@ -462,18 +487,13 @@ def _write_comfort_state(db, data):
     _last_comfort[data.vin] = blob
 
 
-_OTA_CHECK_INTERVAL = 600   # 10 min — an OTA notice isn't time-critical
-_last_ota_check = 0.0
-_last_ota_log = None        # last logged (ok, scanned, ota) — log only on change, no 10-min spam
-
-
 _SCHEDULE_REFRESH_INTERVAL = 1800   # 30 min — a charge window is set once and left alone for months
 _last_schedule_refresh = 0.0
 
 
 def _maybe_refresh_charge_schedule(db, client):
     """Cache the car's charge window in settings for the Overview (#173 @rop12770). Throttled and
-    best-effort, exactly like the OTA check above; never raises.
+    best-effort; never raises.
 
     Why cache at all: the window lives in the CAR — no signal in the poll frame carries it — so it
     costs a cloud round-trip, while the Overview redraws itself every 30 s. Reading it per page view
@@ -501,43 +521,6 @@ def _store_charge_schedule(db, sched, vin: str = "") -> None:
                                str(sched.get("starttime") or ""), str(sched.get("endtime") or ""))
     except Exception as e:  # noqa: BLE001
         log.debug("Could not store the charge schedule: %s", e)
-
-
-def _maybe_check_ota(db, client):
-    """Throttled, best-effort OTA check (scans the account inbox for an update notice). Stored in
-    settings for the web (ota_available / ota_title / ota_time). Never raises — a failed check must
-    not disturb the poll; it just leaves the previous value.
-
-    The outcome is logged (at INFO, or WARNING when the inbox can't be read) so a diagnostics
-    bundle answers *why* the Overview shows "None" — Leapmotor has no OTA-status signal, Mate can
-    only read the account inbox, and a bare "None" otherwise hides three different cases: empty
-    inbox, messages-but-no-update, and inbox-unreadable (issue #156). Logged only on change so a
-    stable state doesn't repeat every 10 minutes."""
-    global _last_ota_check, _last_ota_log
-    now = time.time()
-    if now - _last_ota_check < _OTA_CHECK_INTERVAL:
-        return
-    _last_ota_check = now   # set before the call so a slow/broken endpoint can't be hammered
-    try:
-        with _API_LOCK:
-            res = client.check_ota()
-    except Exception as e:  # noqa: BLE001
-        log.debug("OTA check failed: %s", e)
-        return
-    if not res.get("ok"):                # inbox unreadable → keep the last value (check_ota warned)
-        return
-    scanned, found = res.get("scanned", 0), bool(res.get("ota"))
-    sig = (True, scanned, found)
-    if sig != _last_ota_log:             # log the outcome once per change, not every cycle
-        if found:
-            log.info("OTA inbox scan: update message found among %d message(s): %r",
-                     scanned, res.get("title"))
-        else:
-            log.info("OTA inbox scan: %d message(s) in inbox, none is an update notice", scanned)
-        _last_ota_log = sig
-    db.set_setting("ota_available", "1" if found else "0")
-    db.set_setting("ota_title", res.get("title") or "")
-    db.set_setting("ota_time", str(res.get("time") or ""))
 
 
 _BETA_PREFIX_SUFFIX = "_beta"   # what a colliding BetaTester install renames its prefix to
@@ -582,9 +565,9 @@ def _mqtt_config_sig(db) -> tuple:
             db.get_setting("mqtt_tls_insecure"), db.get_setting("mqtt_discovery", "1"))
 
 
-def _mqtt_tick(db, client, data, service, vehicle=None, vehicle_id=None):
-    """Manage the MQTT bridge each poll cycle: (dis)connect on the enable flag,
-    then publish the current state. Returns the (possibly new/None) service."""
+def _mqtt_connect(db, client, service):
+    """The bridge as the settings want it right now: gone when disabled, rebuilt when its
+    configuration changed, otherwise the one already connected. Returns the service or None."""
     if db.get_setting("mqtt_enabled") != "1" or not db.get_setting("mqtt_broker"):
         if service:
             service.disconnect()
@@ -620,6 +603,15 @@ def _mqtt_tick(db, client, data, service, vehicle=None, vehicle_id=None):
         service.config_sig = sig
         service.on_command = lambda vin, cmd, val: _handle_mqtt_command(client, service, db, vin, cmd, val)
         service.on_collision = lambda other, other_beta, vin: _handle_mqtt_collision(db, other, other_beta, vin)
+    return service
+
+
+def _mqtt_tick(db, client, data, service, vehicle=None, vehicle_id=None):
+    """Manage the MQTT bridge each poll cycle: (dis)connect on the enable flag,
+    then publish the current state. Returns the (possibly new/None) service."""
+    service = _mqtt_connect(db, client, service)
+    if service is None:
+        return None
     try:
         # This CAR's model and declared abilities, not the install's. Discovery is keyed by VIN, so
         # two cars are two Home Assistant devices — gating both on one car's model would put
@@ -640,6 +632,44 @@ def _mqtt_tick(db, client, data, service, vehicle=None, vehicle_id=None):
     except Exception as exc:  # noqa: BLE001
         log.error("MQTT: publish failed: %s", exc)
     return service
+
+
+def _link_state(acct, fetch, frame_age_s) -> tuple[str, dict]:
+    """The data-link state for Home Assistant, judged from what the poller holds right now: the
+    account's session first, then this car's last fetch, then the age of the frame. The web adds
+    the heartbeat on top; here the heartbeat is the sensor's own `expire_after`."""
+    link = acct.link or {}
+    fetch = fetch or {}
+    # the layer that failed, if one did: a login the poller could not even put to the cloud (it
+    # timed out on the way) is the session's `failed`, and fails every car's fetch
+    if link.get("state") == "refused":
+        src, state = link, "login_refused"
+    elif link.get("state") == "failed":
+        src, state = link, "fetch_failed"
+    elif fetch.get("state") == "failed":
+        src, state = fetch, "fetch_failed"
+    else:
+        src, state = link, None
+    attrs = {"since": src.get("since"), "reason": src.get("reason"),
+             "next_retry_ts": src.get("next_retry_ts"), "bad_creds": bool(src.get("bad_creds"))}
+    if state:
+        return state, attrs
+    if frame_age_s is None:
+        return "age_unknown", attrs
+    return ("fresh" if frame_age_s < _LINK_FRESH_S else "no_new_data"), attrs
+
+
+def _mqtt_link(db, client, acct, vin, frame_age_s, fetch=None) -> None:
+    """Publish the data-link state — from a branch that may have no frame, and on a bridge that
+    may not exist yet. Best-effort, like every other publish."""
+    try:
+        acct.mqtt_service = _mqtt_connect(db, client, acct.mqtt_service)
+        if acct.mqtt_service is None:
+            return
+        state, attrs = _link_state(acct, fetch, frame_age_s)
+        acct.mqtt_service.publish_link(vin, state, attrs)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("MQTT: link publish skipped: %s", exc)
 
 
 def load_config(db: "Database") -> dict:
@@ -745,12 +775,13 @@ class VehicleContext:
 
     __slots__ = ("vehicle", "vehicle_id", "vin", "recorder", "persisted_signs",
                  "empty_status_count", "poll_error_count", "research_last_sig",
-                 "interval", "next_due", "outside_sampler")
+                 "interval", "next_due", "outside_sampler", "abrp_last_sent", "link")
 
     def __init__(self, db, vehicle, vehicle_id: int):
         self.vehicle = vehicle
         self.vehicle_id = vehicle_id
         self.vin = vehicle.vin
+        self.link = _read_link(db, _fetch_key(self.vin))   # this car's last fetch, see note_fetch
         # Crash/restart recovery for open trips/charges happens on the first poll inside
         # Recorder._resume_or_close(), which RESUMES a still-ongoing session (avoiding
         # fragmentation) and only closes it if the activity has actually ended.
@@ -760,8 +791,105 @@ class VehicleContext:
         self.poll_error_count = 0     # consecutive hard API errors (cloud unreachable)
         self.research_last_sig: dict = {}   # beta build: last value per signal id, for delta logging
         self.outside_sampler = OutsideTempSampler()   # live outside temp (Open-Meteo), cached per car
+        self.abrp_last_sent = abrp.NOTHING_SENT   # (token, frame ts) last taken by ABRP; a repeat is not a point
         self.interval = 30.0
         self.next_due = 0.0           # monotonic; 0 = due now, so the first round polls every car
+
+    def note_fetch(self, db, state, reason=None, next_retry_ts=None):
+        """What the last fetch of THIS car came to — ok, empty or failed — as `poll_link_<vin>`.
+        Two cars are two requests: one that times out while the other answers must not be
+        reported healthy because the other was polled last."""
+        self.link = _advance_link(db, _fetch_key(self.vin), self.link, state, reason, next_retry_ts)
+
+
+# A refusal the cloud words as a credentials problem: retrying will not fix it, only the user can.
+_BAD_CREDS_MARKS = ("password", "incorrect", "wrong account", "account does not exist",
+                    "invalid account", "user does not exist", "account or password")
+
+
+def _is_bad_credentials(msg: str) -> bool:
+    low = (msg or "").lower()
+    return any(s in low for s in _BAD_CREDS_MARKS)
+
+
+# A frame younger than this is "current" — the same 5 minutes the web's DATA_AGE_STALE_S uses.
+_LINK_FRESH_S = 300
+
+
+def _frame_age_s(timestamp_ms) -> int | None:
+    """Host clock minus the car's clock on this frame, at poll time. None when the car sent no
+    clock or its clock runs ahead of the host — neither is a staleness a row may claim."""
+    if not timestamp_ms:
+        return None
+    age = int(time.time() - timestamp_ms / 1000)
+    return age if age >= 0 else None
+
+
+def _log_poll_safe(db, vehicle_id, outcome, frame_age_s=None, reason=None) -> None:
+    """The row must never take the poll down with it — least of all from an error branch."""
+    try:
+        db.log_poll(vehicle_id, outcome, frame_age_s, reason)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("poll_log skipped: %s", exc)
+
+
+def _utc_iso() -> str:
+    return datetime.fromtimestamp(time.time(), timezone.utc).isoformat()
+
+
+def _read_link(db, key="poll_link") -> dict:
+    """A link setting as the previous run left it, so `since` survives a restart."""
+    try:
+        raw = db.get_setting(key, "")
+        return json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def _fetch_key(vin: str) -> str:
+    """The per-car setting: what the last fetch of THIS car came to (ok / empty / failed)."""
+    return f"poll_link_{vin.lower()}"
+
+
+def _advance_link(db, key, prev, state, reason, next_retry_ts, bad_creds=None) -> dict:
+    """One link setting moved on by one verdict. `since` moves only when the STATE changes; the
+    per-poll rows are kept a week, and an outage that has lasted longer must still say when it
+    began, so a setting is where that survives. `bad_creds` sticks for as long as the refusal
+    does: a later refusal worded differently does not un-say that the password was rejected."""
+    if prev.get("state") != state:
+        cur = {"state": state, "since": _utc_iso(), "reason": reason, "next_retry_ts": next_retry_ts}
+        if bad_creds is not None:
+            cur["bad_creds"] = bool(bad_creds)
+    else:
+        cur = dict(prev, reason=reason, next_retry_ts=next_retry_ts)
+        if bad_creds is not None:
+            cur["bad_creds"] = bool(prev.get("bad_creds")) or bool(bad_creds)
+    if cur != prev:
+        try:
+            db.set_setting(key, json.dumps(cur))
+        except Exception as exc:  # noqa: BLE001
+            log.debug("%s skipped: %s", key, exc)
+            return prev          # not on record, so the next verdict writes it again
+    return cur
+
+
+def _note_login(db_path, exc) -> None:
+    """One poll_log row per login the cloud was asked for. The backend calls this from the one
+    place it authenticates — for the startup login, a re-login and a read whose token had lapsed
+    alike — and never for a resumed session or an attempt it put off locally. Must not raise, and
+    takes the path, not the poller's connection: the cloud-history thread calls it too."""
+    try:
+        if exc is None:
+            log_login(db_path, "ok")
+        else:
+            outcome, reason = session_share.error_outcome(exc)
+            log_login(db_path, outcome, "poller", reason)
+    except Exception as e:  # noqa: BLE001
+        log.debug("poll_log skipped: %s", e)
+
+
+_RELOGIN_MIN_S = 60          # the gap today, and still the gap for the first retry
+_RELOGIN_MAX_S = 30 * 60     # a refusal lasting days must not push recovery out of reach
 
 
 class AccountState:
@@ -775,11 +903,36 @@ class AccountState:
     construction, read single-car. Splitting that is its own piece of work, not this one.
     """
 
-    __slots__ = ("last_relogin", "mqtt_service")
+    __slots__ = ("last_relogin", "relogin_failures", "mqtt_service", "link")
 
-    def __init__(self):
+    def __init__(self, link=None):
         self.last_relogin = 0.0
+        self.relogin_failures = 0
         self.mqtt_service = None
+        self.link = link or {}     # the `poll_link` setting as last written, see note_link
+
+    def note_link(self, db, state, reason=None, next_retry_ts=None, bad_creds=False):
+        """The SESSION as one setting, `poll_link`, for the web and the bridge to read: ok or
+        refused, since when, the error, when the next attempt is, whether the password was blamed.
+        The session is the account's; what each car's fetch came to is the car's (`note_fetch`)."""
+        self.link = _advance_link(db, "poll_link", self.link, state, reason, next_retry_ts, bad_creds)
+
+    @property
+    def relogin_wait_s(self) -> int:
+        """How long to leave the login endpoint alone before asking again.
+
+        Measured on three installs (beta #49 + #295, #296, and a beta bundle) whose logs reach
+        17–18/09/2026: the cloud starts refusing logins while the account is perfectly valid —
+        it keeps letting one through now and then — and a fixed one-minute retry then asks 1 440
+        times a day. @gm27271 made 5 271 failed attempts in four days for ~79 accepted.
+
+        So the gap doubles per consecutive refusal and stops at half an hour: four days cost ~196
+        attempts instead of 5 271, and the user's log keeps the shape of an outage instead of a
+        wall. The first retry stays at 60 s — this path also heals a vanished /tmp cert or one
+        dropped token, which the first or second attempt fixes, and those installs must not slow
+        down. One success puts it back (see the reset in `_poll_vehicle`).
+        """
+        return min(_RELOGIN_MIN_S * 2 ** max(0, self.relogin_failures - 1), _RELOGIN_MAX_S)
 
 
 def _persist_charge_limit(db, vin: str, pct) -> None:
@@ -804,6 +957,7 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
     cycle or the car; with two it decides whether a car in a tunnel takes the other one off the
     road with it. Nothing in this function may raise.
     """
+    answered = stored = False
     try:
         # Apply user-tunable poll cadence + charge-detection floor (Settings) live, each cycle
         try:
@@ -818,6 +972,11 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
             pass
         with _API_LOCK:
             data = client.get_status(ctx.vehicle)
+        answered = True
+        acct.note_link(db, "ok")            # the session let the request in, whatever follows
+        # what this car is known to misreport is corrected here, before anyone reads the frame
+        data = quirks.fix_frame(data, ctx.vehicle)
+        frame_age = _frame_age_s(data.timestamp_ms)
         # Live outside-air temperature for the car's spot (Open-Meteo; the cloud carries none — see
         # client.py). Opt-in and cached hard, so a parked car makes no calls. Set BEFORE the recorder
         # runs, so it lands on the position row (positions.outside_temp) and flows on to MQTT, ABRP
@@ -825,6 +984,11 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
         if db.get_setting("outside_temp_enabled", "0") == "1":
             data.outside_temp = ctx.outside_sampler.sample(data.latitude, data.longitude, time.time())
         ctx.recorder.process(data)
+        stored = True
+        # the answer counts once the frame is on record: a frame the recorder could not store is
+        # this car's failed fetch, not an answer with an error after it (see the except below)
+        _log_poll_safe(db, ctx.vehicle_id, "answer", frame_age)
+        ctx.note_fetch(db, "ok")
         _write_comfort_state(db, data)
 
         # A range-extender reports a fuel tank (signal 3235) → flag it. On the BetaTester build
@@ -899,12 +1063,14 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
             # THIS car's token (#186). One token for two cars pushed both of them into the same ABRP
             # vehicle — two positions, two SoCs, interleaved. A car with no token sends nothing.
             _tok = db.get_abrp_token(data.vin)
-            if _tok:
-                abrp.send(_tok, data)
+            if _tok and abrp.is_new_point(_tok, data, ctx.abrp_last_sent):
+                if abrp.send(_tok, data, abrp.CarFacts(capacity_kwh=db.get_battery_capacity(ctx.vehicle_id))):
+                    ctx.abrp_last_sent = (_tok, data.timestamp_ms)   # a failed send leaves it for the next poll
 
         # MQTT → Home Assistant bridge (opt-in, off by default)
         acct.mqtt_service = _mqtt_tick(db, client, data, acct.mqtt_service, ctx.vehicle,
                                                  ctx.vehicle_id)
+        _mqtt_link(db, client, acct, ctx.vin, frame_age, ctx.link)
 
         ctx.interval = ctx.recorder.poll_interval
         # Boost window (set via POST /api/boost, e.g. an iPhone BT shortcut relayed
@@ -938,6 +1104,13 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
         # cycle: a parked car can stay asleep for hours and an ever-climbing
         # "after N tries" warning reads like an escalating failure when it isn't.
         ctx.empty_status_count += 1
+        _log_poll_safe(db, ctx.vehicle_id, "empty")
+        acct.note_link(db, "ok")            # the cloud let the poll in; the car said nothing
+        ctx.note_fetch(db, "empty")
+        _mqtt_link(db, client, acct, ctx.vin, _frame_age_s(db.get_last_frame_ts(ctx.vehicle_id)), ctx.link)
+        # The car said nothing, but the wallbox counter is in the house and still has something to
+        # say about a charge that is still open (#295) — measure it before backing off.
+        ctx.recorder.sample_wallbox_meter()
         if ctx.empty_status_count >= 3:
             ctx.recorder.mark_offline()
         ctx.interval = ctx.recorder.poll_interval
@@ -950,7 +1123,27 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
                         "reports again.", ctx.interval)
         # already backed off (count > 3): stay quiet so a sleeping car can't spam the log
     except Exception as exc:
+        if answered:
+            # the cloud answered and what broke is ours, so the cloud's error counter and the
+            # re-login stay out of it. One request, one row: a frame on record is an answer
+            # whatever failed after it; a frame that could not be stored is a failed fetch, with
+            # our error kept, so the page does not show the previous frame as current.
+            log.error("Frame processing failed: %s", exc)
+            ctx.interval = ctx.recorder.poll_interval
+            if not stored:
+                reason = f"{type(exc).__name__}: {exc}"
+                _log_poll_safe(db, ctx.vehicle_id, "failed", reason=reason)
+                ctx.note_fetch(db, "failed", reason, next_retry_ts=time.time() + ctx.interval)
+            # Home Assistant hears it either way: an entity that is not published expires
+            _mqtt_link(db, client, acct, ctx.vin, _frame_age_s(data.timestamp_ms) if stored else None, ctx.link)
+            return
         ctx.poll_error_count += 1
+        outcome, reason = session_share.error_outcome(exc)
+        _log_poll_safe(db, ctx.vehicle_id, outcome, reason=reason)
+        # Same as above, and this is the branch his outage took (#295): three API errors put the
+        # state machine OFFLINE, and the per-poll read in process() is never reached again. The
+        # charge stays open across the gap, so the counter that measures it stays worth reading.
+        ctx.recorder.sample_wallbox_meter()
         ctx.recorder.mark_offline()
         ctx.interval = ctx.recorder.poll_interval
         # With no long offline backoff we keep polling at the user's cadence, so log the first
@@ -962,30 +1155,89 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
                         "recovers automatically when it responds.", ctx.interval)
         # Self-heal: a vanished /tmp account-cert file (or an auth/token/connection
         # drop) makes every poll fail forever — the poller used to just keep erroring.
-        # Force a fresh login to re-create the cert. Guarded to ~once/min so a rapid
-        # double login can't trip Leapmotor's rate limiter.
+        # Force a fresh login to re-create the cert. The first retry is a minute out, and
+        # the gap then grows while the cloud keeps refusing (AccountState.relogin_wait_s).
         msg = str(exc).lower()
         recoverable = any(s in msg for s in (
             "certificate", "cert", "unauthorized", "token", "login",
             "verification", "connection", "timed out", "timeout", "ssl",
         ))
-        if recoverable and time.time() - acct.last_relogin > 60:
+        attempt = recoverable and time.time() - acct.last_relogin > acct.relogin_wait_s
+        # What the web and the bridge will say: a refusal is the session's, any other error is
+        # this car's fetch; and when Mate asks again. Written before the re-login below has its
+        # say, so a session it recovers is the last word.
+        next_retry = (acct.last_relogin + acct.relogin_wait_s if recoverable and not attempt
+                      else time.time() + (acct.relogin_wait_s if attempt else ctx.interval))
+        if outcome == "refused":
+            acct.note_link(db, "refused", reason, next_retry_ts=next_retry,
+                           bad_creds=_is_bad_credentials(reason))
+        else:
+            ctx.note_fetch(db, "failed", reason, next_retry_ts=next_retry)
+        if attempt:
             acct.last_relogin = time.time()
             try:
                 log.info("Attempting session recovery (re-login)…")
                 client.relogin()
+                acct.relogin_failures = 0
+                acct.note_link(db, "ok")
                 log.info("Session recovered after re-login")
             except Exception as e2:  # noqa: BLE001
-                log.warning("Re-login failed, will retry next cycle: %s", e2)
+                acct.relogin_failures += 1
+                outcome, reason = session_share.error_outcome(e2)
+                if session_share.login_attempted(e2):
+                    acct.note_link(db, outcome, reason, bad_creds=_is_bad_credentials(reason),
+                                   next_retry_ts=acct.last_relogin + acct.relogin_wait_s)
+                log.warning("Re-login failed, next attempt in %ds: %s", acct.relogin_wait_s, e2)
+        _mqtt_link(db, client, acct, ctx.vin, None, ctx.link)
 
 
+
+
+# When this process last TRIED to prune. The stored mark below is the gate across restarts; this
+# one is the gate inside a run, and it is needed because the condition that makes a prune fail is
+# usually the condition that stops the mark being written — #338, a database on a NAS share: 266
+# attempts in four hours, one per poll, each adding a write to a database already contended.
+_last_prune_attempt = 0.0
+
+
+def _prune_daily(db) -> None:
+    """Daily DB pruning (at most once/day). positions: opt-in via Settings
+    (positions_retention_days; 0 = keep forever). raw_signals_log (beta capture):
+    its own retention, default 30d, so the full-signal log can't grow unbounded.
+
+    🔴 The day is spent by the ATTEMPT, not by its success. The mark used to be the block's last
+    statement, so a prune that raised left the gate open and the next poll tried again — thirty
+    seconds later, and for as long as the cause lasted. On the filesystem that raises
+    `database is locked` the retry cannot succeed either, so it only added load where there was
+    already too much. A failed prune now costs a day, which is what "once a day" already allowed.
+    → tests/test_a_locked_database_does_not_turn_the_daily_prune_into_a_loop.py"""
+    global _last_prune_attempt
+    now = time.time()
+    if now - _last_prune_attempt <= 86400:
+        return
+    _last_prune_attempt = now
+    try:
+        if now - float(db.get_setting("last_prune_ts", "0") or 0) <= 86400:
+            return
+        db.set_setting("last_prune_ts", str(now))
+        ret = int(db.get_setting("positions_retention_days", "0") or 0)
+        if ret > 0:
+            db.prune_positions(ret)
+        if _research_enabled():
+            db.prune_raw_signals(int(db.get_setting("research_retention_days", "30") or 30))
+        db.prune_poll_log(7)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("DB prune skipped: %s", exc)
 
 
 def main():
+    from runtime_paths import prepare_installation
+    prepare_installation()
     db_path = os.environ.get("DB_PATH", "leapmotor_mate.db")
     log.info("Starting LeapMotor Mate poller")
 
     db = Database(db_path)
+    db.set_setting("poller_started_ts", str(time.time()))   # uptime, for the Overview's link tile
 
     # Factory reset requested from Settings: the web side set this marker, cleared the setup gate
     # and relaunched the app (run.sh restarts both processes). The destructive wipe happens HERE,
@@ -1008,6 +1260,9 @@ def main():
     _masked = (_u[:3] + "***" + _u[_u.find("@"):]) if "@" in _u else (_u[:3] + "***")
     device_id = db.get_or_create_device_id()
     log.info("Poller authenticating as account: %s | device_id: %s", _masked, device_id)
+
+    def _on_login(exc):        # every login this process spends: the client's, or the history sync's
+        _note_login(db_path, exc)
     client = LeapmotorMateClient(
         username=cfg["username"],
         password=cfg["password"],
@@ -1015,6 +1270,7 @@ def main():
         cert_path=cfg["cert_path"],
         key_path=cfg["key_path"],
         device_id=device_id,
+        on_login=_on_login,
     )
 
     # Startup login with in-process retry + backoff. A transient cloud error here — e.g. the
@@ -1025,21 +1281,25 @@ def main():
     # Retry HERE instead so we never exit on a recoverable error. Genuinely bad credentials are not
     # hammered in a tight loop: record a clear status for the setup UI and wait. Either way, a
     # credentials change in the setup wizard restarts the poller at once to apply the new login.
+    # Account-level, and staying that way: one login heals every car at once, and the broker
+    # connection is the account's, not a car's. ⚠️ What the MQTT bridge PUBLISHES is per-car
+    # (abilities and model are read single-car at construction) — that is its own piece of work,
+    # not this one.
+    acct = AccountState(link=_read_link(db))
     _login_backoff = 5.0
     while True:
         try:
             client.login()
             db.set_setting("poller_login_error", "")   # clear any stale error on success
+            acct.note_link(db, "ok")
             break
         except Exception as exc:  # noqa: BLE001
             msg = str(exc)
+            outcome, reason = session_share.error_outcome(exc)
             # Bad credentials won't fix themselves by retrying. Everything else — the transient
             # cloud `code 39`, an unpropagated fresh car-share ("no vehicles found"), cert/token/
             # connection blips — is recoverable: keep retrying with a capped backoff.
-            bad_creds = any(s in msg.lower() for s in (
-                "password", "incorrect", "wrong account", "account does not exist",
-                "invalid account", "user does not exist", "account or password",
-            ))
+            bad_creds = _is_bad_credentials(msg)
             db.set_setting("poller_login_error", msg[:300])
             log.error("Startup login failed%s: %s",
                       " (check credentials)" if bad_creds else " — will retry", msg)
@@ -1047,10 +1307,19 @@ def main():
             # wizard (fix a typo / re-onboard). On bad creds wait long (no point hammering the
             # cloud); on transient errors retry after the growing backoff.
             wait = 3600.0 if bad_creds else _login_backoff
+            if session_share.login_attempted(exc):
+                acct.note_link(db, outcome, reason, next_retry_ts=time.time() + wait, bad_creds=bad_creds)
             waited = 0.0
             while waited < wait:
+                # Home Assistant hears it too, for every car this install has seen, and again
+                # before the entity would expire (_LINK_EXPIRE_S) while the wait goes on
+                if waited % 300 == 0:
+                    for vin in db.vehicle_vins():
+                        _mqtt_link(db, client, acct, vin, None)
                 time.sleep(min(5.0, wait - waited))
                 waited += 5.0
+                # the loop's heartbeat, so a login the cloud keeps refusing is not a dead poller
+                db.set_setting("last_loop_ts", str(time.time()))
                 _now = load_config(db)
                 if (_now["username"], _now["password"], _now["pin"]) != _startup_login:
                     log.info("Credentials changed during startup login — restarting to apply")
@@ -1059,7 +1328,7 @@ def main():
 
     # Every car on the account is registered and gets its own context. `ensure_vehicle` is keyed by
     # VIN, so a car that has been here before keeps its id and its whole history.
-    from leapmotor_api import LeapmotorApiClient
+    from api_backend import LeapmotorApiClient
     v = client._vehicle
     contexts = []
     for veh in (client._vehicles or [v]):
@@ -1075,6 +1344,9 @@ def main():
     if _moved:
         log.info("ABRP: install-wide token assigned to %s (a second car was registered); "
                  "other cars send nothing until they get their own token", _moved[-6:])
+    # Start only after reset, successful authentication and vehicle registration.
+    from history_service import start_history_worker
+    start_history_worker(_on_login)
     ctx = contexts[0]
     vehicle_id = ctx.vehicle_id
 
@@ -1119,15 +1391,6 @@ def main():
         reconcile_coord_signs(db, c.vehicle_id, c.vin)
         c.persisted_signs = get_coord_signs(c.vin)
 
-    # Account-level, and staying that way: one login heals every car at once, and the broker
-    # connection is the account's, not a car's. ⚠️ What the MQTT bridge PUBLISHES is per-car
-    # (abilities and model are read single-car at construction) — that is its own piece of work,
-    # not this one.
-    last_relogin = 0.0   # rate-limit guard for session recovery
-    mqtt_service = None   # optional MQTT → HA bridge, created lazily when enabled
-
-    acct = AccountState()
-
     while True:
         try:
             # Account switched in Settings (Logout → new setup): once a *different* complete
@@ -1160,13 +1423,6 @@ def main():
             log.info("Stopped by user")
             break
 
-        # OTA / software-update check (scans the account INBOX, not a car) — throttled,
-        # best-effort, and once a round however many cars there are.
-        try:
-            _maybe_check_ota(db, client)
-        except Exception as exc:  # noqa: BLE001
-            log.debug("OTA check skipped: %s", exc)
-
         # Heartbeat for /healthz: proves the poll loop is alive (written every cycle,
         # even during offline/asleep backoff) regardless of whether the car reported.
         try:
@@ -1174,19 +1430,7 @@ def main():
         except Exception:  # noqa: BLE001
             pass
 
-        # Daily DB pruning (at most once/day). positions: opt-in via Settings
-        # (positions_retention_days; 0 = keep forever). raw_signals_log (beta capture):
-        # its own retention, default 30d, so the full-signal log can't grow unbounded.
-        try:
-            if time.time() - float(db.get_setting("last_prune_ts", "0") or 0) > 86400:
-                ret = int(db.get_setting("positions_retention_days", "0") or 0)
-                if ret > 0:
-                    db.prune_positions(ret)
-                if _research_enabled():
-                    db.prune_raw_signals(int(db.get_setting("research_retention_days", "30") or 30))
-                db.set_setting("last_prune_ts", str(time.time()))
-        except Exception as exc:  # noqa: BLE001
-            log.warning("DB prune skipped: %s", exc)
+        _prune_daily(db)
 
         # Interruptible sleep: while parked we may be sleeping for minutes, so check the
         # boost flag every few seconds and wake immediately if one is requested.

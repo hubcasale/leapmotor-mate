@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from db import Database, _WB_STUCK_MIN_KW, _now_iso
-from state_machine import State, StateMachine, StateEvent, _PARKED_STATES
+from state_machine import (State, StateMachine, StateEvent, _PARKED_STATES,
+                           FROZEN_DRIVE_LIMIT_S)
 from client import VehicleData
 
 log = logging.getLogger(__name__)
@@ -161,13 +162,14 @@ class Recorder:
         # never mistaking driving discharge for regen.
         if self._sm.state == State.DRIVING and self._active_trip_id and not stale:
             self._db.add_trip_position(self._active_trip_id, data)
-            if not data.plug_connected and data.charge_current_a < -3.0:
+            if (not data.plug_connected and (data.charge_current_a or 0) < -3.0
+                    and data.charge_power_kw is not None):
                 self._regen_kwh += data.charge_power_kw * (self._sm.poll_driving / 3600)
 
         # During active charge: track peak power, and sum the wallbox counter's rises so the billed
         # energy is MEASURED (reset/race-proof). Both are persisted → survive a poller restart mid-charge.
         if self._sm.state == State.CHARGING and self._active_charge_id:
-            if data.charge_power_kw > self._max_charge_kw:
+            if data.charge_power_kw is not None and data.charge_power_kw > self._max_charge_kw:
                 self._max_charge_kw = data.charge_power_kw
                 self._db.update_charge_max_power(self._active_charge_id, self._max_charge_kw)
             if self._charge_at_wallbox:
@@ -184,9 +186,14 @@ class Recorder:
                     # throw away a wallbox total that was never wrong. The counter reading itself is
                     # NOT gated: it comes from Home Assistant, not from the cloud that went quiet.
                     car_kwh = (data.charge_power_kw * (self._sm.poll_interval / 3600)
-                               if not stale and data.charge_power_kw >= _WB_STUCK_MIN_KW else 0.0)
+                               if not stale and data.charge_power_kw is not None
+                               and data.charge_power_kw >= _WB_STUCK_MIN_KW else 0.0)
                     self._db.accumulate_wallbox_energy(self._active_charge_id, wb, car_kwh)
                     log.debug("Charge #%d: wallbox counter %.3f kWh", self._active_charge_id, wb)
+                else:
+                    # Home Assistant had no answer: this poll measured nothing, and a total summed
+                    # across time nobody measured is not a total (#295). Counted, not guessed.
+                    self._db.note_wallbox_unread(self._active_charge_id, self._sm.poll_interval / 60)
 
         # Order matters: trip reconstruction reads the SoC baseline (for the energy delta) BEFORE the
         # charge reconstruction advances it. Trip advances its OWN odometer baseline.
@@ -199,6 +206,22 @@ class Recorder:
         # mutation survived because the two branches are identical, which is what proved it dead.)
         if not stale:
             self._last_fresh_ts = _now_iso()
+
+    def _outage_was_brief(self) -> bool:
+        """Was the cloud's silence short enough that the drive can still be one drive?
+
+        Bounded by the half hour that already ends a frozen drive: past `FROZEN_DRIVE_LIMIT_S`
+        Mate declares a drive over on its own, so a longer silence cannot be called its middle.
+        Measured from the moment the cloud last had news, which is where the silence began.
+        → tests/test_a_drive_survives_a_gap_in_the_cloud.py
+        """
+        if self._last_fresh_ts is None:
+            return False
+        try:
+            began = datetime.fromisoformat(self._last_fresh_ts)
+            return (datetime.fromisoformat(_now_iso()) - began).total_seconds() < FROZEN_DRIVE_LIMIT_S
+        except (TypeError, ValueError):
+            return False
 
     def _record_offline_gap(self, data: Optional[VehicleData]) -> None:
         """Kilometres that appeared while the cloud was quiet get a row of their own — never the
@@ -251,7 +274,20 @@ class Recorder:
         if (data.odometer_km - prev_odo) < self._reconstruct_min_km:
             return                                              # sub-1 km blip, not a trip
         if data.soc - prev_soc > 0.5:
-            return                                              # SoC rose → a charge, not a pure drive
+            # The SoC went UP, so this is not a pure drive and a trip rebuilt from it would carry
+            # an impossible consumption. The kilometres, though, were really driven: throwing them
+            # away with the trip is how 80 km disappeared off a real car over nine days of poller
+            # downtime (24/09/2026) — one reconstructed charge written for the SoC, and nothing at
+            # all for the distance. They are exactly what offline_gaps holds: measured, and
+            # attributable to no trip. The energy is deliberately left out — how much of the rise
+            # was the charge and how much the drive cannot be told apart, and half a fraction is
+            # worse than none.
+            self._db.record_offline_gap(
+                self._vehicle_id,
+                started_at=fresh_ts_before or prev_ts, ended_at=_now_iso(),
+                odo_start=prev_odo, odo_end=data.odometer_km or 0,
+                soc_start=prev_soc, soc_end=data.soc)
+            return
         # Start where the news stopped, not where the last poll happened. The two are the same on a
         # healthy link and hours apart behind a frozen frame — and it is the second case that
         # produced 4 km "in 30 seconds", an implied 480 km/h, and a trip with no duration at all.
@@ -294,9 +330,12 @@ class Recorder:
         if charge_id is not None:
             self._auto_note_charge(charge_id)
 
-    # HA's leapmotor_trip ignores movements shorter than 0.5 km ("spostamento breve
-    # ignorato"). Match it: finalize the trip, then drop it if it was a short hop.
-    _MIN_TRIP_KM = 0.5
+    # Below this a movement is a manoeuvre, not a trip: finalize it, then drop it. It was 0.5 km
+    # from v1.0.4 to match HA's leapmotor_trip ("spostamento breve ignorato"), which deleted real
+    # short drives — a 330 m trip to the bakery vanished from the kilometres and the list (beta
+    # D #47, @michapr). 200 m still covers moving the car to another space (Silvio, 18/09/2026).
+    # Not the 0.5 in db.trip_distance_km, which answers a different question — see there.
+    _MIN_TRIP_KM = 0.2
 
     def _finalize_trip(self, data: VehicleData) -> None:
         # End the trip when the car was last HEARD, not when we noticed. On a healthy link the two
@@ -312,6 +351,31 @@ class Recorder:
             return
         self._auto_note_trip(self._active_trip_id)
 
+    def sample_wallbox_meter(self) -> None:
+        """Read the home wallbox counter on a cycle where the CAR said nothing (#295 @gm27271).
+
+        The counter lives in Home Assistant, on the same network as this process — it is not behind
+        the Leapmotor cloud and does not go away when the cloud does. But the per-poll read in
+        `process()` sits inside `state == CHARGING`, and a poll that raises never reaches it, so an
+        outage used to stop the measuring too: his meter went unread for 86 minutes while the car
+        charged on, and everything it did in the dark arrived as ONE step at the end. A single step
+        hides what a sequence shows — a reset reads as a rise, and the #46 ceiling (22 kW × hours)
+        is far too wide to object to either.
+
+        The condition is the CHARGE, not the state: an open charge survives an offline gap by
+        design (see the resume comment in `_handle_event`), which is exactly the span to keep
+        measuring across. `car_kwh_since_last` is deliberately 0: with no frame we do not know what
+        the car was drawing, and inventing it would feed the #215 stuck guard energy nobody
+        measured — the guard exists to compare two MEASUREMENTS, never a measurement and a guess.
+        """
+        if self._active_charge_id is None or not self._charge_at_wallbox:
+            return
+        wb = self._read_wallbox_energy()
+        if wb is not None:
+            self._db.accumulate_wallbox_energy(self._active_charge_id, wb, 0.0)
+        else:
+            self._db.note_wallbox_unread(self._active_charge_id, self.poll_interval / 60)
+
     def mark_offline(self) -> None:
         events = self._sm.mark_offline()
         for e in events:
@@ -322,7 +386,7 @@ class Recorder:
         for e in events:
             self._handle_event(e, None)
 
-    def _close_dangling_charge(self, data: VehicleData) -> None:
+    def _close_dangling_charge(self, data: VehicleData, reason: str) -> None:
         """Close a charge the car has plainly finished — on the right reading, not this one.
 
         Called from two places, and the second is why the name is no longer "driven away": a car
@@ -357,7 +421,8 @@ class Recorder:
                  "charging (%s)", self._active_charge_id,
                  "SoC %.1f%% at %s" % end if end else "none available, using the live frame")
         self._db.finalize_charge(self._active_charge_id, data,
-                                 max_power_kw=self._max_charge_kw, end_override=end)
+                                 max_power_kw=self._max_charge_kw, end_override=end,
+                                 reason=reason)
         self._auto_note_charge(self._active_charge_id)
         self._active_charge_id = None
         self._max_charge_kw = 0.0
@@ -452,7 +517,16 @@ class Recorder:
             # CHARGING → OFFLINE (three refused logins) → DRIVING left its charge open forever,
             # and an open charge appears in no calendar and in no AC count.
             if self._active_charge_id:
-                self._close_dangling_charge(data)
+                self._close_dangling_charge(data, "drove_away")
+            if frm == State.OFFLINE and self._active_trip_id is not None and self._outage_was_brief():
+                # The same drive, with a hole in it. The state before the silence was DRIVING and
+                # the state after it is DRIVING, so those kilometres are this trip's — its own
+                # odometer endpoints already measure them, and a second row would both abandon
+                # this trip open forever and file its distance under no trip at all (D #331: nine
+                # dropouts in one morning, ten trips opened, one closed). The charge path has said
+                # the same thing since #208, one branch below: re-entering with one still open
+                # means we never stopped.
+                return
             self._regen_kwh = 0.0
             # Before the trip is created, so both baselines still hold the last poll's reading:
             # anything the odometer gained while the cloud was quiet is declared on its own instead
@@ -472,9 +546,14 @@ class Recorder:
             # Gated on the cable being GONE, not merely on "not charging": with the cable still in,
             # a flat frame is a pause (a modulating wallbox does exactly this), and the live path
             # owns that. Same condition the state machine leaves CHARGING on.
-            self._close_dangling_charge(data)
+            self._close_dangling_charge(data, "outage")
 
         elif frm == State.DRIVING and to in _PARKED_STATES:
+            if event.frozen and data:
+                # Share the state machine's decision with the web process. Scope it to this car
+                # AND frame: fresh telemetry automatically stops matching, even after a restart.
+                self._db.set_setting(f"frozen_drive_frame_{self._vehicle_id}",
+                                     str(data.timestamp_ms))
             if self._active_trip_id and data:
                 self._finalize_trip(data)
             self._active_trip_id = None
@@ -516,7 +595,7 @@ class Recorder:
                 # photograph, so it is not the end of the charge: dating the row from it would bury
                 # half an hour of pure silence inside it — the same mistake `trip_end_from_last_seen`
                 # was written to undo on the trip side. The close that already knows better owns it.
-                self._close_dangling_charge(data)
+                self._close_dangling_charge(data, "car_quiet")
                 return
             if self._active_charge_id and data:
                 if self._charge_at_wallbox:
@@ -525,8 +604,13 @@ class Recorder:
                         self._db.accumulate_wallbox_energy(self._active_charge_id, end_wb)
                         log.info("Charge #%d: wallbox counter at stop = %.3f kWh",
                                  self._active_charge_id, end_wb)
+                # The cable read gone is the ordinary end; the car declaring the charge
+                # postponed to its programmed window (1149==4, #243) is the other way this
+                # branch is reached, and triage wants them apart.
                 self._db.finalize_charge(
                     self._active_charge_id, data, max_power_kw=self._max_charge_kw,
+                    reason=("deferred" if (data.plug_connected and data.charge_deferred)
+                            else "unplugged"),
                 )
                 self._auto_note_charge(self._active_charge_id)
             self._active_charge_id = None

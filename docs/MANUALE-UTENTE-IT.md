@@ -1,6 +1,90 @@
 # LeapMotor Mate — Manuale utente
 
-> **Versione di Mate:** v3.16.0 · **Lingua:** Italiano
+> **Versione di Mate:** v4.6.0 · **Lingua:** Italiano
+
+## Novità della 4.6.0
+
+A ogni interrogazione mentre guidi, Mate legge la potenza che esce dalla batteria, la temperatura
+della sua cella più fredda, la stima di autonomia e l'aria esterna. Le conservava tutte e non te ne
+mostrava quasi nessuna. Quelle quattro letture restano adesso **insieme al viaggio** e stanno sulla
+sua pagina: **Potenza max** e **Recupero max**, la temperatura della batteria e quella esterna come
+intervallo dalla più bassa alla più alta della guidata invece che come media, e — sotto la durata —
+quanto ne hai passato **in movimento, da fermo e senza dati**, in minuti interi che sommano alla
+durata scritta sopra. Accanto alla velocità media c'è ora la **mediana** delle stesse letture, che su
+una guidata mezza in autostrada e mezza in coda dice più di quanto dica la media.
+
+Il grafico sotto la mappa si chiama adesso **Dati del viaggio**: un grafico in tre bande su un solo
+asse dei tempi — velocità e potenza, SoC e autonomia, altitudine e temperatura della batteria — con un
+solo riquadro al passaggio del mouse per tutte. La sua legenda accende e spegne ogni linea, e la tua
+scelta resta memorizzata in questo browser.
+
+La **velocità di punta** è corretta: dove il record che Leapmotor tiene di quella guidata è agganciato
+al viaggio, la cifra è quella dell'auto, non il campione più veloce di Mate. Le letture di Mate sono a
+circa undici secondi l'una dall'altra, quindi una punta più breve non c'è mai stata dentro — su 38
+guidate il campione stava sotto la cifra dell'auto in 37.
+
+⚠️ **I viaggi che hai guidato prima di questa versione ricevono quelle letture una volta sola,
+all'avvio di Mate**, e solo dalle interrogazioni la cui riga di posizione è ancora nel database. Se
+hai impostato una conservazione del GPS, sui viaggi più vecchi vedrai un trattino: a 7 giorni si
+riempie circa il 3% dei loro punti, a 30 giorni un quinto, a 90 giorni sette decimi. Col valore di
+serie — tieni tutto — si riempiono tutti. Ogni viaggio da qui in avanti ha le letture qualunque cosa
+dica quell'impostazione.
+
+### Novità della 4.5.5
+
+Questa versione toglie due cose e non ne aggiunge nessuna, ed erano entrambe sugli aggiornamenti
+software dell'auto. La riga «Aggiornamenti OTA» della panoramica diceva **Nessuno** ogni volta che
+nella casella dei messaggi del tuo account non c'era un avviso — e della tua auto non ha mai
+saputo niente: Leapmotor le versioni le dice solo all'account che la possiede, e Mate deve girare
+su un account con cui l'auto è condivisa, che di avvisi del veicolo non ne riceve nessuno. Quindi
+diceva «Nessuno» per sempre, e sotto quell'etichetta «Nessuno» si legge come «sei aggiornato».
+⚠️ Con lei se ne va l'entità **OTA Update Notice** in Home Assistant — su tre diagnostiche di
+proprietari ha trovato zero avvisi in 44 scansioni riuscite — quindi se ci avevi costruito
+un'automazione, quell'automazione resterà senza entità. Non cambia nient'altro, e nei tuoi dati
+non viene scritto niente.
+
+### Novità della 4.5.4
+
+Di quello che vedi in questa versione non cambia niente: serve a noi. Dalla 4.5.3 Mate conserva lo
+storico dei singoli viaggi che tiene il cloud Leapmotor — gli stessi dati che l'app ufficiale mostra
+nel suo riquadro per viaggio — e ogni record dice quanta benzina quel viaggio ha consumato. Su
+un'ibrida ad autonomia estesa è un secondo dato, indipendente, accanto a quello che Mate già legge
+dal contatore del serbatoio dell'auto, e stava nel database senza che si potesse tirare fuori. Ora
+viaggia nel pacchetto di diagnostica, e il testo della diagnostica dice se quello storico è arrivato
+e se il campo del carburante è pieno o piatto a zero. Su un'auto solo elettrica è zero su ogni
+viaggio, che è la risposta giusta e non un silenzio. Nei tuoi dati non viene scritto niente e al
+cloud non viene chiesto niente di nuovo.
+
+### Novità della 4.5.3
+
+Mate è ancora più veloce, e stavolta il motivo non sono le domande ma il chiedere. Ogni lettura apriva
+una connessione nuova al database, e su una lettura piccola era quasi tutto il costo; adesso ce n'è una
+per thread. E la stima di salute della batteria leggeva ogni frame di ogni ricarica solo per scoprire
+che non c'era nessuno in auto col riscaldamento acceso — ora è una verifica su indice. Misurato su un
+add-on vero con novanta giorni di storia: panoramica 0,213 s → 0,048, batteria 0,129 → 0,012,
+ricariche 0,278 → 0,035, statistiche 0,489 → 0,163, la salute della batteria 1,150 → 0,114. Di quello
+che vedi non è cambiato niente.
+
+### Novità della 4.5.2
+
+Mate è più veloce, su ogni pagina. Le pagine più lente chiedevano al database la stessa cosa continuamente — in quale fuso orario mostrare un'ora, una volta per riga; quale auto stai guardando, ottantasette volte per disegnare un riquadro; se l'auto è stata usata come presa di corrente, leggendo una settimana di dati — e ognuna di quelle domande apriva una connessione sua al database. Adesso si chiedono una volta sola. La pagina della batteria non aspetta più i suoi due conti lunghi: appare, e la salute e il consumo da fermo si riempiono dopo. Misurato su un add-on vero con novanta giorni di storia: batteria 3,526 s → 0,121 s, statistiche 2,679 → 0,448, viaggi 1,696 → 0,406, impostazioni 1,613 → 0,413. Di quello che vedi non è cambiato niente.
+
+### Novità della 4.5.1
+
+Mate carica più in fretta. Decidere quali bottoni può mostrare la tua auto leggeva il database 156 volte per ogni pagina — una per comando, tre impostazioni ciascuno, e ognuna apriva una connessione sua. Ora le legge una volta sola. Su un add-on che gira da una scheda SD era la maggior parte dell'attesa. Il riquadro «Collegamento al cloud» nelle impostazioni non si costruisce più a ogni apertura della pagina: si prende i suoi numeri quando lo apri tu. E il menu resta dov'era — scegliere una voce in basso lo riportava in cima, e la voce appena usata finiva di nuovo fuori schermo.
+
+### Novità della 4.5.0
+
+La panoramica dice se quello che mostra è affidabile. Accanto al titolo c'è un riquadrino: **Mate → cloud → auto**, due pallini, e passando il mouse (o toccando) su ogni parola trovi i fatti che ci stanno sotto — da quanto tempo il poller gira, se il cloud lo fa entrare e quando ha risposto l'ultima volta, quando l'auto ha mandato l'ultimo dato e cosa stava facendo. Finché tutto funziona, non scrive altro. Quando è Mate che non riesce a prendere i dati, il riquadro diventa rosso e dice cosa comporta: quando è arrivato l'ultimo dato, quando riprova, l'errore che ha dato il cloud e — solo se il cloud ha incolpato la password — che è la password da controllare. Fino a ora un cloud che rifiutava i login di un'installazione da nove giorni era identico a un'auto che dorme in garage: «visto 9 h fa», e nient'altro.
+
+Home Assistant sente la stessa cosa. Ogni auto ha un sensore **Data Link** (`sensor.<auto>_data_link`) che vale `fresh`, `no_new_data`, `age_unknown`, `login_refused` o `fetch_failed`, con da quando, l'errore e il prossimo tentativo come attributi. Viene pubblicato anche mentre Mate sta aspettando dopo un login rifiutato, e scade da solo dopo 21 minuti — così `unavailable` vuol dire che il poller si è fermato, non che l'auto è ferma. Basta un'automazione per essere avvisati: notificami quando non è né `fresh` né `no_new_data` da un'ora.
+
+Nelle impostazioni c'è un riquadro nuovo, **📡 Collegamento al cloud**: le ultime 24 ore come striscia di finestre da cinque minuti, e sette giorni di conteggi — quante letture, quante portavano un dato attuale, quante sono fallite, quante il cloud ha rifiutato e quanti login ha speso ciascuna parte di Mate. Ogni cella e ogni etichetta si spiega da sé al passaggio del mouse. La stessa tabella ora entra nel pacchetto diagnostico.
+
+Due cose più piccole. Un'età oltre il giorno si scrive in giorni: nove giorni senza contatto si leggevano «216h fa». E il controllo di salute di Mate non dichiara più un processo morto mentre il cloud non lo fa entrare: sta aspettando, e adesso lo dice.
+
+Sotto l'energia di un viaggio, l'etichetta che diceva **getEC** ora dice **Misurata dall'auto**: era il nome di un endpoint del cloud, non una parola per le persone. **Cloud Leapmotor** diventa **Storico Leapmotor** per lo stesso motivo — vengono dal cloud entrambe, e cambia quale delle due: il viaggio come lo registra lo storico del cloud, oppure l'energia che l'auto stessa ha misurato in quella finestra. **Stima Mate** resta com'era.
+
 > Questo manuale è pensato per chi *usa* Mate, non per chi lo sviluppa. Spiega come configurarlo
 > dall'inizio e cosa fa ogni pagina. Per i dettagli tecnici interni c'è `ARCHITECTURE.md`.
 
@@ -313,6 +397,13 @@ dall'auto (cambio in P + un dispositivo collegato), non da Mate. È accurato da 
 Più in basso trovi mini-statistiche e un **indicatore di "reattività auto"** (un pallino
 🟢/🟡/🔴, ⚪ se non ci sono dati): riassume quanto l'auto ha risposto agli ultimi comandi inviati.
 
+**L'ultima ricarica dice tutte e due le cose 🆕** — il riquadro **Ultima ricarica** mostra in primo
+piano la stessa cifra della card: a casa, con un contatore wallbox, i kWh **🔌 wallbox (da pagare)**,
+e sotto quel che è arrivato nel pacco — *🔋 12,0 kWh in batteria (DC) · rendimento 81%*; altrove la
+cifra della batteria, con i kWh della colonnina su una riga a parte dove li hai scritti. Il costo
+sotto è il costo del numero sopra. Prima mostrava la sola cifra della batteria, accanto a un costo
+calcolato sull'altra.
+
 **L'autonomia al tuo limite di ricarica, e al 100% 🆕** — sotto l'autonomia stimata Mate mostra quanto
 farebbe l'auto **al limite a cui la carichi davvero** (per dire, l'80%), con accanto il valore al
 100%. Se l'auto non dichiara un limite sotto il 100 la riga è una sola, così lo stesso numero non
@@ -324,8 +415,8 @@ l'auto è sveglia Mate interroga [Open-Meteo](https://open-meteo.com) sulla sua 
 una volta ogni 20 minuti o 10 km, quello che arriva prima — e mostra il valore accanto a quello
 dell'abitacolo. È **spento di default**, perché la richiesta manda la posizione dell'auto a
 Open-Meteo: l'unico interruttore sta in *Impostazioni → valori predefiniti dei viaggi*. Lo stesso
-dato diventa un'entità **Temperatura esterna** in Home Assistant e dà a ogni viaggio la sua
-temperatura di partenza e di arrivo.
+dato diventa un'entità **Temperatura esterna** in Home Assistant e dà a ogni viaggio le letture
+lungo il percorso, da cui vengono la sua temperatura più alta e più bassa.
 
 #### Le tre temperature: abitacolo, target A/C, batteria
 Non tutte le Leapmotor mandano tutte e tre. Mate distingue **tre situazioni diverse**, perché
@@ -377,11 +468,44 @@ soddisfatta **a ogni aggiornamento, tutto l'anno**.
 - **Altimetria e temperatura esterna.** Il cloud Leapmotor non riporta né l'una né l'altra, quindi
   qualche minuto dopo la fine di un viaggio Mate cerca il suo tracciato GPS su
   [Open-Meteo](https://open-meteo.com) (gratuito, senza chiave e senza account). Nel dettaglio
-  compaiono la **linea dell'altitudine sotto il grafico SoC e velocità**, i metri **saliti e scesi**, e
-  la temperatura **alla partenza e all'arrivo** — non una media, così una salita da fondovalle a passo
-  mostra il calo vero. Insieme spiegano buona parte del consumo di una guidata: la salita costa
-  energia, il freddo costa autonomia. I viaggi registrati prima che esistesse hanno un pulsante
-  **Calcola altimetria**, e tutto si può spegnere dalle Impostazioni.
+  compaiono la **linea dell'altitudine nel grafico Dati del viaggio**, i metri **saliti e scesi**
+  (riga *Dislivello + / −*; la sua ⓘ dice come sono calcolati), e la temperatura **più alta e più
+  bassa** del viaggio — non una media, così una salita da fondovalle a passo mostra il calo vero.
+  Insieme spiegano buona parte del consumo di una guidata: la salita costa energia, il freddo costa
+  autonomia. I viaggi registrati prima che esistesse hanno un pulsante **Calcola altimetria**, e
+  tutto si può spegnere dalle Impostazioni.
+- **In movimento e fermo 🆕.** Sotto la durata, il dettaglio la divide nel tempo in movimento e nel
+  tempo da fermi durante il viaggio (semafori, code), dalle letture di Mate prese a pochi secondi
+  l'una dall'altra. Una sosta tra viaggi uniti non conta per nessuno dei due, e un buco nelle
+  letture compare come *senza dati* invece di finire in uno dei due.
+- **Velocità mediana 🆕.** Sotto la velocità media, il dettaglio dà la mediana delle stesse letture
+  in movimento, cioè la velocità sotto la quale è rimasta metà di esse. Un breve tratto veloce alza
+  la media di un giro in città, mentre la mediana ne conserva l'andatura abituale.
+- **Velocità massima dall'auto 🆕.** Quando il record del viaggio nel cloud dell'auto viene abbinato
+  al viaggio (lo stesso record che dà i consumi ufficiali), il dettaglio mostra la velocità massima
+  misurata dall'auto stessa. Le letture di Mate sono a qualche secondo l'una dall'altra e perdono i
+  picchi brevi — su una B10 fino a 21 km/h — quindi un viaggio senza quel record mantiene il valore
+  campionato, segnato con una ⓘ.
+- **Potenza max e regen max 🆕.** Il dettaglio indica la potenza più alta erogata dalla batteria e
+  quella più alta rientrata in frenata, dalla tensione e dalla corrente della batteria che Mate
+  legge a ogni aggiornamento. Le letture sono a qualche secondo l'una dall'altra, quindi un picco
+  breve tra due letture sfugge: i valori sono un minimo, e la ⓘ accanto lo dice. Non compaiono su
+  un'auto con range extender, come il regen.
+- **Temperatura della batteria 🆕.** L'auto riporta una sola temperatura della batteria — quella
+  della cella più fredda, in gradi interi — e il dettaglio ne indica i valori durante il viaggio
+  come un unico intervallo, dal più basso al più alto, per esempio 19 – 22 °C; la ⓘ accanto alla riga
+  dice che è la cella più fredda. D'inverno l'intervallo mostra quanto era fredda la batteria e
+  quanto il viaggio l'ha scaldata.
+- **Grafico Dati del viaggio 🆕.** Il grafico sotto la mappa si chiama *Dati del viaggio* ed è diviso
+  in fasce con un unico asse del tempo, un'unica linea del cursore e un unico riquadro al passaggio
+  del mouse, con le linee raggruppate per fascia: **guida** (velocità e potenza della batteria —
+  sopra lo zero erogata, sotto lo zero rientrata), **batteria** (SoC e autonomia stimata dall'auto)
+  e **altitudine con la temperatura della batteria** (quella della cella più fredda). Una fascia ha
+  al massimo due scale, una per lato, ognuna con l'unità in alto e i numeri nel colore della sua
+  linea. Ogni voce della legenda accende e spegne la sua linea — un quadratino vuoto indica una
+  linea spenta — e una fascia con tutte le linee spente si chiude. Tutte le linee partono accese; la
+  scelta viene ricordata nel browser per tutti i viaggi. Il riquadro si apre con l'ora del giorno,
+  al secondo, e il minuto del viaggio.
 - **Consumi ufficiali dal cloud 🆕** — quando disponibili, **consumo, efficienza e costo** del viaggio
   vengono dal **dato ufficiale Leapmotor** (la vera ripartizione **guida / A·C / altro**) invece della
   sola stima dal calo di batteria. Subito dopo il viaggio vedi la stima con l'avviso **⏳ provvisorio**;
@@ -440,27 +564,28 @@ un'etichetta:
   istante dopo l'apertura della pagina. Se uno non ci riesce, adesso **lo dice sotto di sé**, con
   l'errore e un **Riprova**, invece di lasciare uno spazio vuoto senza spiegazione.
 - **Casa** (la tua wallbox **o una presa domestica**), **AC** (corrente alternata pubblica),
-  **Veloce/FAST** (DC), **HPC** (ricarica ultraveloce) e **Gratis**. Una ricarica che nessuno ha
-  ancora confermato resta **❓ Da confermare** finché non scegli tu.
+  **Veloce/FAST** (DC), **HPC** (ricarica ultraveloce) e **Gratis**; in fondo al menu, **✎ Manuale**
+  per il totale pagato (vedi sotto). Una ricarica che nessuno ha ancora confermato resta
+  **❓ Da confermare** finché non scegli tu.
 - **Casa non vuol dire wallbox.** *Casa* è **dove** hai caricato, non da cosa: anche una presa
   normale in garage è una ricarica di casa. La differenza conta per il conteggio: se hai collegato
   il contatore di una wallbox (vedi *Wallbox* più sotto), la ricarica si fattura sull'**energia
   erogata dal contatore**; se non l'hai collegato, si fattura sull'**energia arrivata in batteria**,
   esattamente come una ricarica pubblica. Fra le due c'è la perdita in calore del caricabatterie,
   tipicamente il 10-15%.
-- **✎ il totale pagato 🆕** — per le colonnine pubbliche con tariffe complicate (abbonamenti,
-  costi di sessione…) **scrivi a mano il totale realmente pagato**, nella **✎** accanto al tipo.
-  Scavalca la stima automatica e **non tocca il tipo della ricarica**: il costo sulla scheda
-  porta allora la scritta **fatturato** al posto di **stima**, e *Ripristina* rimette il valore
-  calcolato. Fino alla v3.15.18 quel totale si scriveva scegliendo il tipo *Manuale*, che
-  prendeva il posto di Casa, AC, Veloce o HPC per sempre; adesso prezzo e tipo sono due cose
-  separate. Una ricarica rimasta su quel vecchio tipo *Manuale* si legge **❓ Da confermare**,
-  tiene il prezzo che ci hai scritto, e un clic sul tipo le rimette quello vero senza toccare
-  quel prezzo.
+- **✎ Manuale — il totale pagato** — per le colonnine pubbliche con tariffe complicate
+  (abbonamenti, costi di sessione…) **scrivi a mano il totale realmente pagato**: apri il menu del
+  tipo, scrivilo nella riga **✎ Manuale** in fondo e premi **OK** (la **✎** accanto al tipo è lo
+  stesso campo). Scavalca la stima automatica e **non tocca il tipo della ricarica**: una ricarica
+  senza tipo diventa **✎ Manuale** e non è più da confermare, una con il suo tipo lo tiene. Il
+  costo sulla scheda porta la scritta **fatturato** al posto di **stima**, e *Ripristina*, nella ✎,
+  rimette il valore calcolato. Le ricariche che avevi scritto così prima della v3.16.0 si leggono di
+  nuovo **✎ Manuale**, con il loro prezzo: non c'è niente da fare.
 - **Casa vs Pubblica 🆕** — accanto alla card *Distribuzione AC vs DC* ce n'è una seconda:
-  **Casa**, **Pubblica** e **Da confermare**, con una ciambella e tre mattonelle. Le tre fanno
-  sempre il numero di ricariche scritto sopra, così una ricarica che aspetta il suo tipo si vede
-  come tale invece di finire fra le pubbliche.
+  **Casa**, **Pubblica**, **✎ Manuale** e **Da confermare**, con una ciambella e una mattonella
+  ciascuna (le ultime due solo se ce ne sono). Fanno sempre il numero di ricariche scritto sopra,
+  così una ricarica col prezzo scritto a mano non finisce fra le pubbliche, e una che aspetta il suo
+  tipo si vede come tale.
 - **Una ricarica abbandonata dal cloud finisce quando passava corrente l'ultima volta 🆕** (#289) —
   se l'auto si addormenta col cavo attaccato, il cloud non lo dice: continua a ripetere l'ultima
   notizia che ha, e lì dentro il cavo risulta ancora collegato. Prima la ricarica restava aperta
@@ -475,7 +600,13 @@ un'etichetta:
   non cambia niente, e premere OK a vuoto lascia tutto com'era. *Rimuovi* toglie un valore
   sbagliato. Da lì in poi quel numero **prezza la ricarica**, esattamente come fa il contatore della
   wallbox a casa, e ti mostra l'**efficienza** (quanto ne ha trasformato in calore il caricabatterie
-  di bordo). L'energia che Mate riporta resta quella **misurata in batteria**.
+  di bordo). L'energia che Mate riporta resta quella **misurata in batteria**. Su una **ricarica
+  unita** la cifra che scrivi copre i pezzi per cui l'hai scritta — una sessione unita dopo conta per
+  conto suo — e quando i pezzi si fatturano su cifre diverse (il contatore ha preso un pezzo e non
+  l'altro, oppure hai scritto la cifra su un pezzo prima di unire) la card e la Panoramica mostrano
+  la somma, sotto la parola *erogati*, e il €/kWh divide per quella 🆕. Rendimento e perdita accanto
+  alle cifre scritte a mano compaiono solo se quelle cifre coprono ogni pezzo della ricarica unita.
+  Un contatore che ha preso solo una parte ti lascia comunque vedere e correggere il solare inserito.
 - **Cosa entra nel conto e cosa no 🆕** — una ricarica entra in questi confronti solo se ha
   **tutti e due** i numeri, quello del contatore e quello della batteria. Una con uno solo dei due
   spingerebbe il rapporto sopra il 100 %, cosa che nessuna colonnina può fare. **Le ricariche in
@@ -484,6 +615,10 @@ un'etichetta:
 - **Il mese dice tutte e due le cose 🆕** — sopra il calendario: *«154,93 kWh erogati · 142,57 in
   batteria»*. Il primo è ciò che è uscito dai contatori (wallbox, o i kWh che hai scritto tu); il
   secondo è ciò che è arrivato nel pacco. Fra i due c'è la perdita di conversione, che paghi.
+  **Energia totale** sulla pagina Ricariche ed **Energia caricata** su Statistiche sono la stessa
+  cifra *erogata*, con *in batteria* sotto quando le due differiscono. Una regola sola per tutti i
+  totali: il contatore della wallbox dove c'è, i kWh della colonnina dove li hai scritti, altrimenti
+  la cifra della batteria.
 - Anche le ricariche avvenute mentre l'auto era spenta/offline vengono **ricostruite** dal salto di
   percentuale di carica.
 - **La tua nota 🆕** (#107) — ogni ricarica ha una **nota libera** (subito sopra *Elimina ricarica*) per
@@ -565,7 +700,8 @@ costo dei viaggi (calcolato sul prezzo "medio" dell'energia in batteria al momen
 (si chiamava *distanza totale*, ma è sempre stata la somma dei viaggi conclusi — non il
 contachilometri dell'auto) e numero di viaggi,
 **distanza media per viaggio**, **tempo di guida**, **consumo medio** (pesato sulla distanza) e
-**migliore**, **energia usata e ricaricata**, **recupero** totale e medio, numero di **sessioni di
+**migliore**, **energia usata e ricaricata** (l'energia caricata è quella che le colonnine hanno
+**erogato**, con sotto la cifra **in batteria** — la stessa coppia della pagina Ricariche 🆕), **recupero** totale e medio, numero di **sessioni di
 ricarica**, con le relative **tendenze** (efficienza e recupero nel tempo). Tra i totali c'è anche una
 scheda **Totale V2L** con l'energia cumulativa prelevata via V2L in tutto lo storico. C'è anche la
 **ricerca consumo per intervallo** (date libere + preset) e la scheda **"Cumulativo Totale del
@@ -853,11 +989,14 @@ volta. È divisa in tre colonne.
   mai in chiaro. **Se la perdi** non resti fuori per sempre: il campo *Nuova password* non chiede
   quella vecchia, quindi da un qualsiasi dispositivo ancora collegato ne imposti una nuova. Se non
   c'è più nessun dispositivo dentro, la variabile d'ambiente `MATE_AUTH_PASSWORD` scavalca quella
-  salvata.
+  salvata. ⚠️ La *scavalca*, non la sostituisce: l'impronta dimenticata resta nel database sotto,
+  quindi una volta rientrato imposta una password nuova (o toglila) da **Impostazioni → Accesso** e
+  solo dopo rimuovi la variabile — se la togli prima, torna a comandare quella che avevi perso.
 
-- **Database** — dimensione del DB e **conservazione posizioni** (retention): puoi tenere i punti GPS
-  "per sempre" (predefinito) o cancellare quelli più vecchi di 6/12/18/24 mesi per risparmiare
-  spazio. *Vengono potate solo le posizioni*: viaggi, ricariche e curve di ricarica restano.
+- **Database** — dimensione del DB e **conservazione posizioni** (retention): puoi tenere i punti
+  GPS "per sempre" (predefinito) o cancellare quelli più vecchi di 6/12/18/24 mesi per risparmiare
+  spazio. *Vengono potate solo le posizioni*: viaggi (con il percorso e le letture lungo la strada),
+  ricariche e curve di ricarica restano.
 - **Esporta / backup** — scarica **viaggi (CSV)**, **ricariche (CSV)** e un **backup del database**.
   Il backup arriva **compresso in gzip** (`leapmotor_mate.db.gz`) 🆕, mandato a pezzi così nemmeno un
   database grande deve stare tutto in memoria. Il ripristino accetta **sia** il file compresso **sia**
@@ -1017,9 +1156,9 @@ Mate ha protezioni contro i valori impossibili (es. contatori wallbox che riport
 vita). Vale anche il caso opposto: se il contatore della wallbox **si ferma** durante la ricarica
 mentre l'auto continua a tirare corrente, Mate smette di fidarsi del suo totale per quella sessione
 e fattura sull'energia arrivata in batteria — il totale del contatore sarebbe corto di tutto quello
-che si è perso mentre era fermo.
-Se una ricarica pubblica ha una tariffa complicata, scrivi il totale pagato nella **✎** accanto
-al suo tipo.
+che si è perso mentre era fermo. A questi due se ne aggiunge un terzo: se una ricarica resta aperta più di dieci minuti **senza che il contatore venga letto** — Home Assistant spento, Mate riavviato a metà ricarica — il totale non è una misura di quella ricarica e succede la stessa cosa. (Il contatore continua a essere letto mentre il cloud **dell'auto** non risponde: sta in casa tua, non dietro di lui.) E un rendimento sopra il 100 % è impossibile, quindi non viene mai mostrato.
+Se una ricarica pubblica ha una tariffa complicata, scrivi il totale pagato in **✎ Manuale**, in
+fondo al menu del suo tipo.
 
 **Il grafico del consumo da fermo (vampire drain) è vuoto.**
 Serve almeno una **sosta lunga** con un calo di carica misurabile negli ultimi giorni. Se l'auto è
@@ -1056,8 +1195,8 @@ Da *Impostazioni → Esporta/backup* scarichi il database (e i CSV). Conserva il
 - **AC / DC** — corrente alternata (ricarica lenta, da casa/colonnine AC) / continua (ricarica
   veloce e ultraveloce).
 - **Casa / AC / Veloce (FAST) / HPC / Gratis** — i tipi di ricarica che Mate riconosce o che puoi
-  assegnare; una ricarica senza tipo si legge **❓ Da confermare**; "HPC" è la ricarica ad
-  altissima potenza.
+  assegnare; una ricarica senza tipo si legge **✎ Manuale** se ci hai scritto il prezzo,
+  **❓ Da confermare** se no; "HPC" è la ricarica ad altissima potenza.
 - **TOU** (*Time-of-Use*) — tariffa a **fasce orarie** (prezzi diversi per giorno/ora).
 - **Regen** — energia **recuperata** in frenata/rilascio e rimessa in batteria.
 - **Vampire drain** — quello che l'auto consuma da **completamente spenta**, misurato dallo spegnimento

@@ -25,7 +25,12 @@
         {% if new_badge %}<span id="newbadge-{{ key }}" class="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand/20 text-brand border border-brand/40 uppercase tracking-wide">{{ new_badge }}</span>{% endif %}
       </span>
       {% if status_url %}
-      <span hx-get="{{ status_url }}" hx-trigger="load, every 30s" hx-swap="innerHTML">
+      {# The dot loads once for the collapsed summary, then refreshes only while the card is OPEN:
+         deciding its colour opens a real connection to the broker (or to ABRP), 1.011 s on an
+         add-on, and it was being spent every 30 s on a card nobody had expanded.
+         → tests/test_a_closed_card_does_not_poll_its_broker.py #}
+      <span hx-get="{{ status_url }}" hx-swap="innerHTML"
+            hx-trigger="load, every 30s [this.closest('details').open]">
         <span class="text-xs text-slate-500">…</span>
       </span>
       {% endif %}
@@ -46,6 +51,20 @@
 
   <!-- ── Column 1 (5): Vehicle & driving — Language, Vehicle, Battery, Polling, Charge detect ─ -->
   <div class="flex-1 w-full space-y-5">
+
+    {% if settings.cloud_import_available %}
+    {% call scard('cloud_import', '☁️ ' + t('cloud_import_title'), false) %}
+      <form hx-post="api/settings/cloud-import" hx-target="#cloud-import-result" class="space-y-3">
+        <label class="flex items-center gap-3 text-sm text-white">
+          <input type="checkbox" name="cloud_import_trips" value="1" {% if settings.cloud_import_trips %}checked{% endif %}>
+          {{ t('cloud_import_enabled') }}
+        </label>
+        <p class="text-xs text-slate-400">{{ t('cloud_import_help') }}</p>
+        <button type="submit" class="px-4 py-2 rounded-xl bg-slate-700 text-white text-sm">{{ t('cloud_import_save') }}</button>
+        <span id="cloud-import-result" role="status" class="text-sm"></span>
+      </form>
+    {% endcall %}
+    {% endif %}
 
     <!-- Language & Currency -->
     {% call scard('locale', '🌍 ' + t('setup_locale'), card_open.get('locale')) %}
@@ -409,14 +428,9 @@
                   class="text-brand hover:underline flex-shrink-0">{{ t('capacity_use_corrected').format(kwh=superseded_pack|dec(1)) }}</button>
         </div>
         {% endif %}
-        {% if measured_capacity %}
-        <div class="mt-3 flex items-center justify-between gap-2 text-xs">
-          <span class="text-slate-500">{{ t('capacity_measured').format(kwh=measured_capacity|nice) }}</span>
-          <button type="button"
-                  onclick="var f=this.closest('form');f.battery_capacity_kwh.value='{{ measured_capacity }}';htmx.trigger(f,'change')"
-                  class="text-brand hover:underline flex-shrink-0">{{ t('capacity_use_measured') }}</button>
-        </div>
-        {% endif %}
+        {# Fetched, not waited for: working the figure out reads the power samples of every
+           qualifying charge — 927 ms on an add-on, for one line of hint. #}
+        <div hx-get="api/measured-capacity" hx-trigger="load once" hx-swap="innerHTML"></div>
         <div id="cap-result" class="text-xs mt-2"></div>
       </form>
     {% endcall %}
@@ -430,7 +444,7 @@
             <span class="text-sm text-white">{{ t('poll_parked_label') }}</span>
             <span class="font-bold text-brand"><span id="pp-val">{{ settings.get('poll_parked', '30') }}</span>s</span>
           </div>
-          <input type="range" name="poll_parked" min="10" max="300" step="10"
+          <input type="range" name="poll_parked" min="10" max="600" step="10"
                  value="{{ settings.get('poll_parked', '30') }}"
                  oninput="document.getElementById('pp-val').textContent=this.value"
                  class="w-full accent-brand cursor-pointer">
@@ -1047,6 +1061,16 @@
     {% endcall %}
 
     <!-- Diagnostics / debug -->
+    {% call scard('cloud_link', '📡 ' + t('cloud_link_section'), card_open.get('cloud_link')) %}
+      <p class="text-xs text-slate-400 mb-3">{{ t('cloud_link_intro') }}</p>
+      {# The body is fetched when the card is opened, not built for every Settings load: it is 288
+         five-minute windows and seven days of counts, aggregated from every row of the last eight
+         days, and 4.5.0 paid for it on a page most people open for something else. #}
+      <div hx-get="api/polling-card" hx-trigger="toggle once from:closest details, revealed once" hx-swap="innerHTML">
+        <div class="text-xs text-slate-500">…</div>
+      </div>
+    {% endcall %}
+
     {% call scard('diagnostics', '🩺 ' + t('diag_section'), card_open.get('diagnostics')) %}
       <p class="text-xs text-slate-400 mb-3">{{ t('diag_hint') }}</p>
 

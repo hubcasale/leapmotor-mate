@@ -5,12 +5,13 @@ serves the T03 named-field status, so no endpoint patching is needed here. We st
 parse the raw signal dict ourselves (_parse_signal) to stay independent of the
 library's typed model and insulated from its enum changes.
 """
+import mate_api  # explicit independent runtime; no sitecustomize hook
 import logging
 import os
 import re
 from dataclasses import dataclass
 
-from leapmotor_api import LeapmotorApiClient
+from api_backend import LeapmotorApiClient
 
 import capability_profile
 
@@ -28,7 +29,7 @@ class VehicleData:
     gear: str            # P R N D
     vehicle_state: str   # parked driving
     charging_status: int
-    charge_power_kw: float
+    charge_power_kw: float | None    # |I×V| from 1178/1177; None = no reading the car can vouch for
     latitude: float
     longitude: float
     outside_temp: float
@@ -46,8 +47,8 @@ class VehicleData:
     any_door_open: bool       # driver/passenger/rear doors or trunk
     plug_connected: bool      # cable inserted (signal 1149)
     remaining_charge_min: int # minutes to full (signal 1200), 0 when not charging
-    charge_voltage_v: float   # charging voltage (signal 1177)
-    charge_current_a: float   # charging current (signal 1178)
+    charge_voltage_v: float | None   # pack voltage (signal 1177); None = the car did not say
+    charge_current_a: float | None   # pack current (signal 1178), + discharge / − charge; None = not said
     is_reev: bool = False     # car reports a fuel tank (signal 3235) → range-extender model
     fuel_level_pct: float = None  # REEV fuel tank level % (signal 3235); None on a BEV
     # Litres actually in the tank — signal 3263, reported in MILLILITRES. Decoded by @gm27271
@@ -91,6 +92,7 @@ class VehicleData:
     # LATCHES at 1 for ~5-10 min after a charge, see _is_plugged_in), 2 = V2L bidirectional discharge
     # active. Verified on-car 2026-06-19: V2L switch ON + adapter → 47=2, battery discharging (1178>0).
     ac_port_mode: int = 0
+    dc_gun_connected: bool | None = None  # DC fast-charge gun inserted (signal 1197); None = not reported
 
     # Climate detail (read+write validated on-car 2026-06-20): fan level (signal 1941 acAirVolume,
     # 1-7; HOLDS the last level even when A/C is off), recirculation (signal 1943: 1=recirc/in,
@@ -142,38 +144,9 @@ class EmptyStatusError(Exception):
     retry rather than treating it as a hard failure."""
 
 
-# Title/body patterns that mark an inbox message as an OTA / software update, across the languages
-# a Leapmotor account may use. STOPGAP until a real OTA message pins its msg_type — see
-# LeapmotorMateClient.check_ota().
-#
-# 🔴 These were bare substrings, and a substring is the wrong test for a flag that now drives a
-# Home Assistant notification (#277): "ota" matched inside *nota* and *quota*, and a lone
-# "upgrade" / "aggiorn" / "mise à jour" matched membership offers and terms-of-service notices —
-# five false positives out of six everyday titles. Two rules instead:
-#   • the acronyms match as WORDS (\b), never inside another one;
-#   • a generic update word only counts NEXT TO a software/vehicle word (up to three words apart,
-#     so "aggiornamento del software" and "mise à jour du logiciel" still match).
-# Precision is bought at some recall, deliberately: we have never seen the real notice, but a false
-# ON is a push on someone's phone, and a false OFF is the same silence as before the entity existed.
-_OTA_PATTERNS = (
-    r"\b(?:ota|fota)\b",                                                     # the acronym itself
-    r"\bfirmware\b",
-    r"\bsoftware[\s\-]?(?:update|upgrade|aktualisierung|updaten)\b",          # en/de/nl
-    r"\b(?:system|vehicle|car|fahrzeug)[\s\-]?update\b",
-    r"\bupdate\s+available\b",
-    r"\baggiornamento\b(?:\W+\w+){0,3}\W+\b(?:software|firmware|veicolo|sistema|centralina)\b",
-    r"\bmise\s+[àa]\s+jour\b(?:\W+\w+){0,3}\W+\b(?:logiciel|logicielle|v[ée]hicule|syst[èe]me)\b",
-    r"\baktualisierung\b(?:\W+\w+){0,3}\W+\b(?:software|fahrzeug|system)\b",
-    r"\bactualizaci[óo]n\b(?:\W+\w+){0,3}\W+\b(?:software|sistema|veh[íi]culo)\b",
-    r"\batualiza[çc][ãa]o\b(?:\W+\w+){0,3}\W+\b(?:software|sistema|ve[íi]culo)\b",
-    r"\baktualizacja\b(?:\W+\w+){0,3}\W+\b(?:oprogramowania|systemu|pojazdu)\b",
-)
-_OTA_RE = re.compile("|".join(_OTA_PATTERNS), re.IGNORECASE | re.UNICODE)
-
-
 class LeapmotorMateClient:
     def __init__(self, username: str, password: str, pin: str, cert_path: str, key_path: str,
-                 device_id: str | None = None):
+                 device_id: str | None = None, on_login=None):
         self._api = LeapmotorApiClient(
             username=username,
             password=password,
@@ -185,6 +158,9 @@ class LeapmotorMateClient:
         )
         import session_share
         session_share.install(self._api)   # share ONE token with the web (avoid mutual eviction)
+        # told by the backend of every login the cloud is really asked for — from whichever read
+        # or command needed it, never for a resumed session: on_login(None) or on_login(exc)
+        self._api.on_login = on_login
         self._vehicle = None
         self._vehicles: list = []          # every car on the account, in the order the cloud lists them
         self._named_mode_logged = False    # log the T03/EU named-field path once
@@ -213,10 +189,28 @@ class LeapmotorMateClient:
                      extra.vin, extra.car_type, getattr(extra, "is_shared", False))
 
     def relogin(self):
-        """Force a fresh login to self-heal a broken session. The account TLS cert
-        lives in a /tmp temp file; if it vanishes, every request fails forever with
-        'Could not find the TLS certificate file'. Dropping the shared-session blob
-        and re-logging in re-creates the cert. Also recovers auth/token drops."""
+        """Self-heal a broken session — spending a token REFRESH first, and a full login only
+        if that does not hold.
+
+        The account TLS cert lives in a /tmp temp file; if it vanishes, every request fails
+        forever with 'Could not find the TLS certificate file'. Dropping the shared-session blob
+        and re-logging in re-creates the cert. Also recovers auth/token drops.
+
+        ⚠️ But this path is reached from an ORDINARY poll error too — a read timeout, a dropped
+        connection — and those are blips, not dead sessions. Three bundles from 17-18/09/2026
+        (beta #49 + #295 @gm27271, #296 @adoewa, @ebagnoli) show the same three lines over and
+        over: a `Read timed out`, a re-login, a refusal. From 17/09 the cloud takes 5-12 logins a
+        day from an account where it used to take ~310, so each blip spent one of the few left and
+        threw away a refresh token that was most likely still good. The refresh is one signed
+        request against a different endpoint; when the cause really is the vanished cert it fails
+        as well, and the full login below runs exactly as it does today."""
+        if getattr(self._api, "refresh_token", None):
+            try:
+                self._api.token_refresh()
+                log.info("Session refreshed — no login spent")
+                return
+            except Exception as e:  # noqa: BLE001 — any failure just means: do the full login
+                log.info("Token refresh did not hold (%s) — falling back to a full login", e)
         try:
             import sqlite3
             c = sqlite3.connect(os.environ.get("DB_PATH", "leapmotor_mate.db"), timeout=5)
@@ -325,39 +319,6 @@ class LeapmotorMateClient:
             pass
         return vd
 
-    def check_ota(self) -> dict:
-        """Scan the account message inbox for an OTA / software-update notice. This is the ONLY
-        automatic "update available" signal Leapmotor exposes — there is NO dedicated OTA-status
-        endpoint (even the official-app flow / LeapConnect needs the FOTA task_id typed in by hand);
-        the cloud delivers "update available" as an inbox MESSAGE. Best-effort, never raises.
-        Returns {ok: bool (endpoint answered), scanned: int, ota: bool, title, time}.
-
-        `ok` distinguishes the three states that all otherwise surface as a bare "None" on the
-        Overview and used to be indistinguishable (issue #156, a Malaysia C10): the inbox is
-        genuinely empty (ok=True, scanned=0), it has messages but none is an update (ok=True,
-        scanned>0, ota=False), or we couldn't read the inbox at all for this account/region
-        (ok=False). The caller logs each outcome so a diagnostics bundle can tell which it is.
-
-        We match on the message title/body because the numeric `msg_type` is undocumented and was
-        None on every message we've captured so far — so this pattern match is a deliberate STOPGAP:
-        the moment a real OTA message is seen on-car, key off its exact msg_type instead and tighten
-        this. The patterns are word-anchored and pair generic update words with a software/vehicle
-        word (see _OTA_PATTERNS): the flag reaches Home Assistant, where a false ON is a push. Non-OTA messages (vehicle sharing, etc.) are intentionally ignored — not surfaced."""
-        try:
-            ml = self._api.get_message_list(page_no=1, page_size=20)
-            msgs = getattr(ml, "messages", None) or []
-        except Exception as e:  # noqa: BLE001 — strict lib parser can raise on odd payloads
-            log.warning("OTA inbox scan: message endpoint failed (%s) — cannot check for updates", e)
-            return {"ok": False}
-        for m in msgs:
-            hay = f"{getattr(m, 'title', '') or ''} {getattr(m, 'message', '') or ''}"
-            if _OTA_RE.search(hay):
-                st = getattr(m, "send_time", None)
-                return {"ok": True, "scanned": len(msgs), "ota": True,
-                        "title": getattr(m, "title", None),
-                        "time": int(st) if st else None}
-        return {"ok": True, "scanned": len(msgs), "ota": False}
-
     def get_charge_schedule(self) -> dict | None:
         """The car's own charge window (cmd 190) — flat dict: chargeEnable, starttime, endtime,
         chargesoc, cycles, circulation, recharge. Read-only, never raises.
@@ -382,7 +343,7 @@ class LeapmotorMateClient:
         import time as _time
         from urllib.parse import quote
         try:
-            from leapmotor_api.crypto import build_signed_headers
+            from leapmotor_cloud.mate_compat import adapter_owned_headers as build_signed_headers
             api, vin = self._api, (vehicle or self._vehicle).vin
             now_ms = int(_time.time() * 1000)
             b_ms = now_ms - 7 * 86400 * 1000
@@ -416,7 +377,7 @@ class LeapmotorMateClient:
         import json as _json
         from urllib.parse import quote
         try:
-            from leapmotor_api.crypto import build_consumption_last_week_headers
+            from leapmotor_cloud.mate_compat import adapter_owned_headers as build_consumption_last_week_headers
             api, vin = self._api, (vehicle or self._vehicle).vin
             h = build_consumption_last_week_headers(
                 sign_key=api.sign_key, device_id=api.device_id, carvin=vin,
@@ -446,7 +407,7 @@ class LeapmotorMateClient:
         self._api.close()
 
 
-# Numeric signal-id → T03 named-field map (verbatim from leapmotor-api 0.3.1's
+# Numeric signal-id → T03 named-field map (from leapmotor-api 0.3.1's
 # _SIGNAL_TO_NAMED). C10/B10 report these as numeric IDs inside `data["signal"]`;
 # the T03 / EU API reports the SAME data as these named fields at the top level of
 # `data`. We invert this to rebuild a numeric `signal` dict for the T03 so the shared
@@ -478,8 +439,11 @@ _SIGNAL_TO_NAMED = {
     "1695": "leftRearWindowStatus", "1696": "rightRearWindowStatus",
     "1298": "driverDoorLockStatus", "1277": "lbcmDriverDoorStatus", "1278": "rbcmDriverDoorStatus",
     "1279": "lbcmLeftRearDoorStatus", "1280": "rbcmRightRearDoorStatus", "1281": "bbcmBackDoorStatus",
-    "2667": "leftFrontTirePressure", "2653": "rightFrontTirePressure",
-    "2646": "leftRearTirePressure", "2660": "rightRearTirePressure",
+    # Tyre pressures: the library documents 2667 as the left front, but on the car 2646 is
+    # (_parse_signal reads FL=2646, FR=2653, RL=2660, RR=2667), so each named field goes
+    # under the id the parser reads for that wheel.
+    "2646": "leftFrontTirePressure", "2653": "rightFrontTirePressure",
+    "2660": "leftRearTirePressure", "2667": "rightRearTirePressure",
     "2641": "leftFrontTirePressureState", "2648": "rightFrontTirePressureState",
     "2655": "leftRearTirePressureState", "2662": "rightRearTirePressureState",
     "1256": "bcmKeyPositionOn1", "1257": "bcmKeyPositionOn2", "1258": "bcmKeyPositionOn3",
@@ -534,10 +498,21 @@ def set_charge_current_min(amps: float) -> None:
 def _charge_power_kw(sig: dict) -> float:
     """Charge/regen power from current (1178) × voltage (1177). Signal 49 is NOT a
     power — in the Leapmotor app it's the left-mirror-heating flag. Magnitude only;
-    the recorder decides charge vs regen from the current sign."""
+    the recorder decides charge vs regen from the current sign.
+
+    🔑 NO current floor here, and that is the point (#307, @arzthilfe). This used to refuse below
+    `_CHARGE_CURRENT_MIN_A` — the user's CHARGE-DETECTION setting, 2.0 A by default — so his C10
+    on a wallbox turned down to 8 A, tapering near 87 % SoC, reported 718.2 V × 1.599 A as
+    **0.00 kW**. One threshold cannot both decide WHETHER the car is charging (where a floor
+    belongs, and still lives — see `_is_charging`) and measure HOW MUCH flows (where it prints a
+    zero over a real figure). Zero current already gives zero power without a floor to say so.
+
+    Nothing downstream loses a guard by this: regen has its own (`charge_current_a < -3.0`, in the
+    recorder), the stuck-counter sum has `_WB_STUCK_MIN_KW`, and `max_power_kw` is a maximum, so a
+    small reading can only lose to a bigger one."""
     current = _sf(sig, "1178")
     voltage = _sf(sig, "1177")
-    if current is None or voltage is None or abs(current) < _CHARGE_CURRENT_MIN_A:
+    if current is None or voltage is None:
         return 0.0
     return round(abs(current * voltage) / 1000.0, 3)
 
@@ -777,17 +752,20 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
     # to the web today (the windows_pct gate is never marked broken) and the B10 is safe because it
     # sends no % signals. window_open_states returns [FL, FR, RL, RR].
     win_states = capability_profile.window_open_states(sig, bool(vin))
+    dc_gun = _si(sig, "1197")   # None when absent or unreadable — the cloud has sent "" before
+    fuel_pct = _sf(sig, "3235")
+    fuel_ml = _sf(sig, "3263")
 
     return VehicleData(
         vin=vin,
         timestamp_ms=int(sig.get("sts") or sig.get("1") or 0),
         soc=float(sig.get("100003") or sig.get("1204") or 0),
         range_km=float(sig.get("3260") or 0),
-        is_reev=(sig.get("3235") is not None),   # fuel level present → range-extender variant
-        fuel_level_pct=(float(sig["3235"]) if sig.get("3235") is not None else None),  # REEV tank %
-        fuel_liters=(float(sig["3263"]) / 1000.0 if sig.get("3263") is not None else None),  # 3263 = mL
-        fuel_range_km=(float(sig["3259"]) if sig.get("3259") is not None else None),       # REEV fuel range
-        combined_range_km=(float(sig["3261"]) if sig.get("3261") is not None else None),   # REEV total range
+        is_reev=(sig.get("3235") is not None),   # fuel level FIELD present → range-extender variant
+        fuel_level_pct=fuel_pct,                                        # REEV tank %
+        fuel_liters=(fuel_ml / 1000.0 if fuel_ml is not None else None),  # 3263 = mL
+        fuel_range_km=_sf(sig, "3259"),                                 # REEV fuel range
+        combined_range_km=_sf(sig, "3261"),                             # REEV total range
         odometer_km=float(sig.get("1318") or 0),
         speed_kmh=speed_kmh,
         gear=gear,
@@ -820,8 +798,8 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
         climate_defrost=int(sig.get("1945") or 0) == 2,
         fan_level=int(sig.get("1941") or 0),                        # 1941 acAirVolume: fan level 1-7
         recirculation=int(sig.get("1943") or 0) == 1,              # 1943: 1=recirc(in) / 0=fresh(out)
-        climate_mode=int(sig["3713"]) if sig.get("3713") is not None else None,  # 3713: 0 auto/1 cool/3 heat/4 vent
-        climate_power=int(sig["1348"]) if sig.get("1348") is not None else None,  # 1348 PTC power (W)
+        climate_mode=_si(sig, "3713"),    # 3713: 0 auto/1 cool/3 heat/4 vent
+        climate_power=_si(sig, "1348"),   # 1348 PTC power (W)
         trunk_open=int(sig.get("1281") or 0) != 0,
         windows_open=any(bool(w) for w in win_states),
         sunshade_open=int(sig.get("1724") or 0) != 0,
@@ -830,10 +808,11 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
             for k in ("1277", "1278", "1279", "1280", "1281")
         ),
         plug_connected=_is_plugged_in(sig),
+        dc_gun_connected=None if dc_gun is None else dc_gun != 0,
         charge_deferred=_is_deferred_charge(sig),
         remaining_charge_min=int(sig.get("1200") or 0),
-        charge_voltage_v=float(sig.get("1177") or 0),
-        charge_current_a=float(sig.get("1178") or 0),
+        charge_voltage_v=_sf(sig, "1177"),   # absent is None, not 0 V (same rule as the temperatures)
+        charge_current_a=_sf(sig, "1178"),
         ac_port_mode=int(sig.get("47") or 0),    # 47 acInputSlowCharge: 0 idle / 1 AC charge / 2 V2L
         seat_heat_driver=int(sig.get("2100") or 0),
         seat_heat_passenger=int(sig.get("2118") or 0),
@@ -858,8 +837,9 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
         # LR=2646/RR=2660, but that's WRONG: cross-checked on TWO real B10s against the official
         # app's per-wheel view — the #32 reporter's UK car AND Silvio's IT car, both with the
         # 280-kPa wheel at the REAR-RIGHT — the true order is the ascending-id one:
-        # 2646=FL, 2653=FR, 2660=RL, 2667=RR. (State signals pair the same way:
-        # FL=2655, FR=2648, RL=2662, RR=2641 — see _parse_vehicle_status.)
+        # 2646=FL, 2653=FR, 2660=RL, 2667=RR. (The alarm flags do not move with them: leapmotor-api,
+        # leapmotor-ha and ioBroker all pair them as 2641=FL, 2648=FR, 2655=RL, 2662=RR — see the
+        # web's _parse_vehicle_status.)
         tire_fl_bar=round(float(sig.get("2646") or 0) / 100.0, 2),
         tire_fr_bar=round(float(sig.get("2653") or 0) / 100.0, 2),
         tire_rl_bar=round(float(sig.get("2660") or 0) / 100.0, 2),

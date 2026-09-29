@@ -37,6 +37,11 @@
           · <span style="color:{% if is_dc %}#fb923c{% else %}#38bdf8{% endif %};font-weight:700">{% if is_dc %}DC{% else %}AC{% endif %}</span>
         </div>
         <div class="mt-0.5">{% with charge=c %}{% include "partials/charge_location.html" %}{% endwith %}</div>
+        <div id="place-{{ c.id }}" class="text-xs text-slate-400 mt-1">
+          {% if c.charging_place_name %}📍 {{ c.charging_place_name }} · {{ c.charging_place_rate|dec(4) }}/kWh{% endif %}
+          <button type="button" class="underline" hx-get="api/charges/{{ c.id }}/place"
+                  hx-target="#place-{{ c.id }}">{{ t('place_assign') }}</button>
+        </div>
         {# #237 — the distance covered since the previous charge, from the car's own odometer. Only
            where both readings exist and only where the car actually moved: two sessions the same
            afternoon give 0, and a zero here says nothing worth a line. #}
@@ -52,104 +57,10 @@
         {% endif %}
       </div>
     </div>
-    <!-- Charge type selector (HTMX) -->
-    {% set ct = charge_types.get(c.location_type) %}
-    {% set suggested_ct = charge_types.get(c.type_suggested) if not ct else None %}
-    <div id="charge-type-{{ c.id }}" class="charge-type-selector">
-      {# The real total paid, independent of the type badge next to it. #}
-      {% with charge=c, cost_oob=false %}{% include "partials/charge_cost_manual.html" %}{% endwith %}
-      <div style="position:relative;display:inline-block">
-        {% if ct %}
-        <button onclick="document.getElementById('ct-menu-{{ c.id }}').classList.toggle('hidden')"
-                style="background:{{ ct.color }}22;color:{{ ct.color }};border:1px solid {{ ct.color }}55;
-                       padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;
-                       display:flex;align-items:center;gap:5px">
-          {{ ct.icon }} {{ ct.label }} <span style="font-size:9px;opacity:.7">▼</span>
-        </button>
-        {% elif suggested_ct %}
-        {# A geolocation guess, never applied on its own — dashed border + trailing "?" mark it as
-           proposed rather than final, in the SUGGESTED type's own color so the owner sees what was
-           guessed without opening the dropdown. One click inside still confirms or overrides it. #}
-        <button onclick="document.getElementById('ct-menu-{{ c.id }}').classList.toggle('hidden')"
-                title="{{ t('charge_type_suggested_hint') }}"
-                style="background:{{ suggested_ct.color }}22;color:{{ suggested_ct.color }};
-                       border:1px dashed {{ suggested_ct.color }}aa;
-                       padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;
-                       display:flex;align-items:center;gap:5px">
-          {{ suggested_ct.icon }} {{ suggested_ct.label }}? <span style="font-size:9px;opacity:.7">▼</span>
-        </button>
-        {% else %}
-        <button onclick="document.getElementById('ct-menu-{{ c.id }}').classList.toggle('hidden')"
-                style="background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b88;
-                       padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;
-                       display:flex;align-items:center;gap:5px">
-          ❓ {{ t('charge_unconfirmed') }} <span style="font-size:9px;opacity:.7">▼</span>
-        </button>
-        {% endif %}
-        <div id="ct-menu-{{ c.id }}" class="hidden"
-             style="position:absolute;right:0;top:calc(100% + 4px);z-index:50;
-                    background:#1e293b;border:1px solid #334155;border-radius:10px;
-                    padding:4px;min-width:155px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
-          {% if not ct %}
-          <div style="padding:5px 10px 7px;margin-bottom:3px;font-size:11px;font-weight:700;
-                      color:#fbbf24;border-bottom:1px solid #334155">
-            {{ t('charge_type_suggested_q') if suggested_ct else t('charge_confirm_q') }}
-          </div>
-          {% endif %}
-          {% if suggested_ct %}
-          {# The suggestion, promoted to the top — clicking it is the "OK" that just confirms it,
-             same hx-post as every other row below. #}
-          <form hx-post="api/charges/{{ c.id }}/type"
-                hx-target="#charge-type-{{ c.id }}"
-                hx-swap="outerHTML"
-                hx-on::after-request="document.getElementById('ct-menu-{{ c.id }}') && document.getElementById('ct-menu-{{ c.id }}').classList.add('hidden')"
-                style="margin:0">
-            <input type="hidden" name="location_type" value="{{ c.type_suggested }}">
-            <button type="submit"
-                    style="width:100%;text-align:left;padding:7px 12px;border-radius:7px;font-size:13px;
-                           cursor:pointer;background:{{ suggested_ct.color }}33;
-                           color:{{ suggested_ct.color }};border:none;display:flex;align-items:center;gap:8px">
-              {{ suggested_ct.icon }} {{ suggested_ct.label }}
-              <span style="margin-left:auto;font-size:10px;opacity:.85">{{ t('charge_type_suggested_tag') }}</span>
-            </button>
-          </form>
-          {% endif %}
-          {% for key, info in charge_types.items() %}
-          {% if key != c.type_suggested %}
-          <form hx-post="api/charges/{{ c.id }}/type"
-                hx-target="#charge-type-{{ c.id }}"
-                hx-swap="outerHTML"
-                hx-on::after-request="document.getElementById('ct-menu-{{ c.id }}') && document.getElementById('ct-menu-{{ c.id }}').classList.add('hidden')"
-                style="margin:0">
-            <input type="hidden" name="location_type" value="{{ key }}">
-            <button type="submit"
-                    style="width:100%;text-align:left;padding:7px 12px;border-radius:7px;font-size:13px;
-                           cursor:pointer;background:{% if c.location_type == key %}{{ info.color }}22{% else %}transparent{% endif %};
-                           color:{{ info.color }};border:none;display:flex;align-items:center;gap:8px">
-              {{ info.icon }} {{ info.label }}
-              {% if c.location_type == key %}<span style="margin-left:auto;font-size:10px">✓</span>{% endif %}
-            </button>
-          </form>
-          {% endif %}
-          {% endfor %}
-        </div>
-      </div>
-      {% if c.location_type == 'HOME' %}
-      {# #120: mark a home charge as free (e.g. self-produced solar). Stays HOME, cost 0. #}
-      <form hx-post="api/charges/{{ c.id }}/free" hx-target="#charge-type-{{ c.id }}" hx-swap="outerHTML"
-            style="margin:0;display:inline-block;vertical-align:top;margin-left:6px">
-        <input type="hidden" name="is_free" value="{% if c.is_free %}0{% else %}1{% endif %}">
-        <button type="submit" title="{{ t('charge_free_hint') }}"
-                style="background:{% if c.is_free %}#a3e63522{% else %}transparent{% endif %};
-                       color:{% if c.is_free %}#a3e635{% else %}#64748b{% endif %};
-                       border:1px solid {% if c.is_free %}#a3e63566{% else %}#334155{% endif %};
-                       padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;
-                       display:inline-flex;align-items:center;gap:5px;white-space:nowrap">
-          🆓 {{ t('charge_free') }}{% if c.is_free %} ✓{% endif %}
-        </button>
-      </form>
-      {% endif %}
-    </div>
+    {# The type selector — pencil, badge, menu, the #120 free tick — is ONE partial, drawn here and
+       redrawn by every route that changes it. The card used to carry its own copy of it, and a fix
+       to one copy is a fix the other forgets (the Manual row of add-on #2 had to go into both). #}
+    {% with charge=c, cost_oob=false %}{% include "partials/charge_type_badge.html" %}{% endwith %}
   </div>
 
   <!-- SOC bar -->
@@ -180,20 +91,26 @@
 
   <!-- Stats -->
   <div class="grid grid-cols-3 gap-2 mt-3">
-    {% set show_wb = c.ac_energy_kwh and c.location_type == 'HOME' %}
+    {# Which figure leads, and whether the efficiency under it is worth showing, is decided in
+       db_reader.charge_energy_view — the same rule the Overview's Last-charge tile reads.
+       `show_wb` selects the headline; the editors use the presence of a stored home-meter reading.
+       A merged charge whose pieces bill on different figures leads with what it bills, under the
+       word the totals use for that sum ('delivered'), so the €/kWh beside it divides by the number
+       above it. #}
+    {% set e = charge_energy(c) %}
+    {% set show_wb = e.headline == 'wallbox' %}
     <div style="background:#0f172a;border-radius:8px;padding:8px 12px">
       <div class="stat-label" style="font-size:10px">{{ t('energy') }}</div>
       <div style="font-size:16px;font-weight:700;color:#fbbf24">
-        +{{ ((c.ac_energy_kwh if show_wb else c.energy_added_kwh) or 0)|dec(1) }}<span style="font-size:11px;color:#94a3b8;font-weight:400"> kWh</span>
-        {% if show_wb %}<span style="font-size:10px;color:#60a5fa;font-weight:400" title="{{ t('wallbox_billed_help') }}"> 🔌 {{ t('wallbox_billed') }}</span>{% else %}<span style="font-size:10px;color:#94a3b8;font-weight:400" title="{{ t('energy_in_battery_help') }}"> 🔋 {{ t('energy_in_battery') }} (DC)</span>{% endif %}
+        +{{ e.headline_kwh|dec(1) }}<span style="font-size:11px;color:#94a3b8;font-weight:400"> kWh</span>
+        {% if show_wb %}<span style="font-size:10px;color:#60a5fa;font-weight:400" title="{{ t('wallbox_billed_help') }}"> 🔌 {{ t('wallbox_billed') }}</span>{% elif e.headline == 'delivered' %}<span style="font-size:10px;color:#60a5fa;font-weight:400" title="{{ t('cal_kwh_delivered_help') }}"> 🔌 {{ t('cal_kwh_delivered') }}</span>{% else %}<span style="font-size:10px;color:#94a3b8;font-weight:400" title="{{ t('energy_in_battery_help') }}"> 🔋 {{ t('energy_in_battery') }} (DC)</span>{% endif %}
       </div>
-      {% if show_wb %}
-      <div style="font-size:10px;color:#94a3b8;margin-top:3px" title="{{ t('wallbox_billed_help') }}">
-        {# Efficiency >100% is physically impossible — it means the ΔSoC-based DC figure is
-           inflated (BMS snap-to-full on 100%-ending charges recorded before the fix), so
-           hide the % rather than show nonsense. #}
-        {% set _eff = (100 * c.energy_added_kwh / c.ac_energy_kwh) if c.energy_added_kwh else 0 %}
-        🔋 {{ (c.energy_added_kwh or 0)|dec(1) }} kWh {{ t('energy_in_battery') }} (DC){% if c.energy_added_kwh and _eff <= 100 %} · {{ t('efficiency') }} {{ _eff|dec(0) }}%{% endif %}
+      {% if e.headline != 'battery' %}
+      <div style="font-size:10px;color:#94a3b8;margin-top:3px" title="{{ t('wallbox_billed_help') if show_wb else t('energy_in_battery_help') }}">
+        {# Efficiency >100% is physically impossible: e.wallbox_eff comes from
+           db_reader.charge_efficiency (#295), which returns nothing rather than a number no page
+           may claim. #}
+        🔋 {{ e.battery_kwh|dec(1) }} kWh {{ t('energy_in_battery') }} (DC){% if e.wallbox_eff is not none %} · {{ t('efficiency') }} {{ e.wallbox_eff|dec(0) }}%{% endif %}
       </div>
       {% endif %}
     </div>
@@ -218,7 +135,7 @@
 
      Under the three tiles rather than inside the ENERGY one: on a phone those tiles stay three
      columns, so a box in there is ~110 px wide and the panel unrolls into a thirty-line ribbon. #}
-  {% if not show_wb and c.location_type and gross_kwh_ok() and not (solar_mode_on() and c.location_type == 'HOME') %}
+  {% if not e.has_home_meter and c.location_type and gross_kwh_ok() and not (solar_mode_on() and c.location_type == 'HOME') %}
   {% with charge=c %}{% include "partials/charge_gross_kwh.html" %}{% endwith %}
   {% endif %}
 
@@ -226,10 +143,10 @@
      Offered only under the solar pricing mode, and only on a home charge the wallbox actually
      measured: a subtraction needs a minuend that was measured, and the battery estimate is not one.
 
-     The two fields are exclusive by construction — `show_wb` shows this one and hides its twin —
-     so a card never carries two boxes that both look like "type the kWh". #}
+     A partial home-meter reading still supports the same editor even when the headline is the
+     combined delivered figure. The two fields remain exclusive. #}
   {% if solar_mode_on() and c.location_type == 'HOME' and solar_kwh_ok() %}
-    {% if show_wb %}
+    {% if e.has_home_meter %}
     {% with charge=c %}{% include "partials/charge_solar_kwh.html" %}{% endwith %}
     {% else %}
     {# The wallbox is how this owner prices Casa, but it did not measure THIS charge (counter
@@ -356,9 +273,14 @@
         </span>
       </label>
       <label class="text-xs text-slate-400">{{ t('manual_charge_type') }}
+        {# #309 — the same five types the rest of Mate uses. With AC and DC alone a charge typed
+           as Home, HPC or Free lost its type on every save, and the type is what the cost, the
+           statistics and the Charges filter are keyed on. Preselected from `location_type`, which
+           is what the badge on this card shows. #}
         <select name="charge_type" class="block mt-1 bg-slate-800 border border-slate-600 text-white text-sm rounded-lg px-2 py-1.5">
-          <option value="AC" {% if c.charge_type != 'DC' %}selected{% endif %}>AC</option>
-          <option value="DC" {% if c.charge_type == 'DC' %}selected{% endif %}>DC</option>
+          {% for key, meta in charge_types.items() %}
+          <option value="{{ key }}" {% if c.location_type == key %}selected{% endif %}>{{ meta.icon }} {{ meta.label }}</option>
+          {% endfor %}
         </select>
       </label>
       {# #237 — correcting a mistyped odometer has to be possible, or the wrong kilometre is in the
