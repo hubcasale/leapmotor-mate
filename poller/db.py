@@ -249,6 +249,36 @@ def log_login(path: str, outcome: str, process: str = "poller", reason=None) -> 
         conn.close()
 
 
+# One millilitre. Signal 3263 counts whole millilitres, so any fall at all is fuel that was burned;
+# the threshold keeps float arithmetic on litres from reading a fall that is not there, and is not a
+# noise floor — the counter does not drift downwards. A generator burns tens of mL between two polls.
+_REEV_GENERATOR_MIN_DROP_L = 0.001
+
+# How long a silence may be before the reading in front of it stops describing it. Beyond this the
+# poller was not hearing the car, and integrating the last current across the gap invents energy
+# exactly where the drive was least observed.
+_RECOVERY_MAX_GAP_S = 300
+
+
+def _generator_was_running(fuel_before, fuel_now) -> bool:
+    """Did the range-extender burn fuel between these two readings — so energy that went INTO the
+    pack over that interval cannot be called braking?
+
+    `fuel_now` None is a BEV, or a poll that did not carry signal 3263: not evidence either way, so
+    the energy counts (refusing it would quietly zero the regen of a car that reports the signal
+    intermittently — about two polls in three on the bundle this was measured on). `fuel_before`
+    None on a car that DOES report the counter is "nothing to compare with", which is not an
+    attribution either: on such a car we do not count what we cannot attribute.
+
+    Shared on purpose by the live recorder and by crash recovery, so the two cannot drift.
+    """
+    if fuel_now is None:
+        return False
+    if fuel_before is None:
+        return True
+    return fuel_before - fuel_now >= _REEV_GENERATOR_MIN_DROP_L
+
+
 class Database:
     def __init__(self, path: str = "leapmotor_mate.db"):
         self._path = path
@@ -261,7 +291,9 @@ class Database:
         # to `database is locked`, on a NAS share, which is exactly a filesystem that cannot give
         # SQLite the shared memory WAL needs). Kept, logged, and printed in the bundle.
         self.journal_mode = (self._conn.execute("PRAGMA journal_mode=WAL").fetchone() or [None])[0]
-        if str(self.journal_mode).lower() != "wal":
+        # `:memory:` answers `memory` and there is no filesystem to blame — the tests open one all
+        # the time, and accusing it was noise in every run and a false alarm to anyone reading a log.
+        if str(self.journal_mode).lower() not in ("wal", "memory"):
             log.warning("SQLite is in '%s' journal mode, not WAL — this database is on a filesystem "
                         "that cannot honour it. Readers will block writers, and a busy moment "
                         "surfaces as 'database is locked'.", self.journal_mode)
@@ -799,17 +831,33 @@ class Database:
     def prune_positions(self, retention_days: int) -> int:
         """Delete non-charging GPS samples older than retention_days (0/None = keep
         forever). Charging rows are kept so charge power curves survive; trips and their
-        trip_positions are a separate table and are never touched. VACUUMs when rows were
-        actually removed. Returns the number of rows deleted."""
+        trip_positions are a separate table and are never touched. A car's open trip keeps that
+        car's rows from its start on: the trip is closed on those readings (an outage can outlast
+        the retention, see Recorder._settle_trip_after_outage). Only that car's: another car is
+        pruned as if the trip did not exist, and a car the poller no longer reaches keeps just its
+        own rows, which no longer grow. For a car it still polls, the recorder bounds the wait: a
+        trip stays open only while the car is heard driving or not heard at all, when nothing is
+        written for it, and every trip an earlier run left open is settled on the car's first poll
+        (Recorder._resume_or_close, close_orphan_trips). VACUUMs when rows were actually removed.
+        Returns the number of rows deleted."""
         if not retention_days or retention_days <= 0:
             return 0
         cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
-        cur = self._conn.execute(
-            "DELETE FROM positions WHERE recorded_at < ? AND COALESCE(charging, 0) = 0",
-            (cutoff,),
-        )
-        self._conn.commit()
-        deleted = cur.rowcount or 0
+        open_since = dict(self._conn.execute(
+            "SELECT vehicle_id, MIN(started_at) FROM trips WHERE ended_at IS NULL"
+            " GROUP BY vehicle_id"))
+        deleted = 0
+        with self._conn:                                     # one transaction for every car
+            for vehicle_id, started_at in open_since.items():
+                deleted += self._conn.execute(
+                    "DELETE FROM positions WHERE vehicle_id = ? AND recorded_at < ?"
+                    " AND COALESCE(charging, 0) = 0", (vehicle_id, min(cutoff, started_at))).rowcount
+            # Every other car, by the retention alone.
+            placeholders = ",".join("?" * len(open_since))
+            others = f" AND vehicle_id NOT IN ({placeholders})" if open_since else ""
+            deleted += self._conn.execute(
+                "DELETE FROM positions WHERE recorded_at < ? AND COALESCE(charging, 0) = 0" + others,
+                (cutoff, *open_since)).rowcount
         if deleted > 0:
             self._conn.execute("VACUUM")
             log.info("Pruned %d old positions rows (retention %dd) and reclaimed space",
@@ -1239,7 +1287,9 @@ class Database:
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 vehicle_id, _now_iso(),
-                data.latitude, data.longitude, data.speed_kmh, data.odometer_km,
+                data.latitude, data.longitude,
+                data.speed_kmh if data.speed_reported else None,
+                data.odometer_km if data.odometer_reported else None,
                 data.soc, data.outside_temp, data.inside_temp, data.climate_target_temp,
                 data.battery_min_temp, data.range_km, data.gear,
                 1 if data.charging_status > 0 else 0,
@@ -1288,14 +1338,62 @@ class Database:
             return None, None
         return float(row["soc"]), row["recorded_at"]
 
-    def get_last_odometer(self, vehicle_id: int):
-        """The most recent recorded odometer (km) for this vehicle, or None. Seeds the recorder's
-        odometer baseline across a poller restart so a drive that happened while the poller was DOWN is
-        still caught (odometer-jump trip reconstruction). Ignores 0/glitch readings."""
-        row = self._conn.execute(
-            "SELECT odometer_km FROM positions WHERE vehicle_id = ? AND odometer_km > 0 "
-            "ORDER BY id DESC LIMIT 1", (vehicle_id,)).fetchone()
-        return float(row["odometer_km"]) if row and row["odometer_km"] else None
+    def get_last_odometer_reading(self, vehicle_id: int):
+        """The most recent reading with an odometer for this vehicle, as (odometer km, soc,
+        recorded_at, charging, frame_ts) all from one row, or None. Seeds the recorder's odometer
+        baseline across a poller restart so a drive that happened while the poller was DOWN is
+        still caught (odometer-jump trip reconstruction). Ignores 0/glitch readings.
+
+        A repeated frame moves nothing, as in the running recorder, so the reading is the first
+        row of the run of that frame to carry an odometer."""
+        # "Last" and "first" are in the order the rows were written, which a host clock stepped
+        # back does not change (idx_positions_vehicle_order).
+        cols = "id, odometer_km, soc, recorded_at, charging, frame_ts"
+        last = self._conn.execute(
+            f"SELECT {cols} FROM positions WHERE vehicle_id = ? AND odometer_km > 0"
+            " ORDER BY id DESC LIMIT 1", (vehicle_id,)).fetchone()
+        if last is None:
+            return None
+        first = last
+        if last["frame_ts"] is not None:
+            # This car's last row before the run of that frame: another frame, or none recorded.
+            boundary = self._conn.execute(
+                "SELECT id FROM positions WHERE vehicle_id = ? AND id < ? AND frame_ts IS NOT ?"
+                " ORDER BY id DESC LIMIT 1", (vehicle_id, last["id"], last["frame_ts"])).fetchone()
+            # Every row of this car after it, up to the last one, carries that frame.
+            first = self._conn.execute(
+                f"SELECT {cols} FROM positions WHERE vehicle_id = ? AND id > ? AND odometer_km > 0"
+                " ORDER BY id LIMIT 1",
+                (vehicle_id, boundary["id"] if boundary else 0)).fetchone()
+        return (float(first["odometer_km"]), first["soc"], first["recorded_at"],
+                bool(first["charging"]), first["frame_ts"])
+
+    def charge_open_since(self, vehicle_id: int, since: Optional[str]) -> bool:
+        """Whether a charge session of this car was open at any moment after `since`, a time on our
+        clock. A live charge can end on the car's clock (_charging_end_in_window), but only between
+        two of our readings and never after we first read its last charging frame: its end falls
+        after `since` only when that frame came after it, and before `since` only when a charging
+        reading came at or after it, which charging_read_since answers for. A range extender's
+        charge, known from its rising SoC, has no charging readings, and ends on our clock."""
+        if not since:
+            return False
+        return self._conn.execute(
+            "SELECT 1 FROM charges WHERE vehicle_id = ? AND (ended_at IS NULL OR ended_at > ?)"
+            " LIMIT 1", (vehicle_id, since)).fetchone() is not None
+
+    def charging_read_since(self, vehicle_id: int, since: Optional[str],
+                            frame_ts: Optional[int]) -> bool:
+        """Whether a charging reading of this car was stored after `since`, a time on our clock.
+        A repeat of `frame_ts`, the frame read at `since`, is no new reading: the cloud can serve a
+        finished charge's last frame for hours."""
+        if not since:
+            return False
+        sql = "SELECT 1 FROM positions WHERE vehicle_id = ? AND charging = 1 AND recorded_at > ?"
+        args: list = [vehicle_id, since]
+        if frame_ts is not None:
+            sql += " AND frame_ts IS NOT ?"
+            args.append(frame_ts)
+        return self._conn.execute(sql + " LIMIT 1", args).fetchone() is not None
 
     def get_last_frame_ts(self, vehicle_id: int):
         """The newest cloud-frame timestamp on record for this vehicle, or None. Seeds the recorder's
@@ -1398,8 +1496,12 @@ class Database:
                  "no trip", distance_km, (soc_start or 0) - (soc_end or 0), started_at, ended_at)
         return cur.lastrowid
 
-    def create_trip(self, vehicle_id: int, data, head=None) -> int:
-        """`head` (optional) is {"odometer_km", "soc"} — and since v3.8.8 also "latitude"/"longitude"
+    def create_trip(self, vehicle_id: int, data, head=None, started_at: Optional[str] = None) -> int:
+        """`started_at` (optional) is when the poll that opens the trip began. The recorder saves
+        the opening frame to `positions` before it opens the trip, so a trip stamped later than that
+        would not count its own first reading as inside it.
+
+        `head` (optional) is {"odometer_km", "soc"} — and since v3.8.8 also "latitude"/"longitude"
         when a usable one was held — from the last poll before the trip opened, supplied only when
         the car demonstrably drove while we couldn't see it (Recorder._offline_head, #130/#233). It
         moves the trip's START anchors back over those unseen kilometres, so the distance, the
@@ -1424,7 +1526,7 @@ class Database:
             """INSERT INTO trips (vehicle_id, started_at, start_lat, start_lon, start_geohash,
                start_soc, start_odometer_km, drive_mode, one_pedal, fuel_start_pct, fuel_start_l)
                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-            (vehicle_id, _now_iso(), start_lat, start_lon, start_gh,
+            (vehicle_id, started_at or _now_iso(), start_lat, start_lon, start_gh,
              start_soc, start_odo, drive_mode, one_pedal,
              getattr(data, "fuel_level_pct", None),   # REEV Phase C — fuel % at trip start (NULL on BEV)
              getattr(data, "fuel_liters", None)),     # …and the car's own litre count (3263)
@@ -1511,7 +1613,22 @@ class Database:
 
         🔑 Nothing new has to be recorded to know this. While DRIVING the recorder does not save a
         position for a repeated frame (#128), so the LAST `positions` row of such a trip already is
-        the last thing the car said.
+        the last thing the car said."""
+        seen = self.trip_last_seen(trip_id)
+        return seen[0] if seen else None
+
+    def trip_last_seen(self, trip_id: int,
+                       before: Optional[str] = None) -> Optional[tuple[str, sqlite3.Row]]:
+        """The last `positions` row inside this trip, and the moment it stands for. The row carries
+        what `finalize_trip` reads from a frame, under the same names.
+
+        "Last" is in the order the rows were written, not by our clock, which can step back: the
+        latest time is then an earlier reading, and a trip closed on it ends short of the odometer
+        the car last gave. The window below is still on our clock, so a step back further than the
+        trip so far, or than the silence after it, hides rows from it.
+
+        `before` (our clock) leaves out the rows saved from then on: the recorder saves the frame in
+        hand before it decides what that frame means, so "the last row" alone would be that frame.
 
         The car's own clock (`frame_ts`) is preferred over ours, for the same reason the charge
         prefers it — it is the measurement's own time, not the time we happened to poll. ⚠️ And it
@@ -1522,10 +1639,12 @@ class Database:
             "SELECT vehicle_id, started_at FROM trips WHERE id=?", (trip_id,)).fetchone()
         if trip is None or not trip["started_at"]:
             return None
+        bound, args = ("", ()) if before is None else (" AND recorded_at<?", (before,))
         row = self._conn.execute(
-            "SELECT recorded_at, frame_ts FROM positions"
-            " WHERE vehicle_id=? AND recorded_at>=? ORDER BY recorded_at DESC LIMIT 1",
-            (trip["vehicle_id"], trip["started_at"])).fetchone()
+            "SELECT recorded_at, frame_ts, soc, odometer_km, latitude, longitude,"
+            " fuel_level_pct, fuel_liters FROM positions"
+            " WHERE vehicle_id=? AND recorded_at>=?" + bound + " ORDER BY id DESC LIMIT 1",
+            (trip["vehicle_id"], trip["started_at"], *args)).fetchone()
         if row is None:
             return None
         ended_at = row["recorded_at"]
@@ -1533,7 +1652,18 @@ class Database:
             frame_iso = datetime.fromtimestamp(int(row["frame_ts"]) / 1000, timezone.utc).isoformat()
             if frame_iso > trip["started_at"]:
                 ended_at = frame_iso
-        return ended_at
+        return ended_at, row
+
+    def trip_opening(self, trip_id: int) -> tuple[str, sqlite3.Row]:
+        """The trip's opening, shaped like `trip_last_seen`'s answer: what a trip heard last when no
+        row inside it is left."""
+        row = self._conn.execute(
+            "SELECT started_at, started_at AS recorded_at, NULL AS frame_ts,"
+            " start_soc AS soc, start_odometer_km AS odometer_km,"
+            " start_lat AS latitude, start_lon AS longitude,"
+            " fuel_start_pct AS fuel_level_pct, fuel_start_l AS fuel_liters"
+            " FROM trips WHERE id=?", (trip_id,)).fetchone()
+        return row["started_at"], row
 
     def finalize_trip(self, trip_id: int, data, regen_kwh: float = 0.0,
                       end_at_override: Optional[str] = None) -> Optional[float]:
@@ -1853,6 +1983,12 @@ class Database:
             # partial frame carrying someone else's timestamp) would invert the session.
             if frame_iso > started_at and (not before or frame_iso < before):
                 ended_at = frame_iso
+            # Whichever time was taken, never after Mate first read that frame: it was made before,
+            # a later car clock runs ahead of ours, and a repeat of it is no new reading.
+            first_read = self._conn.execute(
+                "SELECT MIN(recorded_at) FROM positions WHERE vehicle_id=? AND recorded_at>=?"
+                " AND frame_ts=?", (vehicle_id, started_at, row["frame_ts"])).fetchone()[0]
+            ended_at = min(ended_at, first_read)
         return row["soc"], ended_at
 
     def charge_end_from_last_charging(self, charge_id: int):
@@ -1979,16 +2115,19 @@ class Database:
 
     # ── Startup cleanup ───────────────────────────────────────────────────
 
-    def close_orphan_trips(self, vehicle_id: int) -> int:
+    def close_orphan_trips(self, vehicle_id: int, keep: Optional[int] = None) -> int:
         """
         Called at poller startup. Finalizes any trip left open by a previous
-        crash using the last recorded trip_position as the end point.
+        crash using the last recorded trip_position as the end point, except
+        `keep`, the one the recorder resumes.
         Returns number of trips closed.
+        prune_positions keeps a car's rows from its oldest open trip on, so for a
+        car still polled this is also what bounds that across a restart.
         """
         orphans = self._conn.execute(
             "SELECT id, start_soc, start_odometer_km, started_at FROM trips "
-            "WHERE vehicle_id = ? AND ended_at IS NULL",
-            (vehicle_id,),
+            "WHERE vehicle_id = ? AND ended_at IS NULL AND id IS NOT ?",
+            (vehicle_id, keep),
         ).fetchall()
 
         closed = 0
@@ -2037,15 +2176,90 @@ class Database:
                 duration_min = (ended_at_dt - started_at).total_seconds() / 60
 
                 end_gh = geohash.encode(last_pos["latitude"], last_pos["longitude"])
+                # The odometer the drive ended on. `trip_positions` does not carry it, so it comes
+                # from the poll rows in the same window — the table this function already reaches
+                # into for the range-extender's fuel just above. Without it the trip keeps an empty
+                # end and the odometer chain that finds unattributed kilometres breaks exactly
+                # there (#298: `odo 3233→—`, 41.4 km, closed by this path after a restart 74
+                # minutes into the drive). A reading that would run the trip backwards, or no
+                # reading at all, leaves the end empty: nothing better exists for it.
+                # → tests/test_a_trip_closed_by_crash_recovery_keeps_its_end_odometer.py
+                _odo = self._conn.execute(
+                    "SELECT odometer_km FROM positions WHERE vehicle_id=? AND recorded_at BETWEEN ? AND ?"
+                    " AND odometer_km IS NOT NULL ORDER BY recorded_at DESC LIMIT 1",
+                    (vehicle_id, trip["started_at"], ended_at_iso)).fetchone()
+                end_odo = _odo["odometer_km"] if _odo else None
+                if end_odo is not None and trip["start_odometer_km"] is not None \
+                        and end_odo < trip["start_odometer_km"]:
+                    end_odo = None
+                # The fuel the drive ended on, from the same poll rows and for the same reason as
+                # the odometer above: `trip_positions` does not carry it, and a trip closed here
+                # kept its START reading and lost its end, so `_reev_trip_fuel` held one side of a
+                # subtraction and answered "unknown" for ever. Measured on @ebagnoli's history
+                # (29/09/2026): 11 of his 150 trips, all carrying this path's own fingerprint — a
+                # distance rounded to THREE decimals, which `finalize_trip` never produces.
+                #
+                # The two signals are read independently by the car — 3235 the tank percentage,
+                # 3263 the millilitre counter — and one arrives without the other often enough to
+                # matter (9 more of his trips), so each takes the last poll that carried IT.
+                #
+                # No "went backwards" guard, unlike the odometer: a tank that ROSE is a refuel, and
+                # `_reev_trip_fuel` is what decides that no consumption can be read from such a
+                # drive. Dropping the reading here would delete that evidence and republish the
+                # drive as pure electric instead (beta #30, @pdifeo).
+                # → tests/test_a_trip_closed_by_crash_recovery_keeps_its_end_fuel.py
+                _pct = self._conn.execute(
+                    "SELECT fuel_level_pct FROM positions WHERE vehicle_id=? AND recorded_at BETWEEN ? AND ?"
+                    " AND fuel_level_pct IS NOT NULL ORDER BY recorded_at DESC LIMIT 1",
+                    (vehicle_id, trip["started_at"], ended_at_iso)).fetchone()
+                _lit = self._conn.execute(
+                    "SELECT fuel_liters FROM positions WHERE vehicle_id=? AND recorded_at BETWEEN ? AND ?"
+                    " AND fuel_liters IS NOT NULL ORDER BY recorded_at DESC LIMIT 1",
+                    (vehicle_id, trip["started_at"], ended_at_iso)).fetchone()
+                # The regen too — the third column this path dropped. It is a running total the
+                # recorder keeps in memory and hands to finalize_trip, so a restart mid-drive loses
+                # it and the trip is published reading 0.00 kWh recovered, which on a BEV is a
+                # number on screen and not a blank. Every input is stored per poll, so it is
+                # recomputable exactly, under the recorder's own rule and the SAME
+                # `_generator_was_running`, so a range-extender's generator is not counted here
+                # either. Integrated over the REAL interval between rows, and a gap longer than
+                # _RECOVERY_MAX_GAP_S is skipped: a current read five minutes ago says nothing
+                # about the five minutes of silence after it.
+                # → tests/test_a_trip_closed_by_crash_recovery_keeps_its_regen.py
+                _rows = self._conn.execute(
+                    "SELECT recorded_at, charge_current_a, charge_voltage_v, plug_connected,"
+                    " fuel_liters FROM positions WHERE vehicle_id=? AND recorded_at BETWEEN ? AND ?"
+                    " ORDER BY recorded_at", (vehicle_id, trip["started_at"], ended_at_iso)).fetchall()
+                _regen = 0.0
+                _fuel_before = None
+                for _a, _b in zip(_rows, _rows[1:]):
+                    _gap = (datetime.fromisoformat(_b["recorded_at"])
+                            - datetime.fromisoformat(_a["recorded_at"])).total_seconds()
+                    _gen = _generator_was_running(_fuel_before, _a["fuel_liters"])
+                    if _a["fuel_liters"] is not None:
+                        _fuel_before = _a["fuel_liters"]
+                    if (0 < _gap <= _RECOVERY_MAX_GAP_S and not _a["plug_connected"] and not _gen
+                            and (_a["charge_current_a"] or 0) < -3.0
+                            and _a["charge_voltage_v"] is not None):
+                        _regen += (abs(_a["charge_current_a"] * _a["charge_voltage_v"]) / 1000.0
+                                   * _gap / 3600.0)
                 self._conn.execute(
                     """UPDATE trips SET ended_at=?, end_lat=?, end_lon=?, end_geohash=?, end_soc=?,
-                       distance_km=?, duration_min=?, efficiency_kwh_100km=?
+                       distance_km=?, duration_min=?, efficiency_kwh_100km=?,
+                       end_odometer_km=COALESCE(?, end_odometer_km),
+                       fuel_end_pct=COALESCE(?, fuel_end_pct),
+                       fuel_end_l=COALESCE(?, fuel_end_l),
+                       regen_kwh=?
                        WHERE id=?""",
                     (
                         ended_at_iso,
                         last_pos["latitude"], last_pos["longitude"], end_gh, end_soc,
                         round(distance_km, 3), round(duration_min, 1),
                         round(efficiency, 2) if efficiency else None,
+                        end_odo,
+                        _pct["fuel_level_pct"] if _pct else None,
+                        _lit["fuel_liters"] if _lit else None,
+                        round(_regen, 3),
                         trip_id,
                     ),
                 )

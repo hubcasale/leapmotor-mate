@@ -500,8 +500,20 @@ def _reev_engine_on(db, vehicle_id, started_at, ended_at) -> Optional[dict]:
     return {"engine_km": round(engine_km, 1), "engine_fuel_pct": round(engine_fuel_pct, 2)}
 
 
+def _cloud_fuel_index() -> dict:
+    """{trip_id: litres} from the car's own cloud, for `_reev_trip_fuel` to prefer. Built ONCE per
+    read like `_trip_fuel_rate_fn`: the match walks every staged record, which is fine once and
+    quadratic per trip. Empty on a BEV, on an install whose cloud has never synced, and for any
+    drive outside the cloud's 28-day window — and an empty index simply leaves the tank's answer."""
+    try:
+        from trip_energy import cloud_fuel_by_trip
+        return cloud_fuel_by_trip(_get())
+    except sqlite3.Error:
+        return {}
+
+
 def _reev_trip_fuel(fuel_start_pct, fuel_end_pct, distance_km, engine=None,
-                    fuel_start_l=None, fuel_end_l=None, tank_l=None) -> dict:
+                    fuel_start_l=None, fuel_end_l=None, tank_l=None, cloud_l=None) -> dict:
     """REEV Phase C — per-trip fuel from the tank-% drop. There's no 'engine on' PID: the range-extender
     ran iff the fuel level dropped more than the signal-noise floor. `engine` (from _reev_engine_on) is
     the generator's driving footprint; when present the L/100 km is fuel-burned-while-driving over
@@ -514,9 +526,28 @@ def _reev_trip_fuel(fuel_start_pct, fuel_end_pct, distance_km, engine=None,
     has them; the tank-% × assumed-capacity path below is the fallback for a BEV, an unknown model,
     or any trip recorded before v2.14.1. `tank_l` overrides the assumed capacity (per model)."""
     out = {"fuel_used_l": None, "fuel_l_100km": None, "engine_ran": False, "engine_km": None,
-           "fuel_refuelled": False}
-    if fuel_start_pct is None or fuel_end_pct is None:
+           "fuel_refuelled": False, "mate_fuel_l": None, "cloud_fuel_l": cloud_l,
+           "fuel_source": None}
+
+    def _from_cloud(tank_l_value, engine_km_value):
+        """The cloud's litres, with the tank's kept beside them. Applied at every exit below, because
+        the tank has several ways of having no answer (no columns, a mid-drive refuel, a drop under
+        the noise floor) and the cloud's figure is just as good on all of them."""
+        out["mate_fuel_l"] = tank_l_value
+        out["fuel_source"] = "cloud"
+        out["fuel_used_l"] = round(cloud_l, 3)
+        # The generator ran iff something was burned. A cloud 0.0 must not leave `engine_ran` true
+        # from the tank's noise floor, and it must not leave it false when the cloud saw litres the
+        # tank's threshold swallowed.
+        out["engine_ran"] = cloud_l > 0
+        out["engine_km"] = engine_km_value
+        out["fuel_l_100km"] = (round(cloud_l / distance_km * 100, 1)
+                               if distance_km and distance_km > 0.5 and cloud_l > 0 else None)
         return out
+
+    _engine_km = (engine["engine_km"] if engine and engine.get("engine_km", 0) > 0.5 else None)
+    if fuel_start_pct is None or fuel_end_pct is None:
+        return _from_cloud(None, _engine_km) if cloud_l is not None else out
     drop = fuel_start_pct - fuel_end_pct
     # The tank ended FULLER than it started: he filled up during the drive. The litres are then
     # start − end = a negative number, which fell straight into the "nothing burned" branch below
@@ -529,8 +560,11 @@ def _reev_trip_fuel(fuel_start_pct, fuel_end_pct, distance_km, engine=None,
     # know is: something may well have been burned, and we cannot say how much. That is unknown,
     # not zero — and a zero is what quietly disappears into every fuel total.
     if drop < -_REEV_FUEL_MIN_DROP:
+        # 🔑 The tank ended fuller, so IT cannot say what was burned — but the cloud can, and on this
+        # one case it turns an "unknown" into a figure. `fuel_refuelled` stays true either way: the
+        # tank really did move up, and a page that shows the litres should still be able to say so.
         out["fuel_refuelled"] = True
-        return out
+        return _from_cloud(None, _engine_km) if cloud_l is not None else out
     cap = tank_l if tank_l else reev_tank_l()
     measured = (fuel_start_l - fuel_end_l) if (fuel_start_l is not None and fuel_end_l is not None) else None
     # The noise floor belongs to whichever signal is actually being read. 3235 (%) moves in steps of
@@ -542,12 +576,32 @@ def _reev_trip_fuel(fuel_start_pct, fuel_end_pct, distance_km, engine=None,
     # trips; beta #22 @pdifeo: ~2.1 L over 35 km reported as 0.3). The tank constants were right
     # all along; the guard was on the wrong signal, and it ran BEFORE the fine one was even read.
     if measured is not None and measured > _REEV_FUEL_MIN_L:
-        out["fuel_used_l"] = round(measured, 3)
+        tank = round(measured, 3)
     elif measured is None and drop > _REEV_FUEL_MIN_DROP:
-        out["fuel_used_l"] = round(drop / 100.0 * cap, 2)
+        tank = round(drop / 100.0 * cap, 2)
+    elif measured == 0:
+        # 🔑 IDENTICAL at both ends, on a counter that resolves MILLILITRES: that is a measurement
+        # saying the generator never ran, not an absence of one. It used to fall into the `None`
+        # below beside "the tank was never read", and the page showed the two the same way — a blank.
+        # Measured on @ebagnoli's 150 trips (29/09/2026): 79 land here, every one of them exactly
+        # 0.0, not one in the 0–5 mL band. The percentage gauge gets NO such branch: signal 3235
+        # steps by 0.1, about 47 mL of the tank, so a motionless gauge is compatible with a burn.
+        tank = 0.0
     else:
-        return out                      # nothing burned, or too little to tell from noise
-    out["engine_ran"] = True
+        tank = None                     # nothing burned, or too little to tell from noise
+    if cloud_l is not None:
+        return _from_cloud(tank, _engine_km)
+    out["mate_fuel_l"] = tank
+    if tank is None:
+        return out
+    out["fuel_source"] = "mate"
+    out["fuel_used_l"] = tank
+    # `tank` is 0.0 on a drive the counter measured as pure-electric (see above). Everything below
+    # is about a drive that BURNED something: a zero has no generator footprint to name and no rate
+    # to print — 0 L/100 km is arithmetic on a zero, and it would read as a measured efficiency.
+    out["engine_ran"] = tank > 0
+    if not tank:
+        return out
     # engine_km is still measured and still shown — it says how far the generator actually drove —
     # but it is NO LONGER the denominator. The L/100 km is over the WHOLE distance, which is what
     # the car itself reports (getPlugIn's oc100km) and therefore what the owner sees in the official
@@ -2006,31 +2060,109 @@ def _resolve_band_price(bands: list, ctype: str, weekday: int, minute: int,
     return base, base_set
 
 
-def _next_charge_start_utc(db, started_at) -> Optional[str]:
+def _next_charge_start_utc(db, started_at, exclude_ids=()) -> Optional[str]:
     """UTC start of the first charge beginning strictly after `started_at` (a raw stored
     value), or None. Used to cap a charge's power-sample window: an orphan/overlapping
     charge whose ended_at bled past a later charge (see the poller's close_orphan_charges)
-    must NOT absorb the next charge's power samples into its own window or cost."""
+    must NOT absorb the next charge's power samples into its own window or cost.
+
+    `exclude_ids` are rows that are not "a later charge" at all: the other pieces of THIS
+    plug-in, which the car split and a merge joined back (#341). Counting one of those as the
+    next charge cut the session's own curve at its first piece."""
+    holes = ",".join("?" * len(exclude_ids))
     try:
         row = db.execute(
-            "SELECT MIN(started_at) AS s FROM charges WHERE vehicle_id = COALESCE(?, vehicle_id) AND started_at > ?",
-            (_current_vehicle_id(), started_at)
+            "SELECT MIN(started_at) AS s FROM charges WHERE vehicle_id = COALESCE(?, vehicle_id) AND started_at > ?"
+            + (f" AND id NOT IN ({holes})" if exclude_ids else ""),
+            (_current_vehicle_id(), started_at, *exclude_ids)
         ).fetchone()
     except sqlite3.Error:
         return None   # no charges table (isolated unit tests) → no cap
     return _iso_to_utc(row["s"]) if (row and row["s"]) else None
 
 
-def _power_window_bounds(db, started_at, ended_at):
+# ── Which `positions` rows belong to a charge ────────────────────────────────────────────────────
+# `positions.charging` is the car's OWN flag (`poller/client._is_charging`, which needs
+# `abs(pack current) >= _CHARGE_CURRENT_MIN_A` — the user's charge-detection setting, 2.0 A by
+# default). Some cars stop asserting it while they are still charging. @arzthilfe's C10 (#341) drops
+# it the moment his wallbox goes from 11 A to 8 A, because the pack current then reads 1.7 A:
+#
+#     22:17:21  plug=1 chg=1 A=-2.3      <- 11 A
+#     22:17:52  plug=1 chg=0 A=-1.7      <- 8 A: the flag goes, the current does not
+#
+# and the night carries on at A=-1.6/-1.7 with `State: charging` and the SoC rising 78.9 → 92.2.
+# 146 of that session's 1177 polls are flagged. The SESSION is right — the state machine also holds
+# it on the cable — so it is one row, unmerged; only the queries that read it back by the raw flag
+# lost seven hours of it, the power chart he reported among them.
+#
+# Inside a session's window a NEGATIVE pack current IS charge, whatever the flag says. The two extra
+# gates are the ones `_is_charging` uses, for the same reason: a car in gear or moving has a strongly
+# negative pack current from regen, and an abandoned session whose `ended_at` bled past the drive
+# that followed it (poller.close_orphan_charges) would otherwise pull that drive in.
+#
+# MEASURED on a real 375k-row history: of the 8581 unflagged rows with a charging-sign current, the
+# motion gate excludes 8580. The one it keeps is 69 s inside a session whose flag had not caught up —
+# one that should count. And NO parked sample sits between -0.5 A and 0, so the floor is below
+# everything measured rather than fitted to it.
+_CHARGE_SAMPLE_MIN_A = 0.5     # |pack current| under this, parked, is not energy
+
+
+def _charging_sample(alias: str = "") -> str:
+    """SQL predicate: this row is a sample of the charge whose window contains it.
+
+    ⚠️ Only sound INSIDE a charge's window. On its own it matches every regen frame of every drive
+    (the motion gate is a guard against a bled window, not a substitute for the window)."""
+    q = f"{alias}." if alias else ""
+    return (f"({q}charging = 1 OR ({q}charge_current_a <= -{_CHARGE_SAMPLE_MIN_A} "
+            f"AND COALESCE({q}speed_kmh, 0) <= 2 AND COALESCE({q}gear, 'P') = 'P'))")
+
+
+def _power_window_bounds(db, started_at, ended_at, exclude_ids=()):
     """(lower_utc, upper, upper_is_exclusive) for a charge's charging=1 samples, capping
     the upper bound at the next charge's start so a window/cost never leaks across charges.
-    When capped, the upper bound is EXCLUSIVE (the next charge owns samples at its start)."""
+    When capped, the upper bound is EXCLUSIVE (the next charge owns samples at its start).
+    `exclude_ids`: rows that are this same plug-in's other pieces — see _next_charge_start_utc."""
     lo = _iso_to_utc(started_at) or started_at
     hi = _iso_to_utc(ended_at) or lo
-    nxt = _next_charge_start_utc(db, started_at)
+    nxt = _next_charge_start_utc(db, started_at, exclude_ids)
     if nxt and nxt <= hi:
         return lo, nxt, True
     return lo, hi, False
+
+
+def _charge_group_span(db, charge_id: int, started_at, ended_at):
+    """(start, end, other_piece_ids) for the whole plug-in this row belongs to.
+
+    A charge the car reported as several rows is ONE session everywhere the user looks — the
+    header, the kilowatt-hours, the duration all come from `_charge_group_stats`. Its power curve
+    has to span the same thing (#341, @arzthilfe: turning the wallbox down from 11 A to 8 A ended
+    the chart at that moment, while the session ran on for another nine hours).
+
+    `end` is None when any piece is still running: an open session has no upper bound yet. Alone,
+    the row's own two timestamps and no ids, which is the query every unmerged charge already made.
+
+    Only the PARENT widens. It is the row the session is read from — a merged child keeps the
+    window it always had, so nothing that asks for a piece by id starts seeing the session twice.
+
+    The ids come back so the cap can skip them: the second piece starts exactly where the first
+    ends, and `_next_charge_start_utc` counting it as "the next charge" is what trimmed the curve
+    in the first place.
+
+    ⚠️ The CURVE only. The cost and energy readers price each piece separately and the group sums
+    them afterwards, so widening their window would bill the same kilowatt-hours twice.
+    → tests/test_a_merged_charges_power_curve_covers_the_whole_session.py"""
+    if not _charges_have_merge(db):
+        return started_at, ended_at, ()
+    kids = [r["id"] for r in db.execute(
+        "SELECT id FROM charges WHERE merged_into_id = ?", (charge_id,)).fetchall()]
+    if not kids:
+        return started_at, ended_at, ()
+    holes = ",".join("?" * len(kids))
+    rows = db.execute(f"SELECT started_at, ended_at FROM charges WHERE id IN ({holes})",
+                      tuple(kids)).fetchall()
+    starts = [started_at] + [r["started_at"] for r in rows if r["started_at"]]
+    ends = [ended_at] + [r["ended_at"] for r in rows]
+    return min(starts), (max(ends) if all(ends) else None), (charge_id, *kids)
 
 
 def _dynamic_sensor_cost(charge, energy: float, base: float, ctype: str = None) -> Optional[float]:
@@ -2050,7 +2182,7 @@ def _dynamic_sensor_cost(charge, energy: float, base: float, ctype: str = None) 
     lo, hi, excl = _power_window_bounds(db, charge["started_at"], charge["ended_at"])
     rows = db.execute(
         "SELECT recorded_at, charge_voltage_v, charge_current_a FROM positions "
-        "WHERE vehicle_id = COALESCE(?, vehicle_id) AND charging = 1 AND recorded_at >= ? AND recorded_at "
+        "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() + " AND recorded_at >= ? AND recorded_at "
         + ("<" if excl else "<=")
         + " ? ORDER BY recorded_at",
         (_current_vehicle_id(), lo, hi),
@@ -2247,7 +2379,7 @@ def compute_cost(charge, config: Optional[dict] = None, ac_kwh: Optional[float] 
     lo, hi, excl = _power_window_bounds(db, charge["started_at"], charge["ended_at"])
     rows = db.execute(
         "SELECT recorded_at, charge_voltage_v, charge_current_a FROM positions "
-        "WHERE vehicle_id = COALESCE(?, vehicle_id) AND charging = 1 AND recorded_at >= ? AND recorded_at "
+        "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() + " AND recorded_at >= ? AND recorded_at "
         + ("<" if excl else "<=")
         + " ? ORDER BY recorded_at",
         (_current_vehicle_id(), lo, hi),
@@ -3230,7 +3362,11 @@ def list_fuel_purchases(limit: int = 200) -> list:
 #
 # `driveReevOil` is why this exists: the fuel that ONE drive burned, by the car's own cloud. Measured
 # 27/09/2026 on 183 records of a B10 — present on every one, reading 0.0, which is correct for a BEV
-# and no answer for a range-extender. Its UNIT is unverified: litres, or millilitres like signal 3263.
+# and no answer for a range-extender. Its UNIT is LITRES, settled on 29/09/2026 against @ebagnoli's
+# 19/09 drive: the official app states 77 km / 0.3 kWh / 4.9 L for it and the record reads
+# `totalMileage` 77.0, `totalEnergy` 0.3, `driveReevOil` 4.9 — three fields agreeing at once, which
+# a factor of a thousand could not survive. It is also the figure Mate now shows for such a drive
+# (see `trip_energy.cloud_fuel_by_trip`), so this export is what would catch it drifting.
 # `accountId` is dropped and the VIN masked — these rows identify an account and the pack travels.
 # `started_at`/`ended_at` are derived because matching a record to a trip is the whole point: one REEV
 # drive whose litres we know independently is what calibrates the unit.
@@ -3934,6 +4070,12 @@ def save_fresh_signals(signals: dict) -> None:
     def sig(key, default=0):  return int(signals.get(key) or default)
     def sigf(key, default=0.0): return float(signals.get(key) or default)
 
+    def sigf_or_none(key):   # a signal the car did not send stays absent in `positions`, not 0
+        try:
+            return float(signals[key]) if signals.get(key) is not None else None
+        except (TypeError, ValueError):
+            return None
+
     def _is_charging() -> bool:
         """Charging only happens while PARKED, so the car must be stationary (gear P,
         speed ~0); plus the cable plugged in (1149) AND a real charge current (1178). The
@@ -4021,14 +4163,14 @@ def save_fresh_signals(signals: dict) -> None:
             door_driver_open, door_passenger_open, door_rear_left_open, door_rear_right_open,
             window_fl_open, window_rl_open, ac_port_mode,
             fan_level, recirculation, climate_mode,
-            fuel_level_pct, fuel_range_km, combined_range_km
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            fuel_level_pct, fuel_range_km, combined_range_km, frame_ts
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             vehicle_id,
             datetime.now(timezone.utc).isoformat(),
             _coord_from_signals(signals, "lat"),   # signed pair first (#158) — never the bare
             _coord_from_signals(signals, "lon"),   # unsigned magnitude, or west cars land at sea
-            sigf("1319"), sigf("1318"),
+            sigf_or_none("1319"), sigf_or_none("1318"),
             sigf("100003") or sigf("1204"),
             sigf("3260"),
             gear_map.get(sig("1010"), "P"),
@@ -4056,6 +4198,8 @@ def save_fresh_signals(signals: dict) -> None:
             # BEV — sigf() would coerce absent → 0.0 and wrongly trip the "has fuel" guard at 0%.
             float(signals["3235"]) if signals.get("3235") is not None else None,
             sigf("3259") or None, sigf("3261") or None,   # fuel range (3259) + combined range (3261)
+            # The frame's own clock, read as the poller reads it: 0 or absent is no clock → NULL.
+            int(signals.get("sts") or signals.get("1") or 0) or None,
         ),
     )
     db.commit()
@@ -5606,6 +5750,7 @@ def get_trips(limit: int = 500) -> list[dict]:
     # Built ONCE for the whole list — the fuel twin of the electric rate timeline. Per trip it would
     # replay every refuel from the beginning, which is quadratic down a long list.
     _fuel_rate_at = _trip_fuel_rate_fn()
+    _cloud_fuel = _cloud_fuel_index()
     cloud_ids = _cloud_trip_ids(db)
     gps_ids = {r[0] for r in db.execute(
         "SELECT DISTINCT trip_id FROM trip_positions WHERE latitude IS NOT NULL AND longitude IS NOT NULL")}
@@ -5626,7 +5771,8 @@ def get_trips(limit: int = 500) -> list[dict]:
                 _seg).fetchone()
             _eng = _reev_engine_on(db, r["vehicle_id"], _b["s"], _b["e"])
         td.update(_reev_trip_fuel(_fs, _fe, td.get("distance_km"), _eng,
-                                  td.get("fuel_start_l"), td.get("fuel_end_l")))
+                                  td.get("fuel_start_l"), td.get("fuel_end_l"),
+                                  cloud_l=_cloud_fuel.get(r["id"])))
         # …and what those litres COST, the same allocation the detail page makes: litres × the
         # tank's blended €/L at the trip's start. Without it the trips reached the day and month
         # totals carrying petrol nobody could price, and those totals showed the electric half of a
@@ -5721,9 +5867,15 @@ def get_efficiency_vs_temp(include_fuel: bool = False, limit: int = 500,
     fuel_pts = []
     if include_fuel:
         kids = _children_by_parent(db)
+        _cloud_fuel = _cloud_fuel_index()
         for r in rows:
             _fs, _fe = r["fuel_start_pct"], r["fuel_end_pct"]
-            if _fs is None or _fe is None or (_fs - _fe) <= _REEV_FUEL_MIN_DROP:
+            # 🔑 A pre-filter on the tank, widened for the third source. This is the trap named on
+            # `_REEV_FUEL_ANY_DROP_SQL`: v3.6.6 fixed the litres in the reader and left filters like
+            # this one in front of it, so a row was dropped before the better signal could be read.
+            # A drive the cloud has litres for qualifies whatever the tank did.
+            if r["id"] not in _cloud_fuel and (
+                    _fs is None or _fe is None or (_fs - _fe) <= _REEV_FUEL_MIN_DROP):
                 continue
             kids_r = kids.get(r["id"], [])
             td = _trip_group_stats(dict(r), kids_r)
@@ -5734,7 +5886,8 @@ def get_efficiency_vs_temp(include_fuel: bool = False, limit: int = 500,
             eng = _reev_engine_on(db, r["vehicle_id"], b["s"], b["e"])
             f = _reev_trip_fuel(td.get("fuel_start_pct"), td.get("fuel_end_pct"),
                                 td.get("distance_km"), eng,
-                                td.get("fuel_start_l"), td.get("fuel_end_l"))
+                                td.get("fuel_start_l"), td.get("fuel_end_l"),
+                                cloud_l=_cloud_fuel.get(r["id"]))
             l100 = f.get("fuel_l_100km")
             t = _temp(r)
             if not l100 or t is None:
@@ -5779,13 +5932,17 @@ def reev_fuel_summary() -> Optional[dict]:
     total_l, engine_km, engine_l, n = 0.0, 0.0, 0.0, 0
     total_cost = 0.0
     total_km = 0.0        # EVERY kilometre driven — the L/100 km denominator, as the car's own is
+    _cloud_fuel = _cloud_fuel_index()
     for r in rows:
         eng = _reev_engine_on(db, r["vehicle_id"], r["started_at"], r["ended_at"])
         # Through _reev_trip_fuel, like the trips list and the period card. It used to work the
         # litres out again right here — a third copy of a rule that had just been corrected in one
-        # place, which is how this total stayed on the old answer after v3.6.6.
+        # place, which is how this total stayed on the old answer after v3.6.6. Same reason the cloud
+        # index is passed rather than consulted here: a card reading 3.9 L over a list of drives
+        # adding up to 4.9 is that defect wearing a different hat.
         f = _reev_trip_fuel(r["fuel_start_pct"], r["fuel_end_pct"], r["distance_km"], eng,
-                            r["fuel_start_l"], r["fuel_end_l"])
+                            r["fuel_start_l"], r["fuel_end_l"],
+                            cloud_l=_cloud_fuel.get(r["id"]))
         drop_l = f["fuel_used_l"]
         # ⚠️ The distance is added FIRST and unconditionally: a trip driven on the battery burned no
         # petrol but was still driven, and it is exactly what the L/100 km has to be spread over.
@@ -7447,8 +7604,11 @@ def get_trip_detail(trip_id: int) -> Optional[dict]:
     _fbounds = db.execute(f"SELECT MIN(started_at) s, MAX(ended_at) e FROM trips WHERE id IN ({ph})",
                           seg_ids).fetchone()
     _feng = _reev_engine_on(db, trip["vehicle_id"], _fbounds["s"], _fbounds["e"])
+    # The cloud's litres for THIS drive, keyed on the group's parent — the same id the trips list
+    # looks up, so the two pages cannot answer differently (the defect the block above describes).
     trip_d.update(_reev_trip_fuel(_fs, _fe, dist, _feng,
-                                  trip_d.get("fuel_start_l"), trip_d.get("fuel_end_l")))
+                                  trip_d.get("fuel_start_l"), trip_d.get("fuel_end_l"),
+                                  cloud_l=_cloud_fuel_index().get(trip["id"])))
     # REEV Phase D — the electric counterpart, from the metered getEC (driverEC) not ΔSoC. Shown
     # research-only next to the fuel so REEV testers can validate it against the car's own dashboard
     # before we ever promote it to the headline efficiency (see _reev_trip_elec).
@@ -7862,20 +8022,29 @@ def get_fuel_totals_between(begin_ts: int, end_ts: int) -> dict:
     e = datetime.fromtimestamp(end_ts, tz=timezone.utc).isoformat()
     out = {"fuel_l": 0.0, "engine_km": 0.0, "trip_count": 0}
     db = _get()
+    _cloud_fuel = _cloud_fuel_index()
+    # The tank filter, widened by the drives the cloud has litres for — the trap named on
+    # `_REEV_FUEL_ANY_DROP_SQL`, which is about a filter dropping a row before the reader could
+    # judge it. Inlined ids rather than a join: they come from our own index, they are integers, and
+    # there are as many as the cloud's 28-day window holds.
+    _ids = ",".join(str(int(i)) for i in _cloud_fuel)
+    _drop = _REEV_FUEL_ANY_DROP_SQL if not _ids else (
+        "(" + _REEV_FUEL_ANY_DROP_SQL + " OR id IN (" + _ids + "))")
     try:
         rows = db.execute(
             "SELECT id, vehicle_id, started_at, ended_at, distance_km, fuel_start_pct, fuel_end_pct,"
             " fuel_start_l, fuel_end_l FROM trips"
             " WHERE vehicle_id = COALESCE(?, vehicle_id) AND ended_at IS NOT NULL"
             "   AND started_at >= ? AND started_at <= ?"
-            "   AND " + _REEV_FUEL_ANY_DROP_SQL,
+            "   AND " + _drop,
             (_current_vehicle_id(), b, e, _REEV_FUEL_MIN_DROP)).fetchall()
     except sqlite3.Error:
         return out                      # no fuel columns → a BEV, and nothing to add
     for r in rows:
         eng = _reev_engine_on(db, r["vehicle_id"], r["started_at"], r["ended_at"])
         f = _reev_trip_fuel(r["fuel_start_pct"], r["fuel_end_pct"], r["distance_km"], eng,
-                            r["fuel_start_l"], r["fuel_end_l"])
+                            r["fuel_start_l"], r["fuel_end_l"],
+                            cloud_l=_cloud_fuel.get(r["id"]))
         if f["fuel_used_l"]:
             out["fuel_l"] += f["fuel_used_l"]
             out["engine_km"] += f["engine_km"] or 0
@@ -8110,7 +8279,7 @@ def get_charge_power_curve(charge_id: int) -> dict:
                     (charge_id, _current_vehicle_id())).fetchone()
     if not ch:
         return {"labels": [], "power": [], "soc": []}
-    start, end = ch["started_at"], ch["ended_at"]
+    start, end, pieces = _charge_group_span(db, charge_id, ch["started_at"], ch["ended_at"])
     if end:
         # Cap the upper bound at the next charge's start so an orphan/overlapping charge
         # (whose ended_at bled past a later charge — see close_orphan_charges) cannot absorb
@@ -8118,10 +8287,10 @@ def get_charge_power_curve(charge_id: int) -> dict:
         # AC-vs-DC wallbox comparison AND the HOME cost (which bills the AC energy derived from
         # this curve) — GitHub #24. Mirrors _charge_active_window / compute_cost. For a normal
         # charge the next charge starts after ended_at → no cap, identical behaviour.
-        lo, hi, excl = _power_window_bounds(db, start, end)
+        lo, hi, excl = _power_window_bounds(db, start, end, pieces)
         rows = db.execute(
             "SELECT recorded_at, charge_voltage_v, charge_current_a, soc FROM positions "
-            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND charging = 1 AND recorded_at >= ? AND recorded_at "
+            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() + " AND recorded_at >= ? AND recorded_at "
             + ("<" if excl else "<=")
             + " ? ORDER BY recorded_at",
             (_current_vehicle_id(), lo, hi),
@@ -8129,7 +8298,7 @@ def get_charge_power_curve(charge_id: int) -> dict:
     else:  # charge still in progress — open upper bound
         rows = db.execute(
             "SELECT recorded_at, charge_voltage_v, charge_current_a, soc FROM positions "
-            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND charging = 1 AND recorded_at >= ? ORDER BY recorded_at",
+            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() + " AND recorded_at >= ? ORDER BY recorded_at",
             (_current_vehicle_id(), start),
         ).fetchall()
     labels, power, soc, times = [], [], [], []
@@ -8148,7 +8317,7 @@ def latest_charge_id_with_power() -> int | None:
     db = _get()
     row = db.execute(
         "SELECT c.id FROM charges c WHERE c.vehicle_id = COALESCE(?, c.vehicle_id) AND EXISTS ("
-        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND p.charging = 1"
+        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND " + _charging_sample("p") + 
         "  AND p.recorded_at >= c.started_at"
         "  AND (c.ended_at IS NULL OR p.recorded_at <= c.ended_at)"
         ") ORDER BY c.started_at DESC LIMIT 1",
@@ -8166,7 +8335,7 @@ def charges_with_power(limit: int = 30) -> list[dict]:
     rows = db.execute(
         "SELECT c.id, c.started_at, c.energy_added_kwh FROM charges c "
         "WHERE c.vehicle_id = COALESCE(?, c.vehicle_id) AND c.location_type = 'HOME' AND EXISTS ("
-        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND p.charging = 1"
+        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND " + _charging_sample("p") + 
         "  AND p.recorded_at >= c.started_at"
         "  AND (c.ended_at IS NULL OR p.recorded_at <= c.ended_at)"
         ") ORDER BY c.started_at DESC LIMIT ?",
@@ -8190,7 +8359,7 @@ def _wallbox_home_charges_raw() -> list[dict]:
         "WHERE c.vehicle_id = COALESCE(?, c.vehicle_id) AND c.location_type = 'HOME' "
         + ("AND c.merged_into_id IS NULL " if _charges_have_merge(db) else "")
         + "AND c.ended_at IS NOT NULL AND EXISTS ("
-        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND p.charging = 1"
+        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND " + _charging_sample("p") + 
         "  AND p.recorded_at >= c.started_at"
         "  AND (c.ended_at IS NULL OR p.recorded_at <= c.ended_at)"
         ") ORDER BY c.started_at DESC",
@@ -8848,7 +9017,7 @@ def _charge_active_window(db, started_at, ended_at):
     lo, hi, excl = _power_window_bounds(db, started_at, ended_at)
     row = db.execute(
         "SELECT MIN(recorded_at) AS s, MAX(recorded_at) AS e FROM positions "
-        "WHERE vehicle_id = COALESCE(?, vehicle_id) AND charging = 1 AND recorded_at >= ? AND recorded_at "
+        "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() + " AND recorded_at >= ? AND recorded_at "
         + ("<" if excl else "<=") + " ?",
         (_current_vehicle_id(), lo, hi),
     ).fetchone()
@@ -9029,6 +9198,27 @@ def _billed_kwh(c) -> float:
     if g and g > 0:
         return g
     return c.get("energy_added_kwh") or 0
+
+
+def billed_basis(c) -> str:
+    """'delivered' or 'battery' — WHICH kilowatt-hours `_billed_kwh` just divided by.
+
+    #346: the €/kWh on a charge card divides by `_billed_kwh`, and the card above it leads with
+    `charge_energy_view`'s headline. On a public charge with the column's own figure typed in the two
+    differ — headline 'battery' (41,2 kWh in the pack) while the rate divides by the typed 47,28 —
+    so labelling the rate from the headline would have put the wrong word under a right number,
+    which is the defect it was meant to fix, mirrored.
+
+    Read from the same three branches as the figure, immediately above, so the word and the number
+    cannot drift. A merged plug-in says 'battery' only when every piece contributed its battery
+    figure."""
+    pieces = c.get("_pieces")
+    if pieces:
+        return "battery" if all(billed_basis(p) == "battery" for p in pieces) else "delivered"
+    if _metered_at_home(c):
+        return "delivered"
+    g = c.get("gross_kwh")
+    return "delivered" if (g and g > 0) else "battery"
 
 
 def price_coverage(cost_total, kwh_priced, priced_n, total_n) -> dict:
@@ -9950,15 +10140,17 @@ def _scan_offline_charge(a, b, capacity_kwh: float) -> bool:
     charging. No clocks / invalid telemetry means no exception to the parked-only scan.
     """
     try:
-        values = [a[k] for k in ("soc", "odometer_km", "speed_kmh", "frame_ts")]
-        values += [b[k] for k in ("soc", "odometer_km", "speed_kmh", "frame_ts")]
+        values = [a[k] for k in ("soc", "odometer_km", "frame_ts")]
+        values += [b[k] for k in ("soc", "odometer_km", "frame_ts")]
+        # The speed is only a sanity check: a missing one says nothing about a charge.
+        values += [r["speed_kmh"] for r in (a, b) if r["speed_kmh"] is not None]
         if not all(v is not None and math.isfinite(v) for v in values):
             return False
         if not (0 < a["soc"] < b["soc"] <= 100 and a["odometer_km"] > 0
                 and a["frame_ts"] > 0 and b["frame_ts"] > a["frame_ts"]):
             return False
         if any(r["charging"] or r["gear"] not in ("P", "D", "R", "N")
-               or r["speed_kmh"] < 0 for r in (a, b)):
+               or (r["speed_kmh"] or 0) < 0 for r in (a, b)):
             return False
         distance = b["odometer_km"] - a["odometer_km"]
         rise = b["soc"] - a["soc"]
@@ -10027,8 +10219,9 @@ def scan_missed_charges(threshold: float = 2.0, apply: bool = False) -> list[dic
         return (r["charging"] or 0) == 0 and (r["speed_kmh"] or 0) <= 1
 
     def _odo_same(a, b):
+        # A missing odometer proves nothing about the car standing still.
         oa, ob = a["odometer_km"], b["odometer_km"]
-        return oa is None or ob is None or abs(ob - oa) < 0.5
+        return oa is not None and ob is not None and abs(ob - oa) < 0.5
 
     def _rising(a, b):
         return a["soc"] is not None and b["soc"] is not None and b["soc"] > a["soc"]
@@ -10132,13 +10325,13 @@ def _charge_energy_below_soc(db, start: str, end: str | None, cap_soc: float):
         lo, hi, excl = _power_window_bounds(db, start, end)
         rows = db.execute(
             "SELECT recorded_at, soc, charge_voltage_v, charge_current_a FROM positions "
-            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND charging = 1 AND recorded_at >= ? "
+            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() + " AND recorded_at >= ? "
             "AND recorded_at " + ("<" if excl else "<=") + " ? ORDER BY recorded_at",
             (_current_vehicle_id(), lo, hi)).fetchall()
     else:
         rows = db.execute(
             "SELECT recorded_at, soc, charge_voltage_v, charge_current_a FROM positions "
-            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND charging = 1 AND recorded_at >= ? "
+            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() + " AND recorded_at >= ? "
             "ORDER BY recorded_at", (_current_vehicle_id(), start)).fetchall()
     energy, prev_t, prev_p, prev_soc, reached, covered = 0.0, None, 0.0, None, None, 0.0
     for r in rows:
@@ -10186,7 +10379,7 @@ def _charge_has_soc_jump(db, start: str, end: str | None,
     params = (start, end) if end else (start,)
     rows = db.execute(
         f"SELECT recorded_at, soc FROM positions WHERE vehicle_id = COALESCE(?, vehicle_id) AND {clause} "
-        "AND charging = 1 "
+        "AND " + _charging_sample() + " "
         "AND soc IS NOT NULL ORDER BY recorded_at",
         (_current_vehicle_id(), *params),
     ).fetchall()
@@ -10229,13 +10422,13 @@ def _charge_temp_odo(db, start: str, end: str | None):
     if end:
         rows = db.execute(
             "SELECT battery_min_temp, odometer_km FROM positions "
-            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND charging = 1 "
+            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() + " "
             "AND recorded_at >= ? AND recorded_at <= ? ORDER BY recorded_at",
             (_current_vehicle_id(), start, end)).fetchall()
     else:
         rows = db.execute(
             "SELECT battery_min_temp, odometer_km FROM positions "
-            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND charging = 1 "
+            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() + " "
             "AND recorded_at >= ? ORDER BY recorded_at", (_current_vehicle_id(), start)).fetchall()
     temps = [r["battery_min_temp"] for r in rows if r["battery_min_temp"] is not None]
     odos = [r["odometer_km"] for r in rows if r["odometer_km"] is not None]
@@ -11045,8 +11238,10 @@ def trip_local_start_hhmm(trip_id: int) -> Optional[str]:
     return dt.strftime("%H:%M") if dt else None
 
 
-# EV source selection is read-only: historical GPS, SoC, getEC and estimates
-# remain in the database unchanged. REEV calculations are deliberately excluded.
+# EV source selection is read-only: historical GPS, SoC, getEC and estimates remain in the database
+# unchanged. REEV energy is deliberately excluded — the generator recharges the pack mid-drive, so
+# the cloud's `totalEnergy` is not that car's appetite. A range-extender's LITRES take the same cloud
+# records by the same matcher, through `_cloud_fuel_index` into `_reev_trip_fuel`.
 def _select_ev_energy(rows):
     from trip_energy import select_energy
     return select_energy(_get(), rows)

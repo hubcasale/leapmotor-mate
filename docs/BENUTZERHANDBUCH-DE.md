@@ -1,8 +1,115 @@
 # LeapMotor Mate — Benutzerhandbuch
 
-> **Mate-Version:** v4.6.0 · **Sprache:** Deutsch
+> **Mate-Version:** v4.7.2 · **Sprache:** Deutsch
 
-## Neu in Version 4.6.0
+## Neu in Version 4.7.2
+
+Neun Dinge, die Mate bereits wusste und nicht nutzte.
+
+**Kilometer, die Sie gefahren sind, während Mate das Auto nicht sehen konnte, bleiben erhalten.**
+Hat sich der Kilometerstand bewegt, während Mate ohne Verbindung war, ist dieser Sprung die einzige
+Spur der Fahrt — und er ging in zwei Fällen verloren: wenn die zurückkehrende Meldung überhaupt
+keinen Kilometerstand trug, und wenn Sie sofort nach der Ankunft eingesteckt haben. Beides wird
+jetzt rekonstruiert. Liegt ein Ladevorgang zwischen den beiden Meldungen, bleiben die Kilometer ohne
+Energiewert: die Batteriedifferenz über eine Ladung hinweg ist nicht das, was die Fahrt verbraucht
+hat.
+
+**Eine Meldung, die das Auto nicht gesendet hat, wird nicht mehr als Null gespeichert.** Eine
+fehlende Geschwindigkeit und ein gemessener Stillstand sahen im Verlauf gleich aus; ein fehlender
+und ein unveränderter Kilometerstand ebenso.
+
+**Eine von einer Uhrumstellung unterbrochene Fahrt endet dort, wo sie wirklich endete.** Geht die Uhr
+Ihres Rechners während der Fahrt zurück — eine NTP-Korrektur, ein aufwachender Raspberry Pi — wurde
+die Fahrt auf der falschen Meldung geschlossen und nahm von dort auch Kilometerstand und SoC des
+Endes.
+
+**Ein Ladevorgang, den das Auto nicht mehr meldet, wird trotzdem gezeichnet.** Drosseln Sie die
+Wallbox mitten in der Sitzung und das Auto meldet den Ladevorgang unterhalb seines Erkennungsstroms
+nicht mehr, endete das Leistungsdiagramm in dieser Minute, während die Ladung noch Stunden lief. Das
+Diagramm, der Wallbox-Vergleich, die Zeitfenster-Aufteilung und die Kosten im dynamischen Tarif
+lesen jetzt die ganze Sitzung. Ihre Kilowattstunden und Ihre Summen waren nie betroffen.
+
+**Beschriftungen landen nicht mehr auf ihren Werten** in Sprachen mit langen Wörtern — vor allem
+Spanisch, auf der Übersichtskarte.
+
+**Eine Installation, die beim alten Cloud-Client geblieben ist, versucht es erneut.** Diese
+Entscheidung wurde ein einziges Mal getroffen, etliche Versionen früher, und eine Prüfung, die
+einfach in einen Timeout lief oder auf eine belegte Datenbank traf, wurde behandelt, als wäre sie
+eine Antwort.
+
+**Das €/kWh eines Ladevorgangs sagt jetzt, durch welche Kilowattstunden es teilt** — die von der
+Ladesäule abgegebenen oder die in der Batterie angekommenen. Beide Zahlen waren richtig; es fehlte
+das Wort.
+
+**Ein Ladeplan, den Ihr Auto nicht angenommen hat, geht jetzt durch.** Veröffentlicht das Auto eine
+der Einstellungen, die Mate ausliest und unverändert zurückschreibt, mit einem unerwarteten Wert, so
+schlug das Speichern des Plans — oder das Ändern der SoC-Grenze — vollständig fehl. Diese
+Einstellungen gehören dem Auto, nicht Mate: was es sagt, geht unverändert zurück.
+
+### Neu in Version 4.7.1
+
+Nichts Neues auf dem Bildschirm: fünf Stellen, an denen Mate vor dem Ende dessen aufhörte, was es
+gerade tat.
+
+**Ein Verbindungsabriss lässt eine Fahrt nicht mehr halb aufgezeichnet zurück.** Verliert Mate
+während der Fahrt die Cloud und steht das Auto geparkt oder am Kabel, wenn die Verbindung innerhalb
+einer halben Stunde zurückkommt, endet die Fahrt dort und behält die Kilometer aus der Lücke. Nach
+längerem Schweigen endet sie bei dem, was das Auto zuletzt gemeldet hat, und die Kilometer danach
+werden behandelt wie alle anderen außer Reichweite gefahrenen. Vorher blieb die Fahrt einfach offen,
+bis der Poller neu startete, und die nächste Fahrt öffnete eine zweite daneben. Fahrten, die eine
+frühere Version offen gelassen hat, werden beim nächsten Abruf aufgeräumt. ⚠️ Mit eingestellter
+**GPS-Aufbewahrung** bleiben die Punkte einer noch laufenden Fahrt jetzt bis zu ihrem Ende erhalten,
+weil ihr Ende aus ihnen gelesen wird.
+
+**Das Leistungsdiagramm einer zusammengeführten Ladung zeichnet jetzt die ganze Sitzung.** Die
+Wallbox mitten in der Nacht herunterzuregeln beendete das Diagramm in genau diesem Moment, während
+die Sitzung noch stundenlang weiterlief. Die Kilowattstunden und die Kosten waren immer richtig — nur
+die Zeichnung hörte auf.
+
+**Zwei Meldungen sagen mehr.** Ein Ladeplan, den Mate nicht sendet, nennt jetzt die fehlerhafte
+Einstellung und den Wert, den Ihr Auto dafür veröffentlicht hat, statt eines Satzes, der auf drei
+verschiedene Einstellungen passte. Und auf einer Installation, die gerade aktualisiert wird, bricht
+ein harmloser Zusammenstoß zwischen Mates beiden Hälften den Rest der Datenbank-Aktualisierung nicht
+mehr ab.
+
+**Ein Tippen auf das Logo oben auf der Seite bringt Sie zur Startseite**, am Telefon wie am Rechner.
+
+### Neu in Version 4.7.0
+
+**Wenn Sie eine Leapmotor mit Range-Extender fahren, ist Mate jetzt auch für Sie.** Diese Modelle
+ließen sich nur mit dem BetaTester-Build lesen; ihre Seiten — die REEV-Seite, das Benzin je Fahrt und
+je Zeitraum und die **REEV-Batteriepakete im Einrichtungsassistenten** — sind nun im gewöhnlichen
+Add-on und im gewöhnlichen Docker-Image.
+
+**Der Benzinwert ist der des Autos selbst.** Leapmotors Historie hält für jede Fahrt fest, wie viel
+Benzin das Auto verbraucht haben will — das ist die Zahl, die die offizielle App zeigt. Mate rechnete
+sie sich selbst aus, aus dem Tankstand an beiden Enden der Fahrt, und auf der einen Fahrt, auf der sich
+alle drei vergleichen ließen, kam sie **20,7 % niedriger** heraus: 3,886 L gegen 4,9. Jetzt gewinnt
+der Wert des Autos; der Tank bleibt als Rückfall für eine Fahrt, zu der Leapmotor keinen Eintrag hat,
+und jede Zahl sagt, welche der beiden Sie sehen. ⚠️ **Manche alten Fahrten lesen sich nach dem Update
+anders**: Leapmotors Fenster umfasst etwa 28 Tage, ältere Fahrten behalten also die Antwort des Tanks,
+rund ein Fünftel niedriger.
+
+**Eine Fahrt, die nichts verbrannt hat, sagt das jetzt.** Ein Range-Extender fährt meist elektrisch,
+und solche Fahrten zeigten gar nichts an — genau wie eine Fahrt, deren Tank Mate nicht lesen konnte.
+Liest der Zähler des Autos an beiden Enden denselben Wert, ist das eine Messung, und sie steht jetzt
+als `0 L` mit *rein elektrisch* daneben. Das Leere bedeutet wieder nur eines: wir wissen es nicht.
+
+**Rekuperation ist wieder Bremsen.** Bei einem Range-Extender lädt der Generator den Akku während der
+Fahrt nach, und Mate zählte das als beim Bremsen zurückgewonnene Energie — auf der einen messbaren
+Fahrt waren es 89 %. Das zählt es nicht mehr. Der Wert bleibt bei einem Range-Extender verborgen wie
+bisher, aber was gespeichert wird, ist jetzt ehrlich.
+
+**Ein Neustart beschädigt keine Fahrt mehr.** Startet Mate mitten in einer Fahrt neu, wird diese Fahrt
+danach aus dem bereits Aufgezeichneten geschlossen. Früher verlor sie den Kilometerstand am Ende, den
+Tankstand am Ende und die gesamte Rekuperation, die 0,00 kWh anzeigte — **Letzteres auch bei rein
+elektrischen Autos**. Alle drei werden jetzt aus den Messwerten der Fahrt selbst rekonstruiert.
+
+Außerdem: Wenn Ihre Datenbank keine Schreibvorgänge annimmt — manche Netzwerkfreigaben tun das —
+versucht die tägliche Bereinigung es nicht mehr bei jeder einzelnen Abfrage erneut; auf der
+Installation, die das gemeldet hat, waren es 266 Versuche in vier Stunden.
+
+### Neu in Version 4.6.0
 
 Bei jeder Abfrage während der Fahrt liest Mate die Leistung, die aus der Batterie geht, die Temperatur
 ihrer kältesten Zelle, die Reichweitenschätzung und die Außenluft. Gespeichert wurde alles, gezeigt
@@ -129,9 +236,13 @@ Planungen…) und, wenn Sie möchten, die Daten mit **Home Assistant** (über MQ
 - **Es spricht nicht direkt mit dem Auto.** Alles läuft über die Leapmotor-Cloud. Wenn Mate die Cloud
   „abfragt" (Polling), liest es den **zuletzt bekannten Zustand**: Es weckt das Auto *nicht* auf und entlädt die
   Batterie *nicht*. Es ist ein sicherer und günstiger Vorgang.
-- **Nur 100 % elektrische Autos (BEV).** Unterstützt werden **T03, B05, B10, C10** in den elektrischen
-  Versionen. Die **REEV**-Versionen (mit Range-Extender auf Benzin) werden **nicht** unterstützt: Die
-  Berechnungen von Energie/Verbrauch/Kosten würden die falsche Batteriekapazität verwenden und wären verfälscht.
+- **Batterieelektrisch und mit Range-Extender.** Unterstützt werden **T03, B05, B10, C10**. Ihre
+  **REEV**-Versionen, mit Range-Extender auf Benzin, werden ab **4.7.0** unterstützt: die REEV-Seite,
+  die Benzinwerte je Fahrt und je Zeitraum sowie die REEV-Batteriepakete im Einrichtungsassistenten
+  sind alle im gewöhnlichen Build. Bei einem Range-Extender wird **keine** Rekuperation angezeigt —
+  ein Generator, der den Akku während der Fahrt nachlädt, lässt sich nicht vom Bremsen unterscheiden
+  — und der elektrische Verbrauch einer Generator-Fahrt bleibt im BetaTester-Build, wo er beobachtet
+  werden kann.
 - **Nur europäische Cloud (Leapmotor International / Stellantis).** Konten, die auf Servern anderer Regionen
   (z. B. China) registriert sind, können sich nicht anmelden. Außerhalb Europas ist Mate derzeit nicht nutzbar.
 - **Es ist kein Buchhaltungswerkzeug.** Es schätzt die Kosten *anhand der Telemetrie*; es verfolgt keine
@@ -456,13 +567,23 @@ Verbrauch (kWh/100 km), zurückgewonnene Energie** beim Bremsen und die geschät
   Verbindung während der Fahrt ab, schließt Mate die Fahrt nach einer halben Stunde selbst — datiert
   sie aber auf die **letzte echte Nachricht**, nicht auf den Moment, in dem es das bemerkt hat. So
   enthält die Dauer keine halbe Stunde Stille und die Durchschnittsgeschwindigkeit bleibt ehrlich.
-- **Kilometer ohne Verbindung landen in gar keiner Fahrt.** Wenn die Verbindung zur Cloud abreißt,
+- **Ein Verbindungsabbruch lässt keine Fahrt offen.** Verliert Mate während der Fahrt die Cloud und
+  fährt das Auto noch, wenn die Verbindung binnen einer halben Stunde zurückkommt, läuft die Fahrt
+  einfach weiter. Steht das Auto dann schon oder lädt es, endet die Fahrt dort, und die Kilometer
+  aus der Lücke gehören zu ihr. Nach einer längeren Stille endet die Fahrt bei der letzten Nachricht
+  des Autos davor, und die Kilometer danach werden wie alle anderen behandelt, die ohne Verbindung
+  gefahren wurden.
+- **Kilometer, die Mate nicht gesehen hat, werden keiner Fahrt davor oder danach zugeschlagen.**
+  Reißt die Verbindung zur Cloud länger ab als eine kurze Lücke innerhalb einer Fahrt (siehe oben),
   fährt das Auto weiter, Mate sieht es aber nicht; kehrt die Verbindung zurück, findet es nur einen
   weitergelaufenen Kilometerstand vor. In diesem Sprung können das Ende einer Fahrt, eine Pause und
-  der Beginn einer weiteren stecken, und **nichts sagt, wie es sich aufteilt** — also ordnet Mate
-  ihn niemandem zu. Eine Zeile über dem Kalender nennt Kilometer, Ladung und Kosten dieses Monats,
-  die Seite **Statistiken** die Gesamtsumme: *gemessen, aber keiner bestimmten Fahrt zuzuordnen —
-  deshalb aus Strecken, Verbrauch und Kosten herausgehalten.*
+  der Beginn einer weiteren stecken, und **nichts sagt, wie es sich aufteilt**. Steht das Auto dann,
+  ist der Ladestand nicht gestiegen und wurde in dieser Zeit kein Ladevorgang erkannt, baut Mate aus
+  dem Sprung allein eine Fahrt ohne Route nach. Andernfalls (wenn schon eine neue Fahrt läuft, das
+  Auto lädt oder der Ladestand gestiegen ist) ordnet Mate die Kilometer niemandem zu. Eine Zeile
+  über dem Kalender nennt Kilometer, Ladung und Kosten dieses Monats, die Seite **Statistiken** die
+  Gesamtsumme: *gemessen, aber keiner bestimmten Fahrt zuzuordnen — deshalb aus Strecken, Verbrauch
+  und Kosten herausgehalten.*
   ⚠️ Darum kann Mates eigene Summe unter dem Kilometerstand des Autos liegen: die Differenz ist
   genau diese Zeile.
 - **Offizieller Verbrauch aus der Cloud 🆕** — sofern vorhanden, stammen **Verbrauch, Effizienz und
@@ -997,6 +1118,7 @@ ist in drei Spalten unterteilt.
   GPS-Punkte „für immer" behalten (Standard) oder die älter als 6/12/18/24 Monate löschen, um Platz
   zu sparen. *Es werden nur die Positionen entfernt*: Fahrten (mit Strecke und den Messwerten
   unterwegs), Ladevorgänge und Ladekurven bleiben erhalten.
+  Die Punkte einer noch laufenden Fahrt bleiben, bis sie endet, denn ihr Ende wird aus ihnen gelesen.
 - **Export / Backup** — laden Sie **Fahrten (CSV)**, **Ladevorgänge (CSV)** und ein **Backup der Datenbank** herunter.
   Das Backup kommt **gzip-komprimiert** (`leapmotor_mate.db.gz`) 🆕 und wird in Stücken gesendet,
   damit auch eine große Datenbank nie ganz in den Speicher muss. Die Wiederherstellung nimmt
@@ -1163,8 +1285,20 @@ Grund, dass das Auto **0,1 %** verloren hat, also einen einzigen Schritt seines 
 Rückgang nicht vom Rauschen unterscheiden, und Mate zeichnet lieber nichts als eine erfundene Zahl.
 
 **Ich habe eine Leapmotor REEV (Hybrid mit Range-Extender).**
-Sie wird nicht unterstützt: Die Energieberechnungen würden die Kapazität der BEV-Batterie verwenden und wären
-verfälscht. Mate ist **nur für die 100 % elektrischen Versionen**.
+Ab **4.7.0** unterstützt, im gewöhnlichen Build: die REEV-Seite, das Benzin je Fahrt und je Zeitraum
+und die REEV-Batteriepakete im Assistenten. Das BetaTester-Build wird dafür nicht mehr gebraucht.
+Der Benzinwert ist der des Autos selbst, aus Leapmotors Historie je Fahrt — dieselbe Zahl, die die
+offizielle App zeigt. Wo die Cloud keinen Eintrag zu einer Fahrt hat, rechnet Mate die Liter aus dem
+Tank aus, und jede Zahl sagt, welche der beiden auf dem Bildschirm steht. Das Fenster der Cloud
+umfasst etwa 28 Tage, in einer langen Historie lesen ältere Fahrten also die Antwort des Tanks, die
+rund 20 % niedriger ausfällt.
+Eine Fahrt, die nichts verbrannt hat, liest `0 L` mit *rein elektrisch* daneben — das ist nicht
+dasselbe wie eine Fahrt, deren Tank nicht gelesen werden konnte: die bleibt leer.
+Bei einem Range-Extender wird die **Rekuperation** nicht angezeigt, weil ein Generator, der den Akku
+während der Fahrt nachlädt, sich nicht vom Bremsen unterscheiden lässt.
+Sie nutzen bereits das BetaTester-Build? Sie müssen nicht wechseln — es funktioniert weiter. Wenn Sie
+möchten, ist es eine Sicherung und eine Wiederherstellung, in dieser Reihenfolge:
+[Vom BetaTester-Build zum offiziellen](BETA-TO-OFFICIAL.md).
 
 **Ich bin nicht in Europa.**
 Derzeit funktioniert Mate nur mit der **europäischen** Leapmotor-Cloud. Konten auf Servern anderer Regionen können

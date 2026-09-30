@@ -1,8 +1,114 @@
 # LeapMotor Mate — Manuel utilisateur
 
-> **Version de Mate :** v4.6.0 · **Langue :** Français
+> **Version de Mate :** v4.7.2 · **Langue :** Français
 
-## Nouveautés de la version 4.6.0
+## Nouveautés de la version 4.7.2
+
+Neuf choses que Mate savait déjà et n'utilisait pas.
+
+**Les kilomètres parcourus pendant que Mate ne voyait pas la voiture sont conservés.** Si le
+compteur a bougé pendant que Mate était hors de contact, ce saut est la seule trace du trajet — et
+il était perdu dans deux cas : quand la lecture de retour ne portait pas de compteur du tout, et
+quand vous branchiez dès votre arrivée. Les deux sont désormais reconstruits. Si une recharge se
+trouve entre les deux lectures, les kilomètres sont conservés sans chiffre d'énergie : l'écart de
+batterie de part et d'autre d'une recharge n'est pas ce que le trajet a consommé.
+
+**Une lecture que la voiture n'a pas envoyée n'est plus enregistrée comme un zéro.** Une vitesse
+absente et un arrêt mesuré étaient identiques dans l'historique ; un compteur absent et un compteur
+immobile aussi.
+
+**Un trajet interrompu par un changement d'heure se termine là où il s'est vraiment terminé.** Si
+l'horloge de votre machine recule en cours de route — une correction NTP, un Raspberry Pi qui se
+réveille — le trajet était clos sur la mauvaise lecture, en y prenant aussi son compteur et son SoC
+de fin.
+
+**Une recharge que la voiture cesse de déclarer reste tracée.** Si vous baissez la wallbox en pleine
+session et que la voiture cesse de déclarer la recharge sous son courant de détection, le graphique
+de puissance s'arrêtait à cette minute alors que la recharge durait encore des heures. Le graphique,
+la comparaison wallbox, le découpage horaire et le coût en tarif dynamique lisent désormais toute la
+session. Vos kilowattheures et vos totaux n'ont jamais été touchés.
+
+**Les libellés ne débordent plus sur leurs valeurs** dans les langues à mots longs — l'espagnol
+surtout, sur la carte Résumé.
+
+**Une installation restée sur l'ancien client cloud réessaie.** Ce choix avait été fait une seule
+fois, plusieurs versions plus tôt, et une vérification simplement expirée ou tombée sur une base
+occupée était conservée comme si c'était une réponse.
+
+**Le €/kWh d'une recharge dit maintenant par quels kilowattheures il divise** — ceux délivrés par la
+borne, ou ceux arrivés dans la batterie. Les deux chiffres étaient justes ; il manquait le mot.
+
+**Une programmation de recharge que votre voiture refusait passe désormais.** Si la voiture publie
+avec une valeur inattendue l'un des réglages que Mate lit et réécrit tels quels, enregistrer la
+programmation — ou changer la limite de SoC — échouait entièrement. Ces réglages sont ceux de la
+voiture, pas ceux de Mate : ce qu'elle dit lui revient inchangé.
+
+### Nouveautés de la version 4.7.1
+
+Rien de neuf à l'écran : cinq endroits où Mate s'arrêtait avant la fin de ce qu'il faisait.
+
+**Une coupure ne laisse plus un trajet enregistré à moitié.** Si Mate perd le cloud en cours de route
+et que la voiture est garée ou en charge quand la liaison revient dans la demi-heure, le trajet se
+termine là et garde les kilomètres parcourus pendant le trou. Après un silence plus long, il se
+termine sur la dernière chose que la voiture a dite, et les kilomètres suivants sont traités comme
+tous ceux parcourus hors de portée. Avant, le trajet restait simplement ouvert jusqu'au redémarrage
+du collecteur, et le trajet suivant en ouvrait un deuxième à côté. Les trajets laissés ouverts par
+une version précédente sont rangés au relevé suivant. ⚠️ Si vous avez réglé une **conservation du
+GPS**, les points d'un trajet encore en cours sont désormais gardés jusqu'à sa fin, car sa fin se lit
+dedans.
+
+**Le graphique de puissance d'une charge que vous avez fusionnée dessine maintenant toute la
+session.** Baisser la puissance de la wallbox au milieu de la nuit arrêtait le graphique à cet
+instant, alors que la session continuait pendant des heures. Les kilowattheures et le coût ont
+toujours été justes : seul le dessin s'arrêtait.
+
+**Deux messages en disent plus.** Une programmation de charge que Mate refuse d'envoyer nomme
+maintenant le réglage fautif et la valeur publiée par votre voiture, au lieu d'une phrase unique
+valable pour trois réglages différents. Et sur une installation en cours de mise à jour, une
+collision inoffensive entre les deux moitiés de Mate ne coupe plus le reste de la mise à jour de la
+base.
+
+**Toucher le logo en haut de la page vous ramène à l'accueil**, sur téléphone comme sur ordinateur.
+
+### Nouveautés de la version 4.7.0
+
+**Si vous conduisez une Leapmotor à prolongateur d'autonomie, Mate est désormais aussi pour vous.**
+Ces modèles ne pouvaient être lus qu'avec la version BetaTester ; leurs pages — la page REEV, le
+carburant par trajet et par période et les **packs de batterie REEV de l'assistant de configuration** —
+se trouvent maintenant dans le module complémentaire ordinaire et dans l'image Docker ordinaire.
+
+**Le chiffre du carburant est celui de la voiture.** L'historique de Leapmotor conserve, pour chaque
+trajet, la quantité d'essence que la voiture déclare avoir brûlée : c'est le nombre affiché par
+l'application officielle. Mate le calculait lui-même, à partir du niveau du réservoir aux deux
+extrémités du trajet, et sur le seul trajet où les trois ont pu être comparés il ressortait **20,7 %
+plus bas** : 3,886 L contre 4,9. C'est désormais le chiffre de la voiture qui l'emporte ; le réservoir
+reste le recours pour un trajet dont Leapmotor n'a pas d'enregistrement, et chaque chiffre dit lequel
+des deux vous regardez. ⚠️ **Certains anciens trajets se liront différemment après la mise à jour** :
+la fenêtre de Leapmotor est d'environ 28 jours, les trajets plus anciens gardent donc la réponse du
+réservoir, environ un cinquième plus basse.
+
+**Un trajet qui n'a rien brûlé le dit maintenant.** Un prolongateur d'autonomie roule presque toujours
+en électrique, et ces trajets n'affichaient rien du tout — exactement comme un trajet dont Mate n'a pas
+pu lire le réservoir. Lorsque le compteur de la voiture lit la même valeur aux deux extrémités, c'est
+une mesure, et elle s'affiche désormais `0 L` avec *tout électrique* à côté. Le vide ne veut plus dire
+qu'une chose : nous ne savons pas.
+
+**La régénération est de nouveau du freinage.** Sur un prolongateur d'autonomie, le générateur
+recharge la batterie pendant que vous roulez, et Mate comptait cela comme de l'énergie récupérée au
+freinage — sur le seul trajet mesurable, c'en était 89 %. Il ne le compte plus. Le chiffre reste masqué
+sur un prolongateur d'autonomie, comme avant, mais ce qui est enregistré est désormais honnête.
+
+**Un redémarrage n'abîme plus un trajet.** Lorsque Mate redémarre au milieu d'un trajet, ce trajet est
+clos ensuite à partir de ce qui avait déjà été enregistré. Il perdait auparavant son compteur
+kilométrique d'arrivée, son niveau de réservoir d'arrivée et toute sa régénération, qui affichait
+0,00 kWh — **ce dernier point sur les voitures entièrement électriques aussi**. Les trois sont
+désormais reconstruits à partir des relevés du trajet lui-même.
+
+Par ailleurs : si votre base de données refuse les écritures — certains partages réseau le font — le
+nettoyage quotidien ne réessaie plus à chaque interrogation ; sur l'installation qui l'a signalé, cela
+représentait 266 tentatives en quatre heures.
+
+### Nouveautés de la version 4.6.0
 
 À chaque interrogation pendant que vous roulez, Mate lit la puissance qui sort de la batterie, la
 température de sa cellule la plus froide, l'estimation d'autonomie et l'air extérieur. Il gardait
@@ -134,10 +240,13 @@ du véhicule, programmations…) et, si vous le souhaitez, d'intégrer les donn�
 - **Il ne parle pas directement à la voiture.** Tout passe par le cloud Leapmotor. Quand Mate « interroge »
   le cloud (polling), il lit le **dernier état connu** : il *ne* réveille *pas* la voiture et *ne* décharge
   *pas* la batterie. C'est une opération sûre et économique.
-- **Uniquement les voitures 100 % électriques (BEV).** Sont prises en charge les **T03, B05, B10, C10** dans
-  leurs versions électriques. Les versions **REEV** (avec prolongateur d'autonomie à essence) **ne** sont
-  **pas** prises en charge : les calculs d'énergie/consommation/coût utiliseraient la mauvaise capacité de
-  batterie et seraient faussés.
+- **Électriques et à prolongateur d'autonomie.** Sont prises en charge les **T03, B05, B10, C10**.
+  Leurs versions **REEV**, avec prolongateur d'autonomie à essence, sont prises en charge depuis la
+  **4.7.0** : la page REEV, le carburant par trajet et par période et les packs de batterie REEV de
+  l'assistant se trouvent tous dans la version ordinaire. Sur un prolongateur d'autonomie, la
+  régénération n'est **pas** affichée — un générateur qui recharge la batterie pendant que vous
+  roulez ne se distingue pas d'un freinage — et la consommation électrique d'un trajet avec le
+  générateur reste dans la version BetaTester, où on peut la surveiller.
 - **Uniquement le cloud européen (Leapmotor International / Stellantis).** Les comptes enregistrés sur des
   serveurs d'autres régions (ex. Chine) ne parviennent pas à se connecter. Hors d'Europe, pour le moment,
   Mate n'est pas utilisable.
@@ -470,13 +579,23 @@ journal. Avant, elle comptait pour 0 °C : sur une voiture sans capteur d'habita
   demi-heure — mais il le date de la **dernière vraie nouvelle**, pas du moment où il s'en est
   aperçu. La durée ne contient donc pas une demi-heure de silence, et la vitesse moyenne reste
   juste.
-- **Les kilomètres parcourus hors contact n'entrent dans aucun trajet.** Quand la liaison avec le
-  cloud tombe, la voiture continue de rouler mais Mate ne la voit pas ; au retour, il ne trouve
-  qu'un odomètre plus avancé. Ce saut peut contenir la fin d'un trajet, un arrêt et le début d'un
-  autre, et **rien ne dit comment cela se répartit** — Mate ne l'attribue donc à personne. Une ligne
-  au-dessus du calendrier indique les kilomètres, la charge et le coût de ce mois-là, et la page
-  **Statistiques** le cumul : *mesurés, mais non attribuables à un trajet précis — donc exclus des
-  distances, des consommations et des coûts.*
+- **Une coupure ne laisse jamais un trajet ouvert.** Si Mate perd le cloud en cours de route et que
+  la voiture roule encore quand la liaison revient dans la demi-heure, le trajet continue
+  simplement. Si la voiture est alors garée ou en charge, le trajet se termine là, et les kilomètres
+  parcourus pendant la coupure en font partie. Après un silence plus long, le trajet se termine à la
+  dernière nouvelle de la voiture avant ce silence, et les kilomètres suivants sont traités comme
+  tous ceux parcourus hors contact.
+- **Les kilomètres que Mate n'a pas vus ne sont pas ajoutés aux trajets qui les entourent.** Quand
+  la liaison avec le cloud tombe plus longtemps qu'une courte coupure au sein d'un même trajet (voir
+  ci-dessus), la voiture continue de rouler mais Mate ne la voit pas ; au retour, il ne trouve qu'un
+  odomètre plus avancé. Ce saut peut contenir la fin d'un trajet, un arrêt et le début d'un autre,
+  et **rien ne dit comment cela se répartit**. Si la voiture est alors garée, que son niveau de
+  charge n'a pas augmenté et qu'aucune recharge n'a été détectée dans l'intervalle, Mate reconstitue
+  un trajet à partir du seul saut, sans itinéraire. Sinon (un nouveau trajet déjà en cours, une
+  recharge, ou un niveau de charge qui a augmenté), Mate n'attribue ces kilomètres à personne. Une
+  ligne au-dessus du calendrier indique les kilomètres, la charge et le coût de ce mois-là, et la
+  page **Statistiques** le cumul : *mesurés, mais non attribuables à un trajet précis — donc exclus
+  des distances, des consommations et des coûts.*
   ⚠️ C'est pourquoi le total de Mate peut rester en dessous de l'odomètre de la voiture : la
   différence, c'est cette ligne.
   ligne.
@@ -1015,6 +1134,8 @@ Elle est divisée en trois colonnes.
   pouvez garder les points GPS « pour toujours » (par défaut) ou supprimer ceux de plus de
   6/12/18/24 mois pour économiser de l'espace. *Seules les positions sont élaguées* : les trajets
   (avec leur tracé et les relevés en route), recharges et courbes de charge restent.
+  Les points d'un trajet encore en cours sont conservés jusqu'à ce qu'il se termine, car c'est d'eux
+  que l'on tire sa fin.
 - **Export / sauvegarde** — téléchargez les **trajets (CSV)**, les **recharges (CSV)** et une **sauvegarde de
   la base de données**. La sauvegarde arrive **compressée en gzip** (`leapmotor_mate.db.gz`) 🆕,
   envoyée par morceaux pour qu'une grande base n'ait jamais à tenir entière en mémoire. La
@@ -1184,8 +1305,21 @@ motif est que la voiture a perdu **0,1 %**, soit un seul cran de son capteur de 
 ne se distingue pas du bruit, et Mate préfère ne rien dessiner plutôt qu'un chiffre inventé.
 
 **J'ai une Leapmotor REEV (hybride avec prolongateur d'autonomie).**
-Elle n'est pas prise en charge : les calculs d'énergie utiliseraient la capacité de batterie BEV et seraient
-faussés. Mate est **uniquement pour les versions 100 % électriques**.
+Prise en charge depuis la **4.7.0**, dans la version ordinaire : la page REEV, le carburant par trajet
+et par période, et les packs de batterie REEV de l'assistant. La version BetaTester n'est plus
+nécessaire pour cela.
+Le chiffre du carburant est celui de la voiture elle-même, tiré de l'historique par trajet de
+Leapmotor — le même nombre que celui affiché par l'application officielle. Là où le cloud n'a aucun
+enregistrement d'un trajet, Mate calcule les litres à partir du réservoir, et chaque chiffre dit
+lequel des deux est à l'écran. La fenêtre du cloud est d'environ 28 jours : sur un historique long,
+les trajets les plus anciens lisent donc la réponse du réservoir, qui mesure environ 20 % de moins.
+Un trajet qui n'a rien brûlé affiche `0 L` avec *tout électrique* à côté, ce qui n'est pas la même
+chose qu'un trajet dont le réservoir n'a pas pu être lu : celui-là reste vide.
+Sur un prolongateur d'autonomie, la **régénération** n'est pas affichée, car un générateur qui
+recharge la batterie pendant que vous roulez ne se distingue pas d'un freinage.
+Vous utilisez déjà la version BetaTester ? Vous n'êtes pas obligé de changer, elle continue de
+fonctionner. Si vous le souhaitez, c'est une sauvegarde et une restauration, dans cet ordre :
+[De la version BetaTester à la version officielle](BETA-TO-OFFICIAL.md).
 
 **Je ne suis pas en Europe.**
 Pour le moment, Mate ne fonctionne qu'avec le cloud Leapmotor **européen**. Les comptes sur des serveurs

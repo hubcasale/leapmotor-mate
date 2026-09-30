@@ -1,8 +1,105 @@
 # LeapMotor Mate — User Manual
 
-> **Mate version:** v4.6.0 · **Language:** English
+> **Mate version:** v4.7.2 · **Language:** English
 
-## New in 4.6.0
+## New in 4.7.2
+
+Nine things Mate already knew and did not use.
+
+**Kilometres you drove while Mate could not see the car are kept.** If the odometer has moved while
+Mate was out of touch, that jump is the only trace of the drive — and it used to be lost in two
+cases: when the reading that came back carried no odometer at all, and when you plugged in the
+moment you got home. Both are now rebuilt. Where a charge sits between the two readings the
+kilometres are kept without an energy figure, because the battery difference across a charge is not
+what the drive spent.
+
+**A reading your car did not send is no longer stored as a zero.** A missing speed and a measured
+standstill looked the same in the history; so did a missing odometer and one that had not moved.
+
+**A drive interrupted by a clock change ends where it really ended.** If your machine's clock steps
+back mid-drive — an NTP correction, a Raspberry Pi waking up — the trip used to be closed on the
+wrong reading, taking its end odometer and SoC from there too.
+
+**A charge your car stops declaring is still drawn.** If your wallbox is turned down mid-session and
+your car stops flagging the charge below its detection current, the power chart used to end at that
+minute while the charge ran on for hours. The chart, the wallbox comparison, the time-of-use split
+and the dynamic-tariff cost now all read the whole session. Your kilowatt-hours and your totals were
+never affected.
+
+**Labels no longer land on their values** in languages with longer words — Spanish above all, on the
+Summary card.
+
+**An installation left on the old cloud client tries again.** That choice was made once, years of
+releases ago, and a check that simply timed out or hit a busy database was kept as though it were an
+answer.
+
+**The €/kWh on a charge now says which kilowatt-hours it divides by** — the ones the charger
+delivered, or the ones that reached the battery. Both figures were right; only the word was
+missing.
+
+**A charge schedule your car would not accept now goes through.** If your car publishes one of
+the settings Mate reads and writes straight back with a value Mate did not expect, saving the
+schedule — or changing the SoC limit — used to fail entirely. Those settings are your car's, not
+Mate's, so whatever it says goes back to it unchanged.
+
+### New in 4.7.1
+
+Nothing new on screen: five places where Mate stopped before the end of what it was doing.
+
+**A dropout never leaves a drive half-recorded.** If Mate loses the cloud mid-drive and the car is
+parked or charging when the link comes back within half an hour, the trip now ends there and keeps
+the kilometres covered in the gap. After a longer silence it ends at the last thing the car said,
+and the kilometres after that are treated like any others covered out of contact. Before, the trip
+simply stayed open until the poller restarted, and your next drive opened a second one beside it. Any
+trip an earlier version left open is tidied up at the next poll. ⚠️ If you set a **GPS retention**,
+the points of a drive still in progress are now kept until it ends, because its end is read from
+them.
+
+**The power chart of a charge you merged now draws the whole session.** Turning a wallbox down in
+the middle of the night ended the chart at that moment, while the session ran on for hours. The
+kilowatt-hours and the cost were always right; only the drawing stopped.
+
+**Two messages say more.** A charge schedule Mate refuses to send now names the setting that is
+wrong and what your car published for it, instead of one sentence that fitted three different
+settings. And on an installation being upgraded, a harmless collision between Mate's two halves no
+longer cuts the rest of the database upgrade short.
+
+**Tapping the logo at the top of the page takes you home**, on the phone as well as on a computer.
+
+### New in 4.7.0
+
+**If you drive a Leapmotor with a range extender, Mate is now for you too.** Those models could only
+be read with the BetaTester build; their pages — the REEV page, the petrol per trip and per period,
+and the **REEV battery packs in the setup wizard** — are now on the ordinary add-on and the ordinary
+Docker image.
+
+**The petrol figure is the car's own.** Leapmotor's history holds, for each drive, how much petrol the
+car says it burned, and that is the number the official app shows you. Mate used to work it out
+itself, from the tank level at the two ends of the drive, and on the one drive where all three could
+be compared it came out **20.7% lower** — 3.886 L against 4.9. The car's figure wins now; the tank
+stays as the fallback for a drive Leapmotor has no record of, and each figure says which of the two
+you are looking at. ⚠️ **Some old trips will read differently after this update**: Leapmotor's window
+is about 28 days, so older drives keep the tank's answer, about a fifth lower.
+
+**A drive that burned nothing says so.** A range extender runs mostly on electricity, and those drives
+used to show nothing at all — the same as a drive whose tank Mate could not read. When the car's own
+counter reads the same value at both ends of a drive, that is a measurement, and it now reads `0 L`
+with *all electric* beside it. The blank is back to meaning only one thing: we do not know.
+
+**Regen is braking again.** On a range extender the generator recharges the battery while you drive,
+and Mate was counting that as energy recovered from braking — on the one drive we could measure, 89%
+of it was petrol. It no longer counts it. The figure stays hidden on a range extender, as before, but
+what is stored is now honest.
+
+**A trip is no longer damaged by a restart.** When Mate restarts in the middle of a drive, that trip
+is closed afterwards from what was already recorded. It used to lose its arrival odometer, its
+arrival fuel level and its whole regen figure, which read 0.00 kWh — **that last one on fully electric
+cars too**. All three are now rebuilt from the readings of the drive itself.
+
+Also: if your database refuses writes — some network shares do — the daily clean-up no longer retries
+on every single poll, which was 266 attempts in four hours on the installation that reported it.
+
+### New in 4.6.0
 
 At every poll while you drive, Mate reads the power going out of the battery, the temperature of its
 coldest cell, the range estimate and the outside air. It stored all of it and showed you almost none.
@@ -126,9 +223,12 @@ scheduling…) and, if you like, integrate the data with **Home Assistant** (via
 - **It does not talk to the car directly.** Everything goes through the Leapmotor cloud. When Mate
   "queries" the cloud (polling) it reads the **last known status**: it does *not* wake the car up and
   does *not* drain the battery. It's a safe and inexpensive operation.
-- **Only 100% electric cars (BEV).** The supported models are **T03, B05, B10, C10** in their
-  electric versions. The **REEV** versions (with a petrol range extender) are **not** supported: the
-  energy/consumption/cost calculations would use the wrong battery capacity and come out distorted.
+- **Battery-electric and range-extender.** The supported models are **T03, B05, B10, C10**. Their
+  **REEV** versions, with a petrol range extender, are supported from **4.7.0**: the REEV page, the
+  petrol figures per trip and per period, and the REEV battery packs in the wizard are all on the
+  ordinary build. A range extender does **not** get a regen figure — with a generator refilling the
+  pack while you drive, charging cannot be told apart from braking — and the electric rate of a
+  generator drive stays on the BetaTester build, where it can be watched.
 - **European cloud only (Leapmotor International / Stellantis).** Accounts registered on servers of
   other regions (e.g. China) cannot log in. Outside Europe, Mate currently can't be used.
 - **It is not an accounting tool.** It estimates cost *from the telemetry*; it does not keep track of
@@ -450,13 +550,21 @@ duration, consumption (kWh/100 km), energy recovered** in braking and the estima
   driving, Mate closes the trip by itself after half an hour — but dates it at the **last real
   news**, not at the moment it noticed. So the duration holds no half hour of silence and the
   average speed stays honest.
-- **Kilometres covered while the car was out of contact go into no trip at all.** When the link to
-  the cloud drops, the car keeps moving but Mate cannot see it; when the link returns, all it finds
-  is an odometer further along. That jump can hold the end of one drive, a stop, and the beginning
-  of another, and **nothing says how it divides** — so Mate attributes it to nobody. A line above
-  the calendar states that month's kilometres, charge and cost, and the **Statistics** page states
-  the running total: *measured, but not attributable to a specific trip — therefore left out of
-  distances, consumption and costs.*
+- **A dropout never leaves a trip open.** If Mate loses the cloud mid-drive and the car is still
+  driving when the link returns within half an hour, the trip simply carries on. If the car is by
+  then parked or charging, the trip ends there, and the kilometres covered in the gap are part of
+  it. After a longer silence the trip ends at the last thing the car said before it, and the
+  kilometres after that are treated like any others covered out of contact.
+- **Kilometres Mate did not see are not added to the trips around them.** When the link to the cloud
+  drops for longer than a short gap inside one drive (see above), the car keeps moving but Mate
+  cannot see it; when the link returns, all it finds is an odometer further along. That jump can
+  hold the end of one drive, a stop, and the beginning of another, and **nothing says how it
+  divides**. If the car is found parked, its charge level has not gone up and no charging was
+  detected over that interval, Mate rebuilds one trip from the jump alone, without a route.
+  Otherwise (a new drive already under way, a charge, or a charge level that rose) Mate attributes
+  the kilometres to nobody. A line above the calendar states that month's kilometres, charge and
+  cost, and the **Statistics** page states the running total: *measured, but not attributable to a
+  specific trip — therefore left out of distances, consumption and costs.*
   ⚠️ This is why Mate's own total can sit below the car's odometer: the difference is that line.
 - **Elevation and outside temperature.** The Leapmotor cloud reports neither, so a few minutes after
   a drive ends Mate looks the trip's GPS track up against [Open-Meteo](https://open-meteo.com)
@@ -963,6 +1071,7 @@ divided into three columns.
 - **Database** — the size of the DB and the **GPS retention**: you can keep the GPS points "forever"
   (default) or delete those older than 6/12/18/24 months to save space. *Only positions are pruned*:
   trips — with their route and the readings along it — charges and charge curves stay.
+  The points of a drive still in progress stay until it ends, because its end is read from them.
 - **Export / Backup** — download **trips (CSV)**, **charges (CSV)** and a **database backup**. The
   backup arrives **gzip-compressed** (`leapmotor_mate.db.gz`) 🆕, streamed in pieces so even a large
   database never has to fit in memory whole. Restore takes **both** the compressed file and a plain
@@ -1124,8 +1233,19 @@ often the reason is that the car lost **0.1%**, one single step of its charge se
 drop cannot be told apart from noise, and Mate would rather draw nothing than a number it invented.
 
 **I have a Leapmotor REEV (hybrid with a range extender).**
-It's not supported: the energy calculations would use the BEV battery capacity and come out wrong.
-Mate is **only for the 100% electric versions**.
+Supported from **4.7.0**, on the ordinary build: the REEV page, the petrol per trip and per period,
+and the REEV battery packs in the wizard. The BetaTester build is no longer needed for them.
+The petrol figure is the car's own, taken from Leapmotor's per-trip history — the same number the
+official app shows. Where the cloud has no record of a drive, Mate works the litres out from the tank
+instead, and each figure says which of the two is on screen. The cloud's window is about 28 days, so
+on a long history the older drives read the tank's answer, which measures about 20% lower.
+A drive that burned nothing reads `0 L` with *all electric* beside it, which is not the same as a
+drive whose tank could not be read — that one stays blank.
+Not shown on a range extender: the **regen**, because a generator refilling the pack while you drive
+cannot be told apart from braking.
+Already running the BetaTester build? You do not have to move — it keeps working. If you want to, it
+is a backup and a restore, in that order: see
+[From the BetaTester build to the official one](BETA-TO-OFFICIAL.md).
 
 **I'm not in Europe.**
 At the moment Mate only works with the **European** Leapmotor cloud. Accounts on servers in other

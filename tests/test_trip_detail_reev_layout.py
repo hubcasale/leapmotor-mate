@@ -26,14 +26,14 @@ HTML = (ROOT / "web" / "templates" / "trip_detail.html").read_text()
 
 
 def _block():
-    """The range-extender detail block: from its `is_reev and research and engine_ran` gate down to
+    """The range-extender detail block: from its `is_reev and engine_ran` gate down to
     the line that closes it.
 
     ⚠️ The first version cut at the first `{% endif %}` plus a few hundred characters, which used to
     reach the end and — once the block got shorter — stopped before `paid_kwh`, reporting a figure
     as DROPPED that was three lines further down. A test that fails on where it decided to stop
     reading is worse than no test."""
-    start = HTML.find("{% if is_reev and research and trip.engine_ran %}")
+    start = HTML.find("{% if is_reev and trip.engine_ran %}")
     assert start > 0, "the range-extender block is gone entirely"
     end = HTML.find("reev_elec_source_note", start)
     assert end > start, "the block lost its closing note"
@@ -41,7 +41,7 @@ def _block():
 
 
 def _header():
-    return HTML.split("{% if is_reev and research and trip.engine_ran %}", 1)[0]
+    return HTML.split("{% if is_reev and trip.engine_ran %}", 1)[0]
 
 
 def _fuel_section():
@@ -102,7 +102,11 @@ def test_neither_fuel_figure_can_be_torn_from_its_unit():
     # leading. Slicing wider made this fail on that line, which is not what it is asking about.
     lines = [ln for ln in section.splitlines()
              if "trip.fuel_used_l|nice" in ln or "trip.fuel_l_100km|nice" in ln]
-    assert len(lines) == 2, "the litres and the L/100km are no longer two figures of the fuel box"
+    # BOTH figures must be in the box. How many times the litres appear is not the subject: since
+    # 4.7.0 a drive the car measured as burning nothing prints its own "0 L" here, on a line of its
+    # own, and it is held to exactly the same unbreakable rule by the loop below.
+    assert any("trip.fuel_used_l|nice" in ln for ln in lines), "the litres left the fuel box"
+    assert any("trip.fuel_l_100km|nice" in ln for ln in lines), "the L/100km left the fuel box"
     for ln in lines:
         assert "truncate" in ln or "whitespace-nowrap" in ln, \
             "a fuel figure can break — it can lose its unit: " + ln.strip()[:80]
