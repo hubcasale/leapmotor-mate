@@ -32,7 +32,7 @@ import auth
 import security
 import update_check
 
-MATE_VERSION = "4.7.2"  # bump together with the git tag + add-on config.yaml at release
+MATE_VERSION = "4.7.5"  # bump together with the git tag + add-on config.yaml at release
 
 import diagnostics
 import demo
@@ -2721,10 +2721,10 @@ async def charge_place_picker(request: Request, charge_id: int):
 @app.post("/api/charges/{charge_id}/place", response_class=HTMLResponse)
 async def set_charge_place(request: Request, charge_id: int):
     """Assigning (or clearing) a place used to answer with `HX-Refresh` — a full page reload that
-    lost whatever day/tab the owner had open, just to update a few kB of HTML (#reported by
-    hubcasale). It changes the same things a badge click does (type + cost) plus the place line
-    beside it, so it now redraws exactly those, the same way /type, /cost and /free already do:
-    the place line is this request's own target, the badge is a passenger swapped out-of-band."""
+    lost whatever day/tab the owner had open, just to update a few kB of HTML. It changes the same
+    things a badge click does (type + cost) plus the place line beside it, so it now redraws
+    exactly those, the same way /type, /cost and /free already do: the place line is this
+    request's own target, the badge is a passenger swapped out-of-band."""
     form = await request.form()
     try:
         charge = db_reader.assign_charging_place(charge_id, int(form.get("place_id") or 0))

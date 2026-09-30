@@ -1,8 +1,88 @@
 # LeapMotor Mate — Benutzerhandbuch
 
-> **Mate-Version:** v4.7.2 · **Sprache:** Deutsch
+> **Mate-Version:** v4.7.5 · **Sprache:** Deutsch
 
-## Neu in Version 4.7.2
+## Neu in Version 4.7.5
+
+Zwei Änderungen, beide in einem einzigen Diagnosepaket eines Nutzers gefunden.
+
+**Mate kennt jetzt den B03X.** Die Leapmotor-Cloud meldet den *chinesischen* Projektnamen eines
+Fahrzeugs — der in Europa als B03X verkaufte Crossover kommt also als `A10` an, und Mate hatte
+keinen Eintrag dafür. Seine Batterie fiel damit auf den Wert für ein Mate unbekanntes Fahrzeug
+zurück, 65,0 kWh, den der B03X nie hatte; und der Assistent bot keine Variante an, also gab der
+erste angekommene Besitzer eine Zahl von Hand ein. Er gab 53,0 ein, den Wert aus dem Datenblatt —
+die **Nenn**kapazität — während dieses Feld die **nutzbare** erwartet, also die Energie, die das Auto
+tatsächlich entnehmen lässt. Der Assistent bietet nun beide B03X-Batterien an: **39,0 kWh**
+(Nennwert 39,8, 292 km WLTP) und **52,0 kWh** (Nennwert 53,0, 382 km).
+
+⚠️ **Eine bereits eingetragene Kapazität lässt Mate unberührt** — eine selbst gewählte Zahl wird nie
+überschrieben. Ein B03X mit 53,0 liest jede Energieangabe etwa 2 % zu niedrig; auf 52,0 ändern unter
+**Einstellungen → Batterie**, und ab dann stimmt sie.
+
+**Der B03 ist nicht der B03X.** Ein Zeichen Unterschied, und zwei verschiedene Autos: der B03 ist die
+Schräghecklimousine, rund 10 cm kürzer. Er ist absichtlich noch nicht in Mate — er ist nicht im
+Verkauf und die Werte seiner Batterie sind nirgends veröffentlicht. Zwei Dinge, die auch der B03X
+nicht hat: einen geprüften Wartungsplan und eine gemessene Fensteröffnungsskala, weshalb der
+Fensterprozentsatz falsch sein kann.
+
+**Wenn Sie ein Diagnosepaket senden, steht darin jetzt, warum Ihre Installation noch den älteren
+Cloud-Client nutzt** — Zustand, Grund und der letzte Umstellungsversuch. Die Identität Ihres Kontos
+steht weiterhin nie in einem Paket.
+
+### Neu in Version 4.7.4
+
+Drei Änderungen von einem Mitwirkenden. Zwei betreffen Mate, das weniger fragt; die dritte ein Signal,
+das, wenn das Auto es nicht sendete, notiert wurde, als hätte das Auto geantwortet.
+
+**Mate fragt die Außentemperatur nicht mehr nach, wenn der Wetterdienst ablehnt.** Der Wert kommt von
+einem kostenlosen Dienst mit einem Tageskontingent. Eine fehlgeschlagene Anfrage hinterließ nichts,
+also fragte die nächste Abfrage erneut, und jede danach ebenso — an einem Tag mit aufgebrauchtem
+Kontingent waren das 432 Ablehnungen in weniger als vier Stunden. Eine fehlgeschlagene Anfrage wartet
+jetzt zwanzig Minuten, genau so lange, wie einem guten Wert ohnehin schon vertraut wird; gemessen über
+vier Stunden abgelehnter Anfragen: vorher 480, jetzt 12. Schlägt die allererste Anfrage nach einem
+Start fehl, bleiben Sie zwanzig Minuten ohne Außentemperatur; ein bereits vorhandener Wert bleibt
+erhalten wie bisher.
+
+**Ein READY, das das Auto nicht gesendet hat, wird nicht mehr als „aus" notiert.** READY sagt, ob das
+Auto eingeschaltet ist, und Mate erkennt daran, ob zwei Fahrten zu einem Einschaltvorgang gehören —
+davon hängt ab, wann es das Zusammenführen zweier Fahrten anbietet. Ein Frame kann ohne ankommen, und
+dieses Fehlen wurde als Null gespeichert. Ein Halt in P, bei dem das Auto nicht sagte, ob es an war,
+hielt zwei Fahrten in einem Einschaltvorgang, wie lange er auch dauerte; das verhält sich jetzt genau
+wie ein sichtbares Ausschalten, und ein paar Sekunden in P zum Umschalten eines Fahrmodus lassen die
+Fahrt zusammen. Die Statuskarte zeigt einen Strich für einen Wert, den das Auto nie gesendet hat. Für
+ein Auto, das READY meldet, ändert sich nichts: die gesamte echte Historie wird identisch
+rekonstruiert.
+
+Ebenfalls in dieser Version, von Ihrer Installation aus unsichtbar: Mates eigene Testsuite ruft die
+Außenwelt nicht mehr an. Sie löste bei jedem Lauf 187 externe Adressen auf — genug, dass zwei Läufe in
+einer Stunde das Stundenkontingent aufbrauchten, das GitHub einer Adresse gewährt, und eine
+Installation hinter derselben Adresse danach ihre eigene Update-Prüfung abgelehnt bekam.
+
+### Neu in Version 4.7.3
+
+Zwei Änderungen, beide von Menschen, die Mate benutzen, und eine davon korrigiert etwas, das dieses
+Projekt öffentlich falsch gesagt hat.
+
+**Mate fragt den Cloud-Dienst nicht mehr alle zwei Stunden nach einer Anmeldung.** Version 4.4.0
+hatte gelernt, eine Sitzung zu erneuern statt sie mit einer Anmeldung neu zu kaufen, und nannte dafür
+etwa eine Anmeldung pro Woche. So war es nicht: die Erneuerung wurde nur genutzt, wenn die Cloud
+mitten in einer Anfrage ein Token ablehnte, also kostete eine ganz normal ablaufende Sitzung trotzdem
+eine Anmeldung — gemessen auf einer echten Installation, eine alle 119 Minuten, zwölf pro Tag,
+während das daneben gespeicherte Erneuerungsticket noch eine Woche gültig war. Diese Cloud rationiert
+Anmeldungen, und eine abgelehnte Anmeldung ist ein Zeitraum, in dem Mate überhaupt nichts empfängt:
+keine Karte, keine Dauer, keine Geschwindigkeit. Nach der Korrektur, auf derselben Installation:
+sechs Erneuerungen in einer Nacht und keine einzige Anmeldung. Für Sie gibt es nichts zu tun.
+
+**Ein Ladeort kann sagen, was für eine Ladestation er ist.** Ladeorte waren für ein zweites Zuhause
+gedacht, also setzte jeder gespeicherte Ort seine Ladevorgänge auf Zuhause — auch eine Station bei
+der Arbeit oder eine kostenlose kommunale. Ein Ort trägt jetzt seinen eigenen Typ (Zuhause, AC, DC,
+HPC oder Kostenlos), und der Typ bestimmt den Preis genauso wie das Abzeichen: ein als AC mit 0,45
+angelegter Ort berechnet 10 kWh mit 4,50, und ein als Kostenlos angelegter kostet nichts, welcher
+Tarif auch an ihm hängen geblieben ist. Ihre vorhandenen Orte lesen Zuhause, genau wie vorher. Einen
+Ort einem Ladevorgang zuzuweisen lädt nicht mehr die ganze Seite neu, der in Ladevorgänge geöffnete
+Tag bleibt also offen.
+
+### Neu in Version 4.7.2
 
 Neun Dinge, die Mate bereits wusste und nicht nutzte.
 
@@ -236,7 +316,7 @@ Planungen…) und, wenn Sie möchten, die Daten mit **Home Assistant** (über MQ
 - **Es spricht nicht direkt mit dem Auto.** Alles läuft über die Leapmotor-Cloud. Wenn Mate die Cloud
   „abfragt" (Polling), liest es den **zuletzt bekannten Zustand**: Es weckt das Auto *nicht* auf und entlädt die
   Batterie *nicht*. Es ist ein sicherer und günstiger Vorgang.
-- **Batterieelektrisch und mit Range-Extender.** Unterstützt werden **T03, B05, B10, C10**. Ihre
+- **Batterieelektrisch und mit Range-Extender.** Unterstützt werden **T03, B03X, B05, B10, C10**. Ihre
   **REEV**-Versionen, mit Range-Extender auf Benzin, werden ab **4.7.0** unterstützt: die REEV-Seite,
   die Benzinwerte je Fahrt und je Zeitraum sowie die REEV-Batteriepakete im Einrichtungsassistenten
   sind alle im gewöhnlichen Build. Bei einem Range-Extender wird **keine** Rekuperation angezeigt —

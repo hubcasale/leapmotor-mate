@@ -8,8 +8,7 @@ import time
 
 
 # Kept in step with web/db_reader.py's CHARGE_TYPES — a place's type is written straight into
-# charges.location_type on assignment, so it can only ever be one of these five (fork-only: see
-# schema.py's charging_places.charge_type column).
+# charges.location_type on assignment, so it can only ever be one of these five.
 CHARGE_TYPES = ("HOME", "AC", "FAST", "HPC", "FREE")
 
 

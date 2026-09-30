@@ -165,9 +165,9 @@ def test_validate_defaults_charge_type_to_home():
     assert P.validate('X',45,9,100,.3)[-1]=='HOME'
 
 
-# Fork-only: a place types its own charges instead of always landing on HOME (upstream disc #288
-# scopes v1 to private "second home" places) — a public AC point or a free municipal charger you
-# use often can be typed and priced without confirming it by hand every time.
+# A place types its own charges instead of always landing on HOME (disc #288 scoped v1 to
+# private "second home" places) — a public AC point or a free municipal charger you use often
+# can be typed and priced without confirming it by hand every time.
 def test_place_type_is_written_on_auto_match(store):
     pid=place(store)
     store._conn.execute("UPDATE charging_places SET charge_type='AC' WHERE id=?",(pid,));store._conn.commit()
@@ -204,8 +204,8 @@ def test_costs_page_and_picker_render_and_save_is_vehicle_scoped(store):
     assert client.post('/api/settings/charging-places',data=dict(payload,id=pid)).status_code==400
 
 
-# Fork-only: assigning a place used to answer with `HX-Refresh` — a full page reload that lost
-# whatever day/tab was open just to redraw a few kB of HTML. It now redraws the place line and
+# Assigning a place used to answer with `HX-Refresh` — a full page reload that lost whatever
+# day/tab was open just to redraw a few kB of HTML. It now redraws the place line and
 # (out-of-band) the type badge, same as /type, /cost and /free already do.
 def test_assigning_a_place_redraws_in_place_instead_of_reloading_the_page(store):
     from starlette.testclient import TestClient

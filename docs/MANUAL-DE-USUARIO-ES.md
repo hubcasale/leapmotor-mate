@@ -1,8 +1,85 @@
 # LeapMotor Mate — Manual de usuario
 
-> **Versión de Mate:** v4.7.2 · **Idioma:** Español
+> **Versión de Mate:** v4.7.5 · **Idioma:** Español
 
-## Novedades de la versión 4.7.2
+## Novedades de la versión 4.7.5
+
+Dos cambios, ambos encontrados en un mismo paquete de diagnóstico enviado por un usuario.
+
+**Mate ya conoce el B03X.** La nube de Leapmotor envía el nombre de proyecto *chino* de un coche, así
+que el crossover vendido en Europa como B03X llega como `A10`, y Mate no tenía ninguna entrada para
+él. Su batería recaía entonces en la cifra que se usa para un coche desconocido, 65,0 kWh, que el
+B03X nunca ha tenido; y el asistente no ofrecía ninguna variante, por lo que el primer propietario en
+llegar escribió un número a mano. Escribió 53,0, la cifra de la ficha técnica — la capacidad
+**nominal** — cuando ese campo quiere la **útil**, la energía que el coche deja extraer de verdad. El
+asistente ofrece ahora las dos baterías del B03X: **39,0 kWh** (nominal 39,8, 292 km WLTP) y
+**52,0 kWh** (nominal 53,0, 382 km).
+
+⚠️ **Si ya escribiste una capacidad, Mate no la toca** — nunca sobrescribe un número que hayas
+elegido. Un B03X puesto en 53,0 lee alrededor de un 2 % menos en cada cifra de energía; cámbialo a
+52,0 en **Ajustes → Batería** y a partir de ahí es correcto.
+
+**El B03 no es el B03X.** Los separa un carácter y son dos coches distintos: el B03 es el compacto de
+cinco puertas, unos 10 cm más corto. Todavía no está en Mate, a propósito: no está a la venta y las
+cifras de su batería no se publican en ninguna parte. Dos cosas que el B03X tampoco tiene: un plan de
+mantenimiento validado y una escala de apertura de ventanillas medida, por lo que el porcentaje de
+las ventanillas puede ser incorrecto.
+
+**Si envías un paquete de diagnóstico, ahora dice por qué tu instalación sigue con el cliente de nube
+anterior** — el estado, el motivo y cuándo se intentó el cambio por última vez. La identidad de tu
+cuenta sigue sin aparecer nunca en un paquete.
+
+### Novedades de la versión 4.7.4
+
+Tres cambios de una persona que contribuye. Dos tienen que ver con que Mate pregunte menos; el tercero
+con una señal que, cuando el coche no la enviaba, se anotaba como si el coche hubiera respondido.
+
+**Mate deja de volver a pedir la temperatura exterior cuando el servicio meteorológico rechaza.** La
+lectura viene de un servicio gratuito con un cupo diario. Una petición fallida no dejaba nada, así que
+el siguiente sondeo volvía a pedir, y todos los siguientes también — en un día con el cupo agotado,
+eso fueron 432 rechazos en menos de cuatro horas. Una petición fallida ahora espera veinte minutos,
+exactamente lo que ya se confía en una lectura buena; medido sobre cuatro horas de peticiones
+rechazadas, 480 antes y 12 ahora. Si falla la primerísima petición tras un arranque te quedas veinte
+minutos sin temperatura exterior; una lectura que ya existe se conserva, como antes.
+
+**Un READY que el coche no envió ya no se anota como «apagado».** READY dice si el coche está
+encendido, y Mate lo usa para saber si dos trayectos pertenecen al mismo encendido — que es lo que
+decide cuándo te propone unir dos trayectos. Una trama puede llegar sin él, y esa ausencia se guardaba
+como un cero. Una parada en P durante la cual el coche no dijo si estaba encendido mantenía dos
+trayectos en un mismo encendido, durase lo que durase; ahora se comporta exactamente como un apagado
+que se ve, y un par de segundos en P para cambiar un modo de conducción dejan el trayecto entero. La
+tarjeta de estado muestra un guion para un valor que el coche nunca envió. Para un coche que informa
+READY no cambia nada: todo el historial real se reconstruye idéntico.
+
+También en esta versión, invisible desde tu instalación: la suite de pruebas de Mate ya no llama al
+exterior. Resolvía 187 direcciones externas en cada ejecución, suficiente para que dos ejecuciones en
+una hora agotaran el cupo por hora que GitHub concede a una dirección — y una instalación que
+compartía esa dirección veía luego rechazada su propia comprobación de actualizaciones.
+
+### Novedades de la versión 4.7.3
+
+Dos cambios, los dos de personas que usan Mate, y uno de ellos corrige algo que este proyecto dijo
+mal en público.
+
+**Mate deja de pedirle al cloud que inicie sesión cada dos horas.** La versión 4.4.0 le había
+enseñado a renovar una sesión en lugar de volver a comprarla con un inicio de sesión, y decía que eso
+significaba unos un inicio de sesión por semana. No era así: la renovación solo se usaba cuando el
+cloud rechazaba un token a mitad de una petición, así que una sesión que caducaba con normalidad
+seguía costando un inicio de sesión — medido en una instalación real, uno cada 119 minutos, doce al
+día, mientras el billete de renovación guardado al lado seguía sirviendo otra semana. Ese cloud
+raciona los inicios de sesión, y uno rechazado es un tramo en el que Mate no recibe nada: ni mapa, ni
+duración, ni velocidad. Tras la corrección, en la misma instalación: seis renovaciones seguidas en
+una noche y ningún inicio de sesión. No hay nada que hacer por tu parte.
+
+**Un lugar de carga puede decir qué tipo de cargador es.** Los lugares se pensaron para una segunda
+casa, así que cada lugar guardado tipificaba sus cargas como Casa — incluido un cargador del trabajo
+o uno municipal gratuito. Un lugar lleva ahora su propio tipo (Casa, AC, DC, HPC o Gratis), y el tipo
+fija el precio además de la etiqueta: un lugar tipificado AC a 0,45 cobra 10 kWh a 4,50, y uno Gratis
+no cuesta nada sea cual sea la tarifa que le quedara puesta. Los lugares que ya tienes leen Casa,
+exactamente como antes. Asignar un lugar a una carga ya no recarga toda la página, así que el día que
+tuvieras abierto en Cargas sigue abierto.
+
+### Novedades de la versión 4.7.2
 
 Nueve cosas que Mate ya sabía y no usaba.
 
@@ -230,7 +307,7 @@ programaciones…) y, si quieres, integrar los datos con **Home Assistant** (med
 - **No habla directamente con el coche.** Todo pasa por la nube de Leapmotor. Cuando Mate «consulta»
   la nube (polling) lee el **último estado conocido**: *no* despierta al coche y *no* descarga la
   batería. Es una operación segura y barata.
-- **Eléctricos y con extensor de autonomía.** Los modelos compatibles son **T03, B05, B10, C10**.
+- **Eléctricos y con extensor de autonomía.** Los modelos compatibles son **T03, B03X, B05, B10, C10**.
   Sus versiones **REEV**, con extensor de autonomía de gasolina, están soportadas desde la **4.7.0**:
   la página REEV, la gasolina por viaje y por periodo y los paquetes de batería REEV del asistente
   están todos en la compilación normal. En un extensor de autonomía **no** se muestra la regeneración
@@ -647,7 +724,9 @@ temperatura **desconocida** no dispara la preparación, y lo dice en el registro
     todo el **encendido** (de arrancar a apagar), así que puede incluir tiempo con el coche encendido
     antes de que empezaras a moverte. Si **nunca apagas el coche entre dos trayectos** (paras, te
     quedas en Park, vuelves a arrancar), la nube los cuenta como **uno solo** — Mate te dice que
-    **unas los dos trayectos** para obtener el consumo combinado real.
+    **unas los dos trayectos** para obtener el consumo combinado real. Mate solo lo indica cuando el
+    coche lo ha comunicado: una parada en Park de más de un minuto durante la cual el coche no dijo si
+    estaba encendido no cuenta como un solo encendido.
 - **Tu nota + las etiquetas de conducción 🆕** (#107) — en el detalle de un trayecto puedes escribir
   una **nota libre** (tráfico, tiempo, tipo de carretera, lo que sea) y etiquetar el **modo de
   conducción** (Confort / Normal / Sport) y el **One-Pedal** (activado/desactivado) que usaste. Mate no

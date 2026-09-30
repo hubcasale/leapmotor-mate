@@ -1,8 +1,81 @@
 # LeapMotor Mate — User Manual
 
-> **Mate version:** v4.7.2 · **Language:** English
+> **Mate version:** v4.7.5 · **Language:** English
 
-## New in 4.7.2
+## New in 4.7.5
+
+Two changes, both found in one support bundle a user sent.
+
+**Mate now knows the B03X.** The Leapmotor cloud reports a car's *Chinese* project name, so the
+crossover sold in Europe as the B03X arrives as `A10` — and Mate had no entry for it. Its battery
+therefore fell back to the figure used for a car Mate has never heard of, 65.0 kWh, which the B03X has
+never been built with; and the wizard offered no variant, so the first owner to arrive typed a number
+by hand. He typed 53.0, which is the figure on the spec sheet — the **nameplate** capacity — while the
+field wants the **usable** one, the energy the car actually lets you take out. The wizard now offers
+both B03X packs: **39.0 kWh** (nameplate 39.8, 292 km WLTP) and **52.0 kWh** (nameplate 53.0, 382 km).
+
+⚠️ **If you already typed a capacity, Mate leaves it alone** — it never overwrites a number you chose.
+A B03X set to 53.0 reads about 2% low on every energy figure; change it to 52.0 in
+**Settings → Battery** and it is right from there on.
+
+**The B03 is not the B03X.** They are one character apart and they are two different cars: the B03 is
+the hatchback, about 10 cm shorter. It is not in Mate yet, on purpose — it is not on sale and its
+battery figures are not published anywhere. Two things the B03X does not have either: a validated
+maintenance schedule, and a measured window-opening scale, so its window percentage may be wrong.
+
+**If you send a support bundle, it now says why your installation is still on the older cloud
+client** — the state, the reason and when the switch was last attempted. Your account identity is
+still never written into a bundle.
+
+### New in 4.7.4
+
+Three changes from a contributor. Two are about Mate asking less; the third is about a signal that,
+when the car did not send it, was written down as though the car had answered.
+
+**Mate stops re-asking for the outside temperature when the weather service refuses.** The reading
+comes from a free service with a daily allowance. A request that failed left nothing behind, so the
+next poll asked again, and so did every poll after it — on a day the allowance ran out that was 432
+refusals in under four hours. A failed request now waits twenty minutes, which is exactly how long a
+good reading is already trusted; measured over four hours of refused requests, 480 before and 12 now.
+If the very first request after a start fails you are without an outside temperature for twenty
+minutes; an existing reading is kept as before.
+
+**A READY the car did not send is no longer written down as "off".** READY says whether the car is
+switched on, and Mate uses it to tell whether two drives belong to one power-on — which is what
+decides when it offers to merge two trips. A frame can arrive without it, and that absence was stored
+as a zero. A stop in Park where the car did not say whether it was on used to keep two drives in one
+power-on however long it lasted; it now behaves exactly as a switch-off you can see does, and a
+couple of seconds in Park to change a driving mode still keeps one drive whole. The status card shows
+a dash for a value the car never sent. Nothing changes for a car that reports READY: the whole real
+history reconstructs identically.
+
+Also in this release, and invisible from your installation: Mate's own test suite no longer calls out
+to the internet. It was asking 187 external addresses on every run, enough that two runs in an hour
+used up the hourly allowance GitHub gives an address — and an installation sharing that address then
+found its own update check refused.
+
+### New in 4.7.3
+
+Two changes, both from people who use Mate, and one of them corrects something this project got
+wrong in public.
+
+**Mate stops asking the cloud to sign in every two hours.** Version 4.4.0 taught it to renew a
+session instead of buying a new one with a login, and said that meant about one login a week. It did
+not: the renewal was only ever used when the cloud rejected a token mid-request, so an ordinary
+session running out still cost a login — measured on a real installation, one every 119 minutes,
+twelve a day, while the renewal ticket saved alongside it was good for another week. That cloud
+rations logins, and a refused login is a stretch where Mate receives nothing at all: no map, no
+duration, no speed. After the fix, on the same installation: six renewals in a row overnight and no
+login. Nothing for you to do.
+
+**A charging place can say what kind of charger it is.** Places were built for a second home, so
+every place you saved typed its charges as Home — including a charger at work or a free municipal
+one. A place now carries its own type (Home, AC, DC, HPC or Free), and the type sets the price as
+well as the badge: a place typed AC at 0,45 prices 10 kWh at 4,50, and one typed Free costs nothing
+whatever rate was left on it. Places you already have read Home, exactly as before. Assigning a place
+to a charge no longer reloads the whole page, so the day you had open in Charges stays open.
+
+### New in 4.7.2
 
 Nine things Mate already knew and did not use.
 
@@ -223,7 +296,7 @@ scheduling…) and, if you like, integrate the data with **Home Assistant** (via
 - **It does not talk to the car directly.** Everything goes through the Leapmotor cloud. When Mate
   "queries" the cloud (polling) it reads the **last known status**: it does *not* wake the car up and
   does *not* drain the battery. It's a safe and inexpensive operation.
-- **Battery-electric and range-extender.** The supported models are **T03, B05, B10, C10**. Their
+- **Battery-electric and range-extender.** The supported models are **T03, B03X, B05, B10, C10**. Their
   **REEV** versions, with a petrol range extender, are supported from **4.7.0**: the REEV page, the
   petrol figures per trip and per period, and the REEV battery packs in the wizard are all on the
   ordinary build. A range extender does **not** get a regen figure — with a generator refilling the
@@ -614,7 +687,9 @@ duration, consumption (kWh/100 km), energy recovered** in braking and the estima
     whole **power-on session** (from switch-on to switch-off), so it can include time the car was on
     before you started driving. If you **never switch the car off between two trips** (you stop, stay in
     Park, drive again), the cloud counts them as **one** session — Mate tells you to **merge the two
-    trips** to get the real combined consumption.
+    trips** to get the real combined consumption. Mate only says so when the car reported it: a stop
+    in Park of more than a minute during which the car did not say whether it was on is not counted as
+    one session.
 - **Your note + driving tags 🆕** (#107) — in a trip's detail you can jot a **free-text note** (traffic,
   weather, road type, any remark) and tag the **drive mode** (Comfort / Normal / Sport) and **One-Pedal**
   (on/off) you used. Mate can't read these from the car — Leapmotor doesn't send them to the cloud — so
