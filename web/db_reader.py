@@ -1,4 +1,5 @@
 """Read-only DB queries for the web layer."""
+import bisect
 import json
 import logging
 import math
@@ -8345,25 +8346,46 @@ def charges_with_power(limit: int = 30) -> list[dict]:
 
 
 def _wallbox_home_charges_raw() -> list[dict]:
-    """All-time HOME charges that still have a power curve (same EXISTS gate as
-    charges_with_power, but selecting BOTH energy columns and unbounded — the Wallbox
-    calendar's month totals and year-jump need the full history, not just the newest 30)."""
+    """All-time HOME charges that still have a power curve (same gate as charges_with_power,
+    but selecting BOTH energy columns and unbounded — the Wallbox calendar's month totals and
+    year-jump need the full history, not just the newest 30).
+
+    The "has a power curve" check used to be a per-charge correlated EXISTS subquery against
+    `positions`. Its own index condition only covers `recorded_at >= started_at` — the upper
+    bound and the charging-sample predicate's OR are evaluated row by row from there, and a
+    charge with NO matching sample made SQLite walk forward through however much of the table
+    came after it before giving up. Measured on a synthetic 200k-position install: ~3s for this
+    one query, called twice per page load. Now it's one scan of `positions` for every
+    qualifying instant (same cost regardless of how many charges ask), and each charge checks
+    its own window against that sorted list with a bisect instead of a subquery."""
     db = _get()
+    vehicle_id = _current_vehicle_id()
+    samples_by_vehicle: dict = {}
+    for row in db.execute(
+            "SELECT vehicle_id, recorded_at FROM positions "
+            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() +
+            " ORDER BY vehicle_id, recorded_at", (vehicle_id,)):
+        samples_by_vehicle.setdefault(row["vehicle_id"], []).append(row["recorded_at"])
+
+    def _has_sample(vid, started_at, ended_at) -> bool:
+        ts = samples_by_vehicle.get(vid)
+        if not ts:
+            return False
+        i = bisect.bisect_left(ts, started_at)
+        return i < len(ts) and (ended_at is None or ts[i] <= ended_at)
+
+    # ⚠️ COMPLETED charges only (Silvio, 06/08/26). While the energy is still flowing the meter
+    # lags the car — @Wartopia's live 6 August charge read 2.74 kWh from the wall against 4.03
+    # into the battery — so a running session drags every comparison on this page for as long as
+    # the cable is in. Measured: 89.3 % became 93.6 % the moment one joined. Its own guards have
+    # not run yet either: the ceiling and stuck-counter backstops fire at finalize_charge.
     rows = db.execute(
-        # ⚠️ COMPLETED charges only (Silvio, 06/08/26). While the energy is still flowing the meter
-        # lags the car — @Wartopia's live 6 August charge read 2.74 kWh from the wall against 4.03
-        # into the battery — so a running session drags every comparison on this page for as long as
-        # the cable is in. Measured: 89.3 % became 93.6 % the moment one joined. Its own guards have
-        # not run yet either: the ceiling and stuck-counter backstops fire at finalize_charge.
-        "SELECT c.id, c.started_at, c.ended_at, c.energy_added_kwh, c.ac_energy_kwh FROM charges c "
-        "WHERE c.vehicle_id = COALESCE(?, c.vehicle_id) AND c.location_type = 'HOME' "
+        "SELECT c.id, c.vehicle_id, c.started_at, c.ended_at, c.energy_added_kwh, c.ac_energy_kwh "
+        "FROM charges c WHERE c.vehicle_id = COALESCE(?, c.vehicle_id) AND c.location_type = 'HOME' "
         + ("AND c.merged_into_id IS NULL " if _charges_have_merge(db) else "")
-        + "AND c.ended_at IS NOT NULL AND EXISTS ("
-        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND " + _charging_sample("p") + 
-        "  AND p.recorded_at >= c.started_at"
-        "  AND (c.ended_at IS NULL OR p.recorded_at <= c.ended_at)"
-        ") ORDER BY c.started_at DESC",
-        (_current_vehicle_id(),)).fetchall()
+        + "AND c.ended_at IS NOT NULL ORDER BY c.started_at DESC",
+        (vehicle_id,)).fetchall()
+    rows = [r for r in rows if _has_sample(r["vehicle_id"], r["started_at"], r["ended_at"])]
     # One entry per SESSION: two rows here are two Home Assistant history fetches and two
     # attributions for one plug-in, and the window has to reach the real end — stopping at the
     # first piece would leave the rest of the meter's kilowatt-hours outside it.
