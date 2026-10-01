@@ -1,5 +1,4 @@
 """Read-only DB queries for the web layer."""
-import bisect
 import json
 import logging
 import math
@@ -8334,14 +8333,20 @@ def charges_with_power(limit: int = 30) -> list[dict]:
     """Recent HOME charges (= the wallbox) that still have a power curve — raw
     {id, started_at, energy_added_kwh}. Only HOME charges are relevant to the
     wallbox comparison: public/away charges (and unconfirmed NULL ones) are excluded,
-    which also avoids attributing another car's wallbox session to this car."""
+    which also avoids attributing another car's wallbox session to this car.
+
+    Unlike _wallbox_home_charges_raw's own EXISTS, the `OR` in the upper bound here is NOT
+    dead — an open charge (`ended_at IS NULL`) is still a candidate, so the NULL branch can
+    fire for real. An OR still can't become an index constraint, so `COALESCE(c.ended_at,
+    '9999')` keeps the same "open charge always qualifies" meaning while giving SQLite a
+    single comparable upper bound to search on (#363)."""
     db = _get()
     rows = db.execute(
         "SELECT c.id, c.started_at, c.energy_added_kwh FROM charges c "
         "WHERE c.vehicle_id = COALESCE(?, c.vehicle_id) AND c.location_type = 'HOME' AND EXISTS ("
-        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND " + _charging_sample("p") + 
+        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND " + _charging_sample("p") +
         "  AND p.recorded_at >= c.started_at"
-        "  AND (c.ended_at IS NULL OR p.recorded_at <= c.ended_at)"
+        "  AND p.recorded_at <= COALESCE(c.ended_at, '9999')"
         ") ORDER BY c.started_at DESC LIMIT ?",
         (_current_vehicle_id(), limit),
     ).fetchall()
@@ -8353,42 +8358,37 @@ def _wallbox_home_charges_raw() -> list[dict]:
     but selecting BOTH energy columns and unbounded — the Wallbox calendar's month totals and
     year-jump need the full history, not just the newest 30).
 
-    The "has a power curve" check used to be a per-charge correlated EXISTS subquery against
-    `positions`. Its own index condition only covers `recorded_at >= started_at` — the upper
-    bound and the charging-sample predicate's OR are evaluated row by row from there, and a
-    charge with NO matching sample made SQLite walk forward through however much of the table
-    came after it before giving up. Measured on a synthetic 200k-position install: ~3s for this
-    one query, called twice per page load. Now it's one scan of `positions` for every
-    qualifying instant (same cost regardless of how many charges ask), and each charge checks
-    its own window against that sorted list with a bisect instead of a subquery."""
+    The "has a power curve" check is a correlated EXISTS subquery against `positions`. Its
+    upper bound used to read `(c.ended_at IS NULL OR p.recorded_at <= c.ended_at)` — an OR that
+    is DEAD in this query (`c.ended_at IS NOT NULL` is already required three lines up), but an
+    OR can never become an index constraint, so SQLite used only the lower bound and walked
+    forward through however much of `positions` came after a charge with no matching sample.
+    Dropping the dead branch lets it use BOTH bounds (`recorded_at>? AND recorded_at<?`).
+
+    ProtossBlaster found this reading the diagnosis on #363 — an earlier version of this fix
+    scanned every qualifying sample in `positions` into a Python list once per page load and
+    checked each charge against it, which measured WORSE on his real bench (381k positions, 32
+    HOME charges, none missing a sample): the `EXISTS` costs 0.0ms there either way, since it
+    stops at the first match, while the Python scan paid ~41ms unconditionally, twice per page
+    load. This one-line fix costs the same 0.0ms on that install and turns the pathological case
+    (a charge with NO sample) from an 18.4ms table walk into another 0.0ms index search — so it
+    wins on both shapes of database, with neither a Python-side list nor a hand-rolled binary
+    search to keep in step with the schema."""
     db = _get()
-    vehicle_id = _current_vehicle_id()
-    samples_by_vehicle: dict = {}
-    for row in db.execute(
-            "SELECT vehicle_id, recorded_at FROM positions "
-            "WHERE vehicle_id = COALESCE(?, vehicle_id) AND " + _charging_sample() +
-            " ORDER BY vehicle_id, recorded_at", (vehicle_id,)):
-        samples_by_vehicle.setdefault(row["vehicle_id"], []).append(row["recorded_at"])
-
-    def _has_sample(vid, started_at, ended_at) -> bool:
-        ts = samples_by_vehicle.get(vid)
-        if not ts:
-            return False
-        i = bisect.bisect_left(ts, started_at)
-        return i < len(ts) and (ended_at is None or ts[i] <= ended_at)
-
     # ⚠️ COMPLETED charges only (Silvio, 06/08/26). While the energy is still flowing the meter
     # lags the car — @Wartopia's live 6 August charge read 2.74 kWh from the wall against 4.03
     # into the battery — so a running session drags every comparison on this page for as long as
     # the cable is in. Measured: 89.3 % became 93.6 % the moment one joined. Its own guards have
     # not run yet either: the ceiling and stuck-counter backstops fire at finalize_charge.
     rows = db.execute(
-        "SELECT c.id, c.vehicle_id, c.started_at, c.ended_at, c.energy_added_kwh, c.ac_energy_kwh "
-        "FROM charges c WHERE c.vehicle_id = COALESCE(?, c.vehicle_id) AND c.location_type = 'HOME' "
+        "SELECT c.id, c.started_at, c.ended_at, c.energy_added_kwh, c.ac_energy_kwh FROM charges c "
+        "WHERE c.vehicle_id = COALESCE(?, c.vehicle_id) AND c.location_type = 'HOME' "
         + ("AND c.merged_into_id IS NULL " if _charges_have_merge(db) else "")
-        + "AND c.ended_at IS NOT NULL ORDER BY c.started_at DESC",
-        (vehicle_id,)).fetchall()
-    rows = [r for r in rows if _has_sample(r["vehicle_id"], r["started_at"], r["ended_at"])]
+        + "AND c.ended_at IS NOT NULL AND EXISTS ("
+        "  SELECT 1 FROM positions p WHERE p.vehicle_id = c.vehicle_id AND " + _charging_sample("p") +
+        "  AND p.recorded_at >= c.started_at AND p.recorded_at <= c.ended_at"
+        ") ORDER BY c.started_at DESC",
+        (_current_vehicle_id(),)).fetchall()
     # One entry per SESSION: two rows here are two Home Assistant history fetches and two
     # attributions for one plug-in, and the window has to reach the real end — stopping at the
     # first piece would leave the rest of the meter's kilowatt-hours outside it.
