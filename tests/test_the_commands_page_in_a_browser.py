@@ -10,6 +10,9 @@ only switches the wheel off or on at II (test_steering_heat_shows_its_level.py h
 the command). The tests move the thumb the way a finger does, one `input` per position crossed,
 and the way a keyboard does, arrow keys, which also commit the change and send it.
 
+A sunshade stopped part-way offers both of its commands, so the page cannot read the end of one
+from the other's button appearing; it waits for the percent the command asked for.
+
 It needs fastapi, uvicorn, playwright and a Chromium, none of them in CI's minimal env, so it
 skips there and guards the laptop it runs on.
 """
@@ -135,8 +138,17 @@ def choose_car(mate):
     _setting(mate.db, "active_vehicle_vin", VIN)
 
 
+@pytest.fixture(scope="module")
+def browser():
+    """One Chromium for the file: each page opens in a context of its own, so no test sees another's."""
+    with sync_api.sync_playwright() as pw:
+        chromium = pw.chromium.launch()
+        yield chromium
+        chromium.close()
+
+
 @pytest.fixture
-def commands(mate):
+def commands(mate, browser):
     """Open the Commands page with the wheel reporting `raw` on 1816. Returns (page, sent commands)."""
     # Explicit synthetic owner snapshots satisfy the independent client's rights gate.
     # All command requests remain intercepted below; no cloud calls are made.
@@ -150,49 +162,50 @@ def commands(mate):
         _setting(mate.db, snapshot_key(vin), json.dumps({
             'account': account_hash(user), 'at': time.time(), 'shared': False,
             'vehicle': {'vin': vin, 'carType': 'B10', 'abilities': ABILITIES}}))
-    with sync_api.sync_playwright() as pw:
-        browser = pw.chromium.launch()
+    pages = []
 
-        def open_with(raw, fake_clock=False, answer=DONE):
-            _report(mate.db, raw)
-            page = browser.new_page()
-            if fake_clock:
-                page.clock.install()
-            errors, sent, held = [], [], []
+    def open_with(raw, fake_clock=False, answer=DONE):
+        _report(mate.db, raw)
+        page = browser.new_page()
+        pages.append(page)
+        if fake_clock:
+            page.clock.install()
+        errors, sent, held = [], [], []
 
-            def command(route):
-                sent.append(route.request.url.rsplit("/", 1)[1])
-                if page.hold:                 # the cloud is still working on it
-                    held.append(route)
-                else:
-                    route.fulfill(status=200, content_type="text/html", body=answer)
-            page.hold, page.held = False, held
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.route("**/api/command/**", command)
-            response = page.goto(mate.url + "/commands")
-            assert response.status == 200, mate.log.read_text()[-3000:]
-            page.wait_for_selector("#cmd-grid")
-            # Fail promptly at the authorization seam instead of timing out on
-            # every later click when a fixture accidentally hides the controls.
-            assert page.locator(SLIDER).is_visible(), mate.log.read_text()[-3000:]
-            assert page.locator(MIRROR).first.is_visible(), mate.log.read_text()[-3000:]
-            # How many grid refetches are out (the page's clock can be fake, the network never is: _grid_back),
-            # how many came back with the grid, and how many command answers the page heard.
-            page.evaluate("""() => {
-                window.gridOut = window.gridsIn = window.cmdAnswers = 0;
-                const path = e => (e.detail.pathInfo || {}).requestPath || '';
-                const grid = e => path(e).indexOf('cmd-grid') !== -1, cmd = e => path(e).indexOf('api/command/') !== -1;
-                document.addEventListener('htmx:beforeRequest', e => { if (grid(e)) window.gridOut++; });
-                document.addEventListener('htmx:afterRequest', e => {
-                    if (grid(e)) { window.gridOut--; if (e.detail.successful) window.gridsIn++; }
-                    if (cmd(e)) window.cmdAnswers++;
-                });
-            }""")
-            page.errors = errors
-            return page, sent
+        def command(route):
+            sent.append(route.request.url.rsplit("/", 1)[1])
+            if page.hold:                 # the cloud is still working on it
+                held.append(route)
+            else:
+                route.fulfill(status=200, content_type="text/html", body=answer)
+        page.hold, page.held = False, held
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.route("**/api/command/**", command)
+        response = page.goto(mate.url + "/commands")
+        assert response.status == 200, mate.log.read_text()[-3000:]
+        page.wait_for_selector("#cmd-grid")
+        # Fail promptly at the authorization seam instead of timing out on
+        # every later click when a fixture accidentally hides the controls.
+        assert page.locator(SLIDER).is_visible(), mate.log.read_text()[-3000:]
+        assert page.locator(MIRROR).first.is_visible(), mate.log.read_text()[-3000:]
+        # How many grid refetches are out (the page's clock can be fake, the network never is: _grid_back),
+        # how many came back with the grid, and how many command answers the page heard.
+        page.evaluate("""() => {
+            window.gridOut = window.gridsIn = window.cmdAnswers = 0;
+            const path = e => (e.detail.pathInfo || {}).requestPath || '';
+            const grid = e => path(e).indexOf('cmd-grid') !== -1, cmd = e => path(e).indexOf('api/command/') !== -1;
+            document.addEventListener('htmx:beforeRequest', e => { if (grid(e)) window.gridOut++; });
+            document.addEventListener('htmx:afterRequest', e => {
+                if (grid(e)) { window.gridOut--; if (e.detail.successful) window.gridsIn++; }
+                if (cmd(e)) window.cmdAnswers++;
+            });
+        }""")
+        page.errors = errors
+        return page, sent
 
-        yield open_with
-        browser.close()
+    yield open_with
+    for page in pages:
+        page.close()                         # and its context with it
 
 
 def _grid_back(page):
@@ -434,12 +447,12 @@ def test_the_page_does_not_reload_itself_while_a_slow_command_is_completing(comm
     page look idle: no interaction for 20 s, and the refetch after the answer takes the focus off the
     control pressed. The reload would drop the busy state, so the page opts out of it."""
     page, _ = commands(0, fake_clock=True)
-    page.clock.pause_at(page.evaluate("Date.now()") / 1000)   # seconds, not ms; from here on time moves only when ticked
+    page.clock.pause_at(page.evaluate("Date.now()") / 1000 + 1)   # a second ahead: pausing at the time just read races the page's 300 ms tick
     page.evaluate("window.samePage = true")
     page.hold = True                     # the cloud is still on it
     page.click(MIRROR)
     page.wait_for_timeout(300)
-    _tick(page, 22_000)                  # longer than an interaction counts for
+    _tick(page, 21_000)                  # longer than an interaction counts for; a second shorter for the second the pause skipped
     page.hold = False
     page.held[0].fulfill(status=200, content_type="text/html", body=DONE)
     page.wait_for_timeout(300)
@@ -737,3 +750,33 @@ def test_the_slider_is_named_for_a_screen_reader(commands):
     """The button it replaces was announced as "Turn On"; a slider with no name is announced as "0"."""
     page, _ = commands(0)
     assert page.get_by_role("slider", name="Steering heat").count() == 1
+
+
+@pytest.fixture
+def shade(mate):
+    """The poller's side: the sunshade's percent in the newest position, back to unknown after."""
+    def report(pct):
+        conn = sqlite3.connect(mate.db)
+        conn.execute("UPDATE positions SET sunshade_pct = ? WHERE vehicle_id = 1", (pct,))
+        conn.commit()
+        conn.close()
+    yield report
+    report(None)
+
+
+@pytest.mark.parametrize("press, moving, end", [("open_sunshade", 70, 100), ("close_sunshade", 35, 0)])
+def test_a_sunshade_command_from_part_way_is_busy_until_the_end_it_asked_for(commands, shade, press, moving, end):
+    shade(50)
+    page, sent = commands(0, fake_clock=True)
+    page.click(f'[hx-post="api/command/{press}"]')
+    page.keyboard.press("Enter")                 # the in-app "are you sure?"
+    page.wait_for_timeout(300)
+    assert sent == [press]
+    _tick(page, 1_600)                           # both buttons are still there
+    shade(moving)
+    _tick(page, 10_000)                          # past the 10 s floor, the sunshade on its way
+    assert page.evaluate("isBusy()")
+    shade(end)
+    _tick(page, 6_000)                           # the 15 s refetch brings the end
+    assert not page.evaluate("isBusy()")
+    assert page.errors == []

@@ -210,8 +210,6 @@ class MqttService:
     # ── Publishing ────────────────────────────────────────────────────────────
 
     def _access_signature(self, vin):
-        if os.environ.get("MATE_API_V2") != "1":
-            return None
         from ui_command_access import COMMANDS, allowed, snapshot_key, account_hash, account_username
         try:
             username = account_username(self.get_setting)
@@ -224,25 +222,21 @@ class MqttService:
             return ('unavailable',)
 
     def _command_visible(self, vin, key):
-        if os.environ.get("MATE_API_V2") == "1":
-            key = {'climate_auto': 'ac_on', 'climate_cool': 'quick_cool',
-                   'climate_heat': 'quick_heat', 'climate_vent': 'quick_vent',
-                   'fan_level': 'set_fan_level', 'recirculation': 'set_recirc',
-                   'door_lock': 'lock', 'lock_toggle': 'lock',
-                   'trunk': 'open_trunk', 'charge_limit': 'set_charge_limit',
-                   'charge_schedule': 'save_charge_schedule'}.get(key, key)
-            # The cloud decides what may be SENT; what Home Assistant SHOWS also keeps what was
-            # measured on the car, exactly as the page does — the European T03 declares
-            # STEERING_WHEEL and heated seats it has no hardware for (#144), and the two surfaces
-            # must not disagree about the same car.
-            feat = capability_profile.COMMAND_FEATURE.get(key)
-            if feat and capability_profile.model_hidden(self._facts(vin)[1], feat):
-                return False
-            from ui_command_access import command_allowed
-            return command_allowed(vin, key, self.get_setting)
-        abilities, car_type = self._facts(vin)
-        return capability_profile.command_shown(vin, key, self.get_setting,
-                                                abilities=abilities, car_type=car_type)
+        key = {'climate_auto': 'ac_on', 'climate_cool': 'quick_cool',
+               'climate_heat': 'quick_heat', 'climate_vent': 'quick_vent',
+               'fan_level': 'set_fan_level', 'recirculation': 'set_recirc',
+               'door_lock': 'lock', 'lock_toggle': 'lock',
+               'trunk': 'open_trunk', 'charge_limit': 'set_charge_limit',
+               'charge_schedule': 'save_charge_schedule'}.get(key, key)
+        # The cloud decides what may be SENT; what Home Assistant SHOWS also keeps what was
+        # measured on the car, exactly as the page does — the European T03 declares
+        # STEERING_WHEEL and heated seats it has no hardware for (#144), and the two surfaces
+        # must not disagree about the same car.
+        feat = capability_profile.COMMAND_FEATURE.get(key)
+        if feat and capability_profile.model_hidden(self._facts(vin)[1], feat):
+            return False
+        from ui_command_access import command_allowed
+        return command_allowed(vin, key, self.get_setting)
 
     def publish_status(self, data, abilities=None, car_type=None, absent_temps=None):
         """One car's state. `abilities` and `car_type` describe THIS car — with two on the account
@@ -380,8 +374,17 @@ class MqttService:
                 v = "" if val is None else str(val)
             self.client.publish(f"{base}/{sub}", v, retain=True)
 
-        pub("soc", data.soc);                  pub("range", data.range_km)
-        pub("odometer", data.odometer_km);     pub("speed", data.speed_kmh)
+        pub("soc", data.soc)
+        # A frame with no range keeps the retained last one instead of turning the sensor
+        # `unknown` at every sleep of the car (#365).
+        if data.range_km is not None:
+            pub("range", data.range_km)
+        # The same for a frame with no odometer: in memory it is 0 for the state machine, and a
+        # retained 0 would drop the sensor to 0 km and back (PR #358). An empty retained payload
+        # would delete the broker's value instead, so nothing is published.
+        if data.odometer_reported:
+            pub("odometer", data.odometer_km)
+        pub("speed", data.speed_kmh)
         pub("gear", data.gear);                pub("state", data.vehicle_state)
         # The car is powered up — signal 1258 (ON3), the same one the Ready automation triggers on.
         # `state` above cannot stand in for it: it only turns to "driving" once a gear is engaged or
@@ -409,11 +412,12 @@ class MqttService:
         pub("climate_power", data.climate_power)             # 1348 PTC power in W (None when absent)
         pub("recirculation", data.recirculation)             # binary: recirc on / fresh off
         pub("climate_mode", data.climate_mode_label or None) # auto/cool/heat/vent
-        pub("plug_connected", data.plug_connected)
+        pub("plug_connected", data.cable_connected)        # the cable as the pages show it (#429)
         pub("tire_fl", data.tire_fl_bar);       pub("tire_fr", data.tire_fr_bar)
         pub("tire_rl", data.tire_rl_bar);       pub("tire_rr", data.tire_rr_bar)
         pub("any_door_open", data.any_door_open); pub("trunk_open", data.trunk_open)
-        pub("windows_open", data.windows_open); pub("sunshade_open", data.sunshade_open)
+        pub("windows_open", data.windows_open); pub("sunshade_open", bool(data.sunshade_pct))
+        pub("sunshade_pct", data.sunshade_pct)
         pub("door_driver", data.door_driver_open);       pub("door_passenger", data.door_passenger_open)
         pub("door_rear_left", data.door_rear_left_open); pub("door_rear_right", data.door_rear_right_open)
         pub("window_fl", data.window_fl_open);  pub("window_fr", data.window_fr_open)
@@ -461,7 +465,7 @@ class MqttService:
         up EVCC. See docs/EVCC.md for a ready-to-paste vehicle config."""
         def b(v):
             return "" if v is None else ("true" if v else "false")
-        self.client.publish(f"{base}/evcc/plugged",  b(data.plug_connected),            retain=True)
+        self.client.publish(f"{base}/evcc/plugged",  b(data.cable_connected),           retain=True)
         self.client.publish(f"{base}/evcc/charging", b((data.charging_status or 0) > 0), retain=True)
         self.client.publish(f"{base}/evcc/climate",  b(data.climate_on),                retain=True)
 
@@ -519,8 +523,7 @@ class MqttService:
         device = self._device(vin)
 
         def cfg(component, key, conf):
-            if (os.environ.get("MATE_API_V2") == "1" and "command_topic" in conf
-                    and not self._command_visible(vin, key)):
+            if "command_topic" in conf and not self._command_visible(vin, key):
                 self.client.publish(f"{_DISC}/{component}/{device_id}/{key}/config", "", retain=True)
                 return
             conf.update({"unique_id": f"{device_id}_{key}", "device": device})
@@ -560,6 +563,9 @@ class MqttService:
             # fed "" logs a conversion error on every poll instead of simply going unknown.
             ("climate_power", "Climate Power", {"dc": "power", "unit": "W",
                                                 "icon": "mdi:air-conditioner", "tpl": _EMPTY_NONE}),
+            # How far the sunshade is open (1724, 0 = closed); the binary "Sunshade" stays for automations.
+            ("sunshade_pct", "Sunshade Position", {"unit": "%", "icon": "mdi:window-shutter-open",
+                                                   "tpl": _EMPTY_NONE}),
         ]
         for key, name, extra in sensors:
             cfg("sensor", key, _sensor_conf(prefix, vin, key, name, extra))

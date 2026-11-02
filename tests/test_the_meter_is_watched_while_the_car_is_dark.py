@@ -16,6 +16,7 @@ import dataclasses
 import importlib.util
 import pathlib
 import sys
+from types import SimpleNamespace
 
 import db as D
 import pytest
@@ -113,16 +114,17 @@ def loop(tmp_path, monkeypatch):
         def _read(self):
             v = queue.pop(0) if queue else (taken[-1] if taken else None)
             taken.append(v)
-            return v
+            return {"energy_kwh": v}
 
-        monkeypatch.setattr(Recorder, "_read_wallbox_energy", _read)
+        monkeypatch.setattr(Recorder, "_read_wallbox", _read)
         client = _Client(frames)
         client.budget = rounds
         monkeypatch.setattr(PM, "LeapmotorMateClient", lambda **kw: client)
 
         clock = {"t": 1_760_000_000.0}
-        monkeypatch.setattr(PM.time, "time", lambda: clock["t"])
-        monkeypatch.setattr(PM.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+        # The poller's own `time`, not the process's: the web app's threads sleep on that one too.
+        monkeypatch.setattr(PM, "time", SimpleNamespace(time=lambda: clock["t"],
+                                                        sleep=lambda s: clock.__setitem__("t", clock["t"] + s)))
         for name in ("_maybe_refresh_charge_schedule",):
             monkeypatch.setattr(PM, name, lambda *a, **k: None)
         monkeypatch.setattr(PM.energy_snapshots, "maybe_sample", lambda *a, **k: None)
@@ -196,10 +198,12 @@ def test_no_charge_open_means_no_wallbox_call(loop):
 
 def test_a_charge_away_from_the_wallbox_is_still_not_attributed(loop, monkeypatch):
     """The home-radius rule (#46/#215 family) decides attribution; reading in the dark must not
-    quietly bypass it and hang the house meter on a public charge."""
+    quietly bypass it and hang the house meter on a public charge. Since #442 the counter IS read
+    there, on the side, and only finalize_charge may move it into the wallbox columns."""
     monkeypatch.setattr(D.Database, "wallbox_energy_applies", lambda *a, **k: False)
     db, taken = loop(
         frames=[_frame(charging=True), RuntimeError("down"), RuntimeError("down")],
         meter=[11.78, 12.50, 13.20], rounds=3)
-    assert taken == []
+    assert len(taken) >= 3
     assert _charge(db)["ac_energy_kwh"] is None
+    assert _charge(db)["wallbox_energy_start_kwh"] is None

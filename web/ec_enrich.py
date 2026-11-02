@@ -42,6 +42,19 @@ _MAX_EC_SOC_OVERSHOOT = 2.0    # ...and: getEC ABOVE this × the SoC delta = ove
                                # Typical on VERY SHORT trips: the window's 2-min pre-pad (A/C, standby,
                                # pre-conditioning) dwarfs the tiny drive and inflates getEC several-fold
                                # past what actually left the battery (1 km: 1.2 kWh getEC vs 0.2 SoC).
+_SOC_REFERENCE_MIN_POINTS = 1.0  # ...unless the SoC delta is itself a solid measurement, and then the
+                               # overshoot ALONE is enough — the efficiency ceiling is dropped (#298,
+                               # @arzthilfe). Why the ceiling had to go: his 7 km drive read 2.90 kWh
+                               # against 1.07 kWh of SoC — 2.7× — and drew 41.4 kWh/100km on the
+                               # consumption chart, under the 60 ceiling, so the guard never looked.
+                               # Why only above this many points: measured over 412 trips carrying both
+                               # a getEC and a SoC drop, the ratio converges as the drop grows —
+                               # p90 1.54 below 0.5 points, then 0.96 / 1.08 / 0.99 / 1.00. Below half
+                               # a point the ratio IS the noise (a handful of 0.1 steps), which is why
+                               # the two conditions were ANDed in the first place; at a full point and
+                               # up the SoC is the firmer of the two numbers and says so on its own.
+                               # 2 of those 412 trips change hands, both at ratio 2.1 with 14 and 29
+                               # steps behind them — the same shape as his.
 _lock = threading.Lock()
 _running = False
 _bg_started = False
@@ -60,7 +73,23 @@ def _soc_energy_kwh(d: dict, dist: float):
     return (soc_eff / 100 * dist) if (soc_eff and dist and dist > 0) else None
 
 
-def _ec_implausible(ec: dict, dist: float, soc_energy) -> bool:
+def _soc_drop_points(d: dict):
+    """The trip's MEASURED SoC fall in percentage points, or None when it was not measured. Only a
+    real start/end pair counts: the efficiency fallback in `_soc_energy_kwh` can produce an energy
+    without ever having seen a drop, and a drop nobody measured cannot vouch for anything."""
+    ss, es = d.get("start_soc"), d.get("end_soc")
+    return (ss - es) if (ss is not None and es is not None and ss > es) else None
+
+
+def _zero_unvouched(ec: dict, d: dict) -> bool:
+    """True for a 0.0 kWh reading the battery does not vouch for: the car's figure only where the SoC
+    read the same at both ends; with a reading missing, or a change, the zero is the cloud having nothing."""
+    if not ec or (ec.get("total_kwh") or 0) != 0:
+        return False
+    return not db_reader.soc_held(d)
+
+
+def _ec_implausible(ec: dict, dist: float, soc_energy, soc_drop=None) -> bool:
     """True when a getEC reading is physically implausible vs the trip's SoC battery delta → keep the
     estimate instead. Each side needs BOTH an efficiency signal AND a SoC-mismatch signal (a genuinely
     low/high but SoC-consistent trip is accepted; with no SoC reference → accept):
@@ -69,15 +98,21 @@ def _ec_implausible(ec: dict, dist: float, soc_energy) -> bool:
       • HIGH (#98): eff > _MAX_PLAUSIBLE_EFF AND total > _MAX_EC_SOC_OVERSHOOT × SoC — the value
         over-states THIS drive (e.g. a single trip whose session swallowed pre-drive idle/climate; the
         drive-only SoC is the truer per-trip figure). The MULTI-trip session case is handled earlier by
-        the shared-session block, so this fires only on single trips."""
+        the shared-session block, so this fires only on single trips.
+      • HIGH with a solid reference (#298): the overshoot alone, no efficiency condition, once the
+        measured SoC fall reaches _SOC_REFERENCE_MIN_POINTS. The AND exists because a ratio built on
+        two or three 0.1 steps is noise — it is not a reason to disbelieve the SoC when the drop is
+        ten steps and more."""
     if not ec or not dist or dist <= 0 or not soc_energy:
         return False
     total = ec.get("total_kwh") or 0
     eff = total / dist * 100
     if eff < _MIN_PLAUSIBLE_EFF and total < soc_energy * _MAX_EC_SOC_SHORTFALL:
         return True                                # too low → incomplete / cloud gap (#96)
-    if eff > _MAX_PLAUSIBLE_EFF and total > soc_energy * _MAX_EC_SOC_OVERSHOOT:
-        return True                                # too high → over-attributed (#98)
+    if total > soc_energy * _MAX_EC_SOC_OVERSHOOT and (
+            eff > _MAX_PLAUSIBLE_EFF
+            or (soc_drop is not None and soc_drop >= _SOC_REFERENCE_MIN_POINTS)):
+        return True                                # too high → over-attributed (#98, #298)
     return False
 
 
@@ -147,7 +182,12 @@ def _sweep_now() -> None:
             log.info("ec_enrich: first run — cutoff set to %s (enrich from now)", cutoff)
         apply = True
         now = time.time()
-        for t in db_reader.get_trips_needing_ec(cutoff, limit=_BATCH):
+        for due in db_reader.get_trips_needing_ec(cutoff, limit=_BATCH):
+            # A merged trip is asked for and judged as its whole group, as Convert does.
+            found = db_reader.trip_group(due["id"])
+            if not found:
+                continue
+            t, own_ids = found
             b, e = db_reader.trip_epoch_window(t)   # exact span; e (end) used for the age check
             if not b or not e:
                 db_reader.store_trip_ec(t["id"], None, t.get("distance_km"), apply)
@@ -156,7 +196,7 @@ def _sweep_now() -> None:
             # off between them), DON'T auto-apply a per-trip value — it'd grab the whole session. Leave
             # it on SoC; the user merges them by hand (convert_trip then converts the combined group).
             sess = db_reader.ready_session(t)
-            if sess and (set(sess["trip_ids"]) - {t["id"]}):
+            if sess and (set(sess["trip_ids"]) - own_ids):
                 db_reader.store_trip_ec(t["id"], None, t.get("distance_km"), apply)
                 log.info("EC trip %s: shared Ready session %s — left on SoC (merge to convert)",
                          t["id"], sess["trip_ids"])
@@ -170,7 +210,7 @@ def _sweep_now() -> None:
             # SoC. LOW = cloud gap; HIGH = session swallowed pre-drive idle (drive-only SoC is truer).
             # The multi-trip shared-session case was already skipped above.
             soc_e = _soc_energy_kwh(t, dist)
-            if _ec_implausible(ec, dist, soc_e):
+            if _ec_implausible(ec, dist, soc_e, _soc_drop_points(t)) or _zero_unvouched(ec, t):
                 log.info("EC trip %s: implausible read %.2f kWh (SoC≈%.2f kWh) — discarded (age %.0fm, try %d)",
                          t["id"], ec.get("total_kwh") or 0, soc_e or 0, age / 60, tried)
                 ec = None
@@ -216,21 +256,11 @@ def convert_trip(trip_id: int) -> dict:
     when the cloud has no separable record for it (e.g. trips too close together, merged by the cloud
     into one driving session). For a MERGED group it converts the COMBINED drive (one cloud session).
     Returns: {ok, reason?, ec?}."""
-    db = db_reader._get()
-    row = db.execute("SELECT * FROM trips WHERE id=?", (trip_id,)).fetchone()
-    if not row:
+    found = db_reader.trip_group(trip_id)
+    if not found:
         return {"ok": False, "reason": "not_found"}
-    t = dict(row)
-    # A merged child converts its parent group (the row shown/aggregated).
-    if t.get("merged_into_id"):
-        parent = db.execute("SELECT * FROM trips WHERE id=?", (t["merged_into_id"],)).fetchone()
-        if parent:
-            t = dict(parent)
-            trip_id = t["id"]
-    # Merged groups: use the COMBINED span + distance so getEC covers the whole drive and the official
-    # figure is attributed over the full distance (a merge of close trips = one cloud driving session).
-    children = db_reader._children_by_parent(db).get(trip_id, [])
-    grp = db_reader._trip_group_stats(t, children) if children else t
+    grp, own_ids = found
+    trip_id = grp["id"]
     dist = grp.get("distance_km") or 0
     if dist <= 0:
         return {"ok": False, "reason": "no_distance"}
@@ -239,7 +269,6 @@ def convert_trip(trip_id: int) -> dict:
     # powered off between them — read from positions.ready), converting this one alone would grab the
     # WHOLE session → tell the user to MERGE them (only the merged group attributes the figure over the
     # full distance). Detected from the real signal, so it works at ANY gap (not the 5-min heuristic).
-    own_ids = {trip_id} | {c["id"] for c in children}
     sess = db_reader.ready_session(grp)
     if sess and (set(sess["trip_ids"]) - own_ids):
         # Hand back WHICH trips share it. "the adjacent one" told @michapr nothing — his was the
@@ -254,7 +283,7 @@ def convert_trip(trip_id: int) -> dict:
     except Exception as e:  # noqa: BLE001
         log.warning("convert_trip %s cloud error: %s", trip_id, e)
         return {"ok": False, "reason": "error"}
-    if not ec or (ec.get("total_kwh") or 0) <= 0:
+    if not ec:
         # bump ec_tried so the row reflects the attempt, but change nothing else
         db_reader.store_trip_ec(trip_id, None, dist, apply_energy=False)
         # Distinguish "the cloud merged this with its neighbour" (→ tell the user to merge them, the
@@ -280,7 +309,7 @@ def convert_trip(trip_id: int) -> dict:
     # drive (the trip = the drive; drive-only SoC is the truer per-trip figure). The MULTI-trip case is
     # already handled above by the shared-session block, so here it only ever sees single trips.
     soc_e = _soc_energy_kwh(grp, dist)
-    if _ec_implausible(ec, dist, soc_e):
+    if _ec_implausible(ec, dist, soc_e, _soc_drop_points(grp)) or _zero_unvouched(ec, grp):
         db_reader.store_trip_ec(trip_id, None, dist, apply_energy=False)  # record attempt, change nothing
         log.info("convert_trip %s: implausible getEC %.2f kWh over %.1f km (SoC≈%.2f kWh) — kept SoC estimate",
                  trip_id, ec.get("total_kwh") or 0, dist, soc_e or 0)
@@ -291,7 +320,7 @@ def convert_trip(trip_id: int) -> dict:
     # the 10 km of 113+114 → 16). If this is the earlier half of a mergeable pair, suggest merging
     # instead — only the merged group attributes the figure over the full distance. (A MERGED parent has
     # children, so it already uses the combined distance and skips this guard.)
-    if not children:
+    if len(own_ids) == 1:
         try:
             pairs = db_reader.get_mergeable_pairs(db_reader.TRIP_MERGE_GAP_DEFAULT)
             if any(p.get("a_id") == trip_id for p in pairs):

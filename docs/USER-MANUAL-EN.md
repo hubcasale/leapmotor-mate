@@ -1,8 +1,565 @@
 # LeapMotor Mate — User Manual
 
-> **Mate version:** v4.7.5 · **Language:** English
+> **Mate version:** v4.18.0 · **Language:** English
 
-## New in 4.7.5
+## New in 4.18.0
+
+**Each car has its own operation PIN.** In *Settings → Vehicle* the form reads "Operation PIN of this
+car", with the car's model and the end of its VIN; with two cars, pick the car first (there is no
+"All cars" any more). The PIN typed there is the one commands use: on a single car it could be saved
+where commands did not read it. A PIN saved by an earlier version becomes the car's own when Mate
+starts. A command to a car with no PIN is not sent, and the page says to set it in Settings → Vehicle.
+If a command is refused for a wrong PIN after the update, type the PIN once more there.
+
+### New in 4.17.0
+
+**The charging panel says when the charge ends.** On the *Charges* page, *Charging status* shows under
+the time remaining the time the charge ends, e.g. "Ends at 14:30", with its day when it ends on another
+one. It counts from when the car measured the minutes left, so a reading a few minutes old does not move
+it.
+
+### New in 4.16.3
+
+**A wallbox that moved house is found again.** Mate learns where your wallbox is from the charges it
+measured, and gives the wallbox counter only to charges there. After a move, home charges stayed without
+it. Now a charge away from that place still reads the counter and keeps it if the counter rose with the
+car (more than 2 kWh, never standing still while the car was charging); those charges move the place to
+your new home. Charges recorded before this version do not change.
+
+### New in 4.16.2
+
+**The map takes the screen it is on.** The *Map* page's map now takes the whole width of the page and
+ends where the row under it, with *Trips shown* and *Stations shown*, still fits on screen: larger on a
+big monitor, smaller on a laptop, 400 px at least. It follows the window when you resize it.
+
+### New in 4.16.1
+
+**A T03 shows its charge target.** On a T03 the *Scheduled charge target* card on the Charges page showed
+nothing right after a save, and Home Assistant's *Charge Limit* stayed unknown: the car's status does not
+carry it. Mate now reads it from the car's charge plan, which does.
+
+### New in 4.16.0
+
+**The Overview map draws today's last trip.** Under the car's dot, the *Last Known Position* map now draws
+the route of the car's latest trip: the trip under way while you drive, and the trip that ended today for
+the rest of the day. The lines are the ones the trip's own page draws. After midnight the map is clear again.
+
+**Commands are no longer refused because of a computer clock a few seconds behind the car.** Mate checks the
+time of the car's latest reading before a command, and refused one dated after the computer's clock
+(*Command not sent: state_timestamp_invalid*). A reading up to a minute ahead is now taken as current.
+
+### New in 4.15.12
+
+**On a T03 the charge target card says what it is.** The *Scheduled charge target* card on the Charges
+page said its number is not the upper limit in the car's own app. On a T03 it is: an owner set 92 % and
+then 90 % from the card, and the official app showed each as its upper charging limit. On a car with the
+simple charge scheduler, such as the T03, the card now says so.
+
+### New in 4.15.11
+
+**The MQTT odometer no longer drops to 0 km.** When a reading from the car carries no odometer, as some
+from the T03 do, Mate published 0 km on MQTT (the Home Assistant odometer sensor) and sent 0 km to ABRP.
+Such a reading now publishes nothing for the odometer: the sensor keeps the last value, as the range
+already did, and ABRP gets no odometer.
+
+### New in 4.15.10
+
+**Battery health no longer reads a missing temperature as 0 °C.** On a car that does not send its battery
+temperature, such as the T03, a reading taken by the web page during a charge stored 0 °C, and *Battery
+health* left the charge out as charged in the cold. A missing temperature now stays empty, and the zeros
+already stored from such a car are no longer taken as readings.
+
+### New in 4.15.9
+
+**Battery health counts the charges of a T03.** The T03 reports its battery level in whole points, and
+*Battery health* took each point it gained during an AC charge for a battery recalibration, leaving the
+charge out: the page had no figure. Now one point at a time is a normal rise; a real jump still leaves a
+charge out. Charges already recorded count too.
+
+### New in 4.15.8
+
+**The setup wizard offers the range-extender packs.** A C10 or B10 with a range extender can pick its
+pack (*28.4 kWh — REEV* or *18.8 kWh — REEV*) under *Battery pack* in the setup wizard. Until now the
+official build left those packs out of the list.
+
+**The diagnostics bundle shows what the cloud answered.** With *System info* ticked, the file from
+*Settings → Diagnostics → Download diagnostics* has a section with the cloud's answers to Mate's last
+requests: how many per endpoint, and every sign-in, renewal and refused answer, with its time. It holds
+no parameters, VIN or tokens.
+
+### New in 4.15.7
+
+**Battery health counts a joined charge whole.** A charge the car reported in pieces and that is joined
+into one session (by Mate after a short pause, or by hand with *Join with previous* on the *Charges* page)
+now gives the *Battery health* page the energy of all its pieces. Until now only the first piece counted:
+the charge was left out of the chart, or gave a capacity from part of the session.
+
+### New in 4.15.6
+
+**The MQTT plug sensor follows the cable.** With MQTT on, the *Plug Connected* sensor (and EVCC's
+`evcc/plugged`) is now on whenever the Overview shows the cable: also after a charge has finished, or
+while a charge waits for its schedule, with the cable still in. Until now it followed only the charge
+session, and went off while the cable was still in.
+
+**The car picture shows at once.** While the car charges, the Overview shows the car with its cable in
+straight away and swaps in the charging animation once it is ready, instead of an empty card for a few
+seconds. After a restart of Mate the first picture no longer waits for a download either.
+
+### New in 4.15.5
+
+**The Battery health page keeps your views.** The page still refreshes itself when left open, and now
+the views picked on its two charts (*Distance*, *% lost*, *per date*) come back with it: they are kept in
+the page's address, as a calendar keeps its month.
+
+**The chart of a charge in progress no longer blinks.** At every update, every 30 seconds, the card
+showed for a moment without its chart and the page under it jumped; the new chart now takes the old
+one's place.
+
+**The outside temperature after a restart.** When Open-Meteo refuses the first lookup after Mate
+restarts, Mate keeps the reading of the car's last position, if it is less than 20 minutes old, instead
+of going up to 20 minutes without one.
+
+### New in 4.15.4
+
+**The outside temperature without GPS.** When the cloud sends no GPS position for a parked car, Mate
+looks the outside temperature up at the car's last known position, as long as the odometer has not
+changed since. Until now the reading stayed as it was, and after a restart of Mate it was missing.
+
+### New in 4.15.3
+
+**The wallbox's line stays with the charge.** With the wallbox enabled and Home Assistant configured,
+Mate now keeps the wallbox's readings of every home charge, so the green *Wallbox (AC)* line of its
+chart no longer disappears when Home Assistant purges its history, and the chart opens faster. Once
+after the update, the lines of earlier charges are copied from what Home Assistant still holds
+(#419, @arekm).
+
+**A custom-kWh helper in Wh.** With the *Custom kWh (Home Assistant)* pricing, a helper that reports
+in Wh is now priced in kWh (#419).
+
+**Chart times on a phone.** On a phone, the times under a charge's or a trip's chart no longer run
+into each other.
+
+### New in 4.15.2
+
+**A charge's chart comes as its row opens.** In the Charges calendar, the chart of a charge is asked
+for as soon as you open its row, also on a phone where it lies below the screen's edge, and it draws at
+most one reading per pixel of its width, so a night's charge appears several times faster. What it
+draws are real readings, and a pause still breaks the line (#417, @arekm).
+
+**An opened row comes into view.** A charge row you open near the bottom of the screen now scrolls up,
+once its chart is drawn, just enough to show it whole, or to its top if it is taller than the screen.
+Rows opened with *Expand all* stay where they are (#418, @arekm).
+
+### New in 4.15.1
+
+**A charge ends when the energy stops.** After a charge, with the cable in, a car keeps its charge
+session open for a while. Mate now ends the charge when the energy stops, so its end time and duration
+are those of the charge itself, and once the battery has reached the charge limit set in the car the
+Overview says *Charge complete* instead of *Charging* (#414, @arekm).
+
+**A row that ends on another day says which.** In the Charges and Trips calendars, a charge or a trip
+that ends on the day after it started shows that day before its end time, for example
+"23:05 → 09 Oct 06:40" (#415, @arekm).
+
+### New in 4.15.0
+
+**A charge reads like a trip.** In the Charges calendar each charge is now a row, with a thumbnail of
+its curve beside it; a click opens it underneath, with the energy, the battery's temperature, the
+outside temperature and the average power, the chart, the note and the actions. *Expand all* opens
+every row of the day. Shift-click, drag or hold a day to open several days at once, with the totals of
+the range and of each day (#412, @arekm).
+
+**The power of a slow charge.** *Charging status* on the Charges page and the charging chip on the
+Overview now show the power of a charge under 3 A too, which on a C10, at about 720 V, is a home charge under
+about 2.2 kW: they read 0.00 kW before (#409).
+
+**A schedule saved here shows at once.** After a charge window you save on the *Scheduling* page and
+the car confirms, the Overview shows the new window straight away, instead of the old one for up to 30
+minutes (#395).
+
+### New in 4.14.2
+
+**A refused password is named.** When Leapmotor refuses the email and password you gave Mate, the
+Overview now says "the password was rejected" and points you to the Leapmotor account in Settings, and
+Mate waits an hour before trying the same password again, instead of every 5 minutes (#411). A password
+you change in Settings is tried at once.
+
+### New in 4.14.1
+
+**A reading stays with its car.** On an account with two cars, a reading Mate took after a command, or
+with the 🔄 Refresh button, could be filed under the other car if you switched car in the sidebar while
+the cloud was answering: that car then showed a day with thousands of kilometres and a standby loss it
+never had. The reading now always goes under the car it was read from (#338). A row already filed under
+the wrong car stays where it is.
+
+### New in 4.14.0
+
+**Mate no longer writes a charge's note.** Until now, with the default settings, Mate wrote a note on
+every charge it closed — the address, the times, the temperatures — and to find the address it sent the
+position of every charge away from home to OpenStreetMap, even with the address lookup switched off.
+Both stop: the note is yours, as a trip's has been since 4.13.0, and the notes written before stay as
+they are. The times are in the charge's heading, the temperatures on its chart and the address on its 📍
+line. A charge with no address there yet, an older one for instance, has **🧭** beside 📍: it asks the
+provider chosen in *Settings → Address lookup* at once, even with the switch off, and draws the line
+again; when no address comes, a row under it says why. *Write the note by itself* is gone from that
+card. The 🧭 of a trip also says why no address came: the provider has nothing there, or how asking it
+failed. By @arekm (#406).
+
+**Mate inside Home Assistant from a Docker install.** With hass_ingress in its default `ingress` mode,
+put the address you open Home Assistant with in `MATE_FRAME_ANCESTORS`. The README now says what a Mate
+password does inside a frame (#407).
+
+### New in 4.13.1
+
+**Every charge shows where it happened.** Beside 📍 a charge shows the station with its address after
+it; without a station, your charging place there, with "(charging place)", or the address — a charge at
+home included. The addresses come from the same lookup as the trips', so a charge where a trip already
+ended costs no request; the switch in *Settings → Address lookup*, now called **Look up the addresses of
+trips and charges**, covers both. Charges older than three days are not looked up by themselves. The
+search on Charges and on Events finds a charge by its address, town or postcode, and the charges CSV
+gains `place` and `address`. A merged trip whose last piece ended in the last three days now has its
+start looked up even when its first piece ended earlier. By @arekm (#405).
+
+### New in 4.13.0
+
+**Trips show where they started and ended.** A trip's row reads "A → B", the *Trip summary* on its
+page names both ends, and so do the trip's start and end rows in Events. An end inside one of your
+charging places shows its name with "(charging place)"; elsewhere it is the address. Mate looks the
+addresses up shortly after a trip ends, with the provider set in *Settings → Address lookup*; the new
+switch **Look up where trips start and end** there turns that off, and after the update it starts as
+**Write the note by itself** was. Trips older than three days are not looked up by themselves: 🧭 beside
+a missing address in the *Trip summary* looks that trip up at once. The search finds a trip by either
+end, and the trips CSV gains `start_place` and `end_place`. Mate no longer writes a trip's note by
+itself — **Write the note by itself** now covers charges only — and the notes it wrote before stay as
+they are. By @arekm (#404).
+
+### New in 4.12.1
+
+**A reload stays on the month you are looking at.** In the Trips, Charges, Wallbox and Refuels
+calendars the month on screen goes into the page's address (for example `?month=2026-09`), so a
+reload — yours, or the one the page does by itself — comes back to that month, with the day or range
+you had open; it used to go back to the current month. The browser's Back after opening a trip does
+the same. **Jump to today** takes the month out of the address again. When a charge ends, the Charges
+page reloads itself and now stays on the month you are looking at: the new charge is in the current
+month, one click on **Jump to today** away. On Refuels, adding or deleting a refuel redraws the month
+on screen, no longer the current one. By @arekm (#403).
+
+### New in 4.12.0
+
+**Several days at once in the Trips calendar.** A week, a weekend or a holiday opens in one gesture:
+on a computer **Shift-click** a second day, or **drag** the mouse across the days; on a phone **hold** a
+day — a dashed ring marks it — and then **tap** the last one. The drawer opens with one heading for
+the whole range — battery, driving time, kilometres and the rest of a day's figures — and under it
+each day with trips, newest first, with its own heading. A range stays inside the month on screen. A
+day's date under the range opens that day alone, with its 🔗 button for merging trips, which a range
+does not have. The other calendars keep one day per click. A line under the Trips calendar names the
+three gestures. By @arekm (#402).
+
+When the car charged between the first trip and the last — over a few days it almost always has —
+the range's battery reads as a day's does with a charge in it: what the trips used and what the
+charges added, and either figure says what it counts when you hold the pointer on it or tap it. So the
+range's figure need not equal its days' figures added up: a day with no charge goes from its first
+reading to its last, and also counts what the car lost while parked between its trips.
+
+**The drawer shows the day you picked last.** Two days picked in quick succession sent two requests
+side by side, and a slow answer for the first day could fill the drawer under the second day's ring —
+on all four calendars. Now a new pick replaces the request still on its way, and a failed day's **Try
+again** strip goes once you ask for another day. By @arekm (#402).
+
+### New in 4.11.2
+
+**The sunshade carries the official app's name in every language.** In English, the Vehicle and
+Commands tiles called it the "Panoramic roof" and the confirmations "panoramic roof shade"; it is now
+the **Sunshade** there too ("Open the sunshade?"), as Events and the notice shown while driving
+already said. The other languages take the app's names as well (#391), and the Vehicle tile says
+"open" and "closed" in words that agree with them. Nothing changes in Home Assistant.
+
+### New in 4.11.1
+
+**In Italian, the sunshade is the «Parasole».** The Italian pages called it three things: «Tetto
+panoramico» on the Vehicle and Commands tiles, «tendina» in Events and in the confirmations, and
+«parasole» in the notice shown while driving. They now say «Parasole» everywhere, the name the
+official app gives it. Nothing changes in English or in Home Assistant.
+
+### New in 4.11.0
+
+**The T03 gets its windows back on Commands.** Since 4.0.0 Mate looked for the windows code that the
+B10 and the C10 declare, and a T03 declares a different one: on a T03 the **Windows** tile on Commands
+hid its **Open** / **Close** button, and the slider it left answered *"Command not sent"*. Either code
+now lets the command through, and a T03 gets the position on its own 0–100 scale. Not yet tried on a
+T03 (#400). Where the car itself does not allow the windows, the slider now hides together with the
+button.
+
+**Mate starts on a NAS shared folder.** From 4.0.0, a data folder that does not keep file permissions
+— a NAS shared folder with its own access rules can be one — stopped Mate at start with *"Private
+directory permissions required"*. Mate now starts there, and says once in its log that who can read
+the account files is decided by that folder's own permissions. On an ordinary disk, a data folder open
+to everyone is still refused (#401).
+
+**The sunshade as a percent.** The roof tile on the Vehicle page and the sunshade tile on Commands say
+how far the sunshade is open; stopped part-way, the Commands tile offers both **Open** and **Close**,
+the two positions the car acts on. The Events page lists where it stopped, and Home Assistant gets a
+**Sunshade Position** sensor in %. By @arekm (#391).
+
+**A short drive the cloud reads as 0.0 kWh keeps that figure.** Mate took that answer for a miss,
+asked again for six hours and left the trip with no energy. When the battery read the same at both
+ends, the trip now keeps 0.0 kWh and counts in the averages; on a drive whose battery fell, or was not
+read, a zero is still no answer. By @arekm (#394).
+
+**The ⓘ marks open on a tap.** The ⓘ beside the outside temperature on the Overview and beside the
+Wallbox's maximum current now open on a tap, in the Home Assistant app too, and a new ⓘ beside
+**READY** says what the state means. By @arekm (#399).
+
+**The support bundle says what your account may do with the car**: its rights, and whether the car is
+shared with you, beside what the car declares — a command can be refused for either.
+
+### New in 4.10.0
+
+**A day's battery and driving time in Trips.** Open a day in the Trips calendar: its heading now says
+how much battery the day's trips used, *84.4% → 51.6% (−32.8%)* from the first trip to the last — or,
+when the car charged in between, what the trips used and what the charges added, *−45.3%* and
+*⚡ +40.2%* — and how long the day was driven, leaving out reconstructed trips as Statistics does. A
+missing reading leaves the battery figure out rather than guessing it. Every figure in a day's heading
+and in the month strip says what it is when you point at it or tap it. Each trip's row shows its
+battery change, *84.4→51.6% (−32.8%)*, on a phone too, where the trip's times are no longer squeezed
+out. By @arekm (#392).
+
+**"Revert to estimate" only where there is one.** On a trip's page the button also appeared on trips
+with no estimate kept aside, where it asked for confirmation and then changed nothing. It now appears
+only where it can bring an estimate back. By @arekm (#396).
+
+**A charge schedule waits for the car's word.** Saving a charge schedule, or sending a destination to
+the navigator, now waits for the car to say it carried it out, for as long as the cloud gives it — on
+a B10, 30 s when the car is asleep and 5 s when it is awake. "Schedule saved" means the car took it;
+if the car stays silent you see the **amber** notice that it did not confirm in time, and Mate keeps
+the times it had. Every command now writes one line in the log: what it sent, with a destination's
+address and coordinates left out, and what the cloud answered (#395).
+
+### New in 4.9.2
+
+**An end says its time came after the state before.** On the Events page, "Locked · 4 min" read as a
+car locked for four minutes, when those minutes were the time it had been unlocked. It now reads
+"Locked · after 4 min". A trip's and a charge's end keep their bare figure, which is the length of the
+drive or the charge.
+
+**The row you go back to lands on screen, on a slow phone too.** Back from a trip with the map kept
+on, a phone that draws slowly could leave that row below the screen.
+
+**The Events page reads only the days it shows**, and scrolling down a long list no longer composes
+it again for every part: each later part now comes at once. On a Raspberry Pi, reading the history at
+first start is lighter too, and with a GPS retention set, a trip still open keeps its events as it
+keeps its positions.
+
+### New in 4.9.1
+
+**The Events list no longer drifts under you.** Scrolling a long range, the hour and day
+headings above you changed height as the browser caught up with them, and what you were reading slid
+a few pixels — up to 25 at a time. The hour and day headings now declare the height they will
+actually have, so they no longer move what you are reading.
+
+### New in 4.9.0
+
+**One plug-in is one charge.** You plug in at night and unplug in the morning, and the Charges
+page showed four sessions. The car is what splits them: it declares the cable gone the instant the
+current stops, which is exactly what a wallbox that balances the load, a charger following the sun
+or a utility pacing the power looks like from inside the car. The pieces are now put back together
+on their own, when the pause is under six minutes and nothing else changed — the same join the
+**Join with previous** button performs, with all of its checks. Nothing is rewritten: **Split**
+gives the pieces back exactly as the car reported them, and a charge you split is never joined
+again. At the first start the nights already in your database come back together too.
+
+**A drive's energy can no longer be twice what its battery lost.** A 7 km drive was drawing
+41.4 kWh/100km on the consumption chart, because the cloud's figure for it was 2.90 kWh where the
+battery had lost 1.07. Mate already refused a figure past twice the battery, but only when it also
+read above 60 kWh/100km. When the charge level fell by a full point or more — a real measurement,
+not two or three tenths of rounding — twice the battery is now enough on its own. Trips already
+converted go back on the battery estimate at the first start.
+
+**The kilometres measured out of contact say how many of them came back.** Trips that Leapmotor's
+own history gives back for a stretch of silence now appear beside that figure, on Statistics and on
+the month in the Trips calendar. They are not subtracted from it: those kilometres were covered out
+of contact all the same, and the silence still cannot be divided between the end of one drive, a
+stop and the start of another.
+
+**The capacity setting says why the official app's kilowatt-hours read higher.** The official app
+counts the whole pack, buffer included; Mate counts the usable part. The same energy, measured
+against a different 100 %.
+
+### New in 4.8.0
+
+**An Events page lists what the car did, moment by moment.** Locked, unlocked, doors, windows,
+cable, climate, READY, trips, charges and the commands you sent — a beginning and an end are two
+rows joined by a line in the group's colour, so what went on at the same time, and for how long,
+shows at a glance. A map beside the list places each row; filters by word, group and kind live in
+the address, so a link or a reload keeps them. The events are derived from the positions Mate
+already stores, so on an existing install the first start reads the whole history back, a slice per
+poll, and the page says how far it got. With thanks to **@arekm**, who wrote it.
+
+**A trip ends when the car does.** Going to pick someone up — not switching off, just Park and a
+wait — used to close the trip after a minute and start a second one when you drove on. The drive
+now ends on the reading that shows the car **switched off**: waiting in Park with the car still on
+is a stop inside the trip, like a red light. One errand is one trip, and the official consumption
+the cloud measures from switch-on to switch-off belongs to it whole.
+
+**A failure Mate put off no longer hides the real one.** Mate keeps a minute between two sign-ins,
+and the poll that fell inside it reported "Login temporarily deferred after a recent attempt" —
+words about Mate's own timer, which replaced the failure that actually keeps the cloud away.
+
+### New in 4.7.18
+
+**Restoring a backup works on Windows.** On MateDesktop for Windows, restoring a database backup
+answered an error, because the file could not be replaced while Mate held it open. The backup now
+goes into the live database instead; nothing changes elsewhere.
+
+**A cloud failure says why.** Where the log, the setup page and the diagnostics bundle said only
+"Cloud transport failed" or "stage=transport", they now add one word: "dns_failure", "timeout",
+"connection_refused", "certificate_rejected" and so on.
+
+**Updating a Docker install:** the manual no longer suggests Watchtower, which has been archived.
+Pull the image and recreate the container.
+
+### New in 4.7.17
+
+**The Overview shows the cable while the charger holds it.** A wallbox on a schedule takes the cable and
+gives no current until its window opens; the Overview showed no cable then. It now reads the cable from
+the car's AC port as well: the tag over the car says "Cable connected (Not charging)", or "(Charge
+complete)", and the word under the car says "Parked". By @arekm.
+
+### New in 4.7.16
+
+**A write that finds the database busy no longer stops every write after it.** One write that waited
+too long for the database left its transaction open, and from then on every write failed with
+"database is locked" until the container was restarted: 17 hours lost on one install. Every poll now
+ends such a transaction first, and says so in the log.
+
+**A T03 reads its charge schedule back.** After saving, the Charges page showed "No schedule" because the
+T03's configuration carries no plan. Mate now reads it where the earlier library did, only for a car
+whose configuration does not say whether the schedule is on or when it starts.
+
+**Report is called Reports**, in the menu and on the page, as every other entry in the menu.
+
+### New in 4.7.15
+
+**A T03 saves its charge schedule again.** Since 4.7.7 the Charges page refused to save a T03's charge
+schedule or set its charge limit ("complete current charging configuration is required"). Mate now
+fills in what the T03 does not report, as the earlier library did.
+
+### New in 4.7.14
+
+**The chart of a running charge, live.** While the car charges, the Charges page shows the
+*📈 Charging data* chart of that charge among the cards at the top, growing with every poll. At home it
+draws the wallbox's line beside the car's; a pause with the cable in reads 0 kW. When the readings stop
+coming, LIVE gives way to the age of the last one. By @arekm.
+
+**The Monthly Report is now called Report**, in the menu and on the page. Nothing else changes.
+
+### New in 4.7.13
+
+**A T03 takes commands again.** Since 4.7.7 no command reached a T03; with 4.7.12 each one ended in
+"signal". Before a command Mate checks the car's last reading, and it looked for a T03's in the wrong
+place.
+
+**A missing charge level is not 0%.** *Refresh* stored a reading without a charge level as 0%. It now
+stores nothing, as the poller does, and the positions already stored that way are removed once, at the
+first start.
+
+### New in 4.7.12
+
+**A T03 shows its readings.** With 4.7.11 a T03 was read again, but Mate showed 0%, 0 km and 0 °C:
+the cloud answers a T03 in named fields, and 4.7.11 read them as numbered ones. Now they are read by
+name, and the positions stored at 0% are removed once, at the first start.
+
+**Diagnostic bundles leave out coordinates that come by name.** If you posted a bundle taken on a T03
+with 4.7.11, it contains your car's position: delete it.
+
+### New in 4.7.11
+
+**A T03 is read again.** Since 4.7.7 a T03 got "No data found" from the cloud at every poll, and Mate
+recorded nothing. Mate now asks for a car it has never read as the model the cloud lists it as, and
+at the address the earlier library used; the way that answers is kept for that car. Cars that were
+read before are read exactly as before.
+
+**Charging data.** Under each charge, *📈 Charging data* opens a chart in bands like a trip's: the
+power with the minutes the car said were left, the charge level, and the temperatures — the coldest
+cell's and, if switched on, the outside air's.
+
+### New in 4.7.10
+
+**A C10 with range extender shows its charge current and power again.** Since 4.0.0, during an AC
+charge of a C10 range extender, Mate discarded the pack current and the power computed from it:
+Home Assistant showed *Charge Current* and *Charge Power* as unknown, and each charge's peak power
+read 0.0 kW. The car's sensor does measure, and both are back. Charges recorded before this update
+keep their 0.0 kW peak: their current was not saved.
+
+### New in 4.7.9
+
+**Earlier months of trips from the Leapmotor cloud.** In **Settings → Cloud trip history**, with
+**Import trips from Leapmotor cloud** on, the new menu **Also import earlier months, starting from**
+lists the months from September 2026 to last month. Choose once: Mate downloads that month and every
+one after it, once each, and the months that end later come in on their own. The line under the menu
+says what the choice adds. The Leapmotor cloud holds no single trip before September 2026.
+
+**Battery health opens faster**, and so does a charge's power chart
+([#363](https://github.com/ProtossBlaster/leapmotor-mate/pull/363), by @hubcasale): measured on four
+months of history, from about 1.4 s to 0.05 s.
+
+### New in 4.7.8
+
+**A new installation starts cleanly.** On a first start, with an empty data folder, Mate's two
+processes could open the new database at the same instant and the recording one stopped with
+"database is locked". It now waits the few milliseconds the other needs. Existing installations never
+met this.
+
+### New in 4.7.7
+
+**Nothing to download to set Mate up.** The Leapmotor app certificate Mate needs to log in — the
+same for everyone, it identifies the app, not you — now comes with Mate and is installed by itself on
+first start. The setup wizard goes straight to your account: the certificate step and its link are
+gone. An installation that already has the certificate keeps it; one uploaded in the old export
+format, with attribute lines in front of it, is rewritten as the copy Mate carries — the same
+certificate — and the previous files are kept in a backup folder next to the data.
+
+**Mate runs only on its own cloud client.** The client has been Mate's own since 4.0, but an
+installation whose first check never finished was still put back on the third-party library Mate
+used before. That library and the fallback to it are gone: every installation runs Mate's own
+client. One that was still on the old library logs in once with the new client at its first start.
+In the diagnostic bundle the `Cloud client` line reads `independent (mate-api)` for everyone.
+
+**A C10 no longer reads 0 km beside a full battery.** As it goes to sleep the C10 sends its range as
+0 while the battery is still charged, and the Overview showed "100% · 0 km". Mate no longer takes that
+zero for a reading: the Overview keeps the last range the car reported, and Home Assistant keeps its
+last value. Below 5% charge a zero still counts, since an empty battery can mean it.
+
+**The cost card counts a merged charge once.** On Statistics, the cost-per-100-km card said a charge
+was missing its price when it was one of two rows you had merged. It now counts charges as the
+Charges page shows them; the euros and the kWh do not change.
+
+### New in 4.7.6
+
+**A drive now ends when you switch the car off.** Mate declares a drive over once the car has been in
+Park for about a minute, and it used to stamp that *whole* minute onto the trip. The end — its time,
+charge level, odometer, position and fuel — now comes from the first reading of that stop which shows
+the car **switched off**. On one owner's four months of history this moved the end of 183 trips, by 7
+to 54 seconds (42 on average). You see it on short drives: a 1 km hop that read 2.9 minutes at
+21 km/h now reads 2.2 minutes at 27 km/h. Kilometres, kWh and consumption are unchanged.
+
+If you step out to open a gate and get back in to reverse into the space, the drive stays one drive. A
+car left on in Park, or one that does not report whether it is on, keeps the end Mate wrote before.
+⚠️ **Drives already recorded do not change** — this applies from this version on.
+
+ℹ️ On a drive of a kilometre or two the cloud sometimes gives its energy as 0.0 kWh, and Mate prefers
+the car's own figure to its own estimate. A few very short trips can therefore read `0.00 kWh/100 km`
+where they showed an estimate of a few hundredths before.
+
+**The Charges page opens at once.** Opening Charges, or a day in its calendar, used to read the whole
+position log for every charge on the page. On a database with 381,076 position rows it went from
+**880 ms to 1 ms**, with the same figures on screen.
+
+**A charge you merged can be given its place directly.** Before, you had to separate it, assign the
+place and merge it again; now the place applies to the whole group. Merging and unmerging also stop
+reloading the whole page and no longer lose the day you were looking at.
+
+### New in 4.7.5
 
 Two changes, both found in one support bundle a user sent.
 
@@ -264,7 +821,7 @@ Under a trip's energy, the label that read **getEC** now reads **Measured by the
 5. [Getting to know the interface](#5-getting-to-know-the-interface)
 6. [The pages, one by one](#6-the-pages-one-by-one)
    - [Overview](#overview) · [Trips](#trips) · [Map](#map) · [Charges](#charges)
-   - [Charge Prices](#charge-prices) · [Statistics](#statistics) · [Monthly Report](#monthly-report)
+   - [Charge Prices](#charge-prices) · [Statistics](#statistics) · [Events](#events) · [Reports](#reports)
    - [Battery health](#battery-health) · [Maintenance](#maintenance) · [Commands](#commands)
    - [Scheduling](#scheduling) · [Prepare car](#prepare-car)
    - [Navigation](#navigation) · [Vehicle](#vehicle) · [Wallbox](#wallbox)
@@ -321,12 +878,12 @@ To set Mate up you need three things:
    **lost data** (trips and charges not recorded). It's the number-one cause of the problems people
    report. *Solution:* a secondary account with a **password used only in Mate**.
 
-2. **The Leapmotor app certificate** (`app.crt` + `app.key`). It's a certificate that is **the same
-   for everyone** (it belongs to the app, not to your account) and is needed to talk to the cloud.
-   You download it from a public repository — the wizard gives you the direct link
-   ([github.com/markoceri/leapmotor-certs](https://github.com/markoceri/leapmotor-certs)).
+2. **Nothing to download for the app certificate.** Mate needs the Leapmotor app's TLS certificate
+   (`app.crt` + `app.key`) to log in — it is **the same for everyone** (it belongs to the app, not to
+   your account). It ships with Mate and is installed by itself on first start: you are never asked
+   for it.
 
-3. **Email, password and the account's operation PIN.** The **4-digit PIN** is the one you also use
+3. **Email, password and the car's operation PIN.** The **4-digit PIN** is the one you also use
    in the official app to authorize remote commands (locking, climate…).
 
 > 💡 Just want to take a look without setting anything up? Skip it all and use **[demo mode](#9-demo-mode)**:
@@ -385,7 +942,6 @@ Mate.
   ```
 
   The database lives in the volume, not in the image, so nothing is lost.
-  [Watchtower](https://containrrr.dev/watchtower/) can do it for you automatically.
 - **MateDesktop** — nothing to download: the app fetches Mate from the repository **every time it
   starts**, so closing and reopening it *is* the update.
 
@@ -425,20 +981,7 @@ Two buttons:
 - **▶ Configure my car** — the actual setup (continues below).
 - **🧪 Try the demo** — enters demo mode with fake data. You can leave whenever you want.
 
-### Step 1 — App certificate
-
-Mate asks you for the Leapmotor app's TLS certificate. You have two ways:
-
-- **Upload the files** `app.crt` and `app.key` (the default mode), or
-- **Paste the PEM text** of the two files (the *"Paste the PEM text instead"* button).
-
-Download them from the link shown, upload them and press **Save certificate**. Mate opens the two
-files before keeping them: if one can't be read — a file cut short, or the web page that shows it
-saved instead of the file — it is refused, and the red message says which one. This step only
-appears if Mate doesn't already have a certificate it can read: a broken one saved earlier doesn't
-count.
-
-### Step 2 — Account sign-in
+### Step 1 — Account sign-in
 
 Enter:
 
@@ -453,7 +996,7 @@ Press **🔍 Detect my car**. Mate checks the credentials and reads the **model 
 (VIN)** from the cloud. If all goes well you see a "Car detected" card showing `Leapmotor <model> ·
 VIN ···xxxxxx`.
 
-### Step 3 — Battery
+### Step 2 — Battery
 
 Depending on the model:
 
@@ -475,7 +1018,7 @@ Depending on the model:
 > is the **C10 RWD**: 69.9 kWh is the nameplate figure, and real charges put the usable pack at 67.0.
 
 
-### Step 4 — Connect
+### Step 3 — Connect
 
 Press **Connect & Start**. Mate saves the configuration, connects and takes you to the **Overview**.
 From this moment the "poller" starts collecting data in the background: the first trips and charges
@@ -505,14 +1048,15 @@ access password* — that one ends the password session, nothing else. It is not
 there is nothing to end.
 
 **To change the car's PIN 🆕** — if you change it on the car, nothing needs unlinking: go to
-**Settings → Vehicle**, and under the account address you will find **Operation PIN**. It is typed
+**Settings → Vehicle**, and under the account address you will find **Operation PIN of this car**.
+Each car has its own PIN, the one set on the car; with two cars, pick the car first. It is typed
 twice, with an eye to read it back, and takes effect at once — both for commands from the page and
 for the ones arriving from Home Assistant. Asked for by **@alextchao** (#225).
 
 **If two Leapmotors share your account 🆕** — a **car picker** appears in the header, next to the
 model badge. It is there only from the second car onwards: with one Leapmotor nothing changes at
-all. Pick a car and everything follows it — the Overview, Statistics, trips, charges, the monthly
-report, the commands that car allows and its Home Assistant entities. Your choice is remembered. On a phone the picker is inside the ☰ menu, under the heading.
+all. Pick a car and everything follows it — the Overview, Statistics, trips, charges, the
+reports, the commands that car allows and its Home Assistant entities. Your choice is remembered. On a phone the picker is inside the ☰ menu, under the heading.
 
 Settings stay shared, because they rarely differ under one roof: prices, currency, time zone, home
 location. What belongs to the car stays with the car — its battery capacity, its **operation PIN**, its **A Better Route Planner token**,
@@ -527,6 +1071,10 @@ second).
 
 Many pages **refresh themselves** roughly every 30 seconds, so the "live" values (status, charge in
 progress…) stay fresh without reloading the page.
+
+A calendar keeps the month you are looking at in the page's address, so a reload — the page's own or
+yours — brings that month back with the day or range you had open; **Jump to today** returns to the
+current month. **Battery health** does the same with the views picked on its two charts.
 
 **Language, currency and units** are changed from *Settings → 🌍 Language & Currency*:
 
@@ -552,8 +1100,9 @@ status:
 - **quick commands** (lock/unlock, find car…), already "aware" of the current state;
 - when the car is **charging**, an **animation** shows the energy flow and a tag with the estimated
   time "to X%" (X = the charge limit you set in the car);
-- a **"Cable connected / Charge complete"** tag when the cable is plugged in but it isn't actively
-  charging. Beside it, if you have set a **scheduled charge**, the car's own window appears (for
+- a **"Cable connected (Not charging / Charge complete)"** tag when the cable is plugged in but it isn't actively
+  charging; *Charge complete* once the battery has reached the charge limit set in the car. Beside it, if
+  you have set a **scheduled charge**, the car's own window appears (for
   example **"Charge 01:50 – 12:00"**) — the answer to "the cable is in, so why isn't it charging?".
 
 When the car is **powering an external device through the V2L (vehicle-to-load) adapter**, the
@@ -567,8 +1116,11 @@ resolution — a tiny ~10 W load stays invisible).
 Further down you'll find mini-statistics and a **"Car responsiveness" indicator** (a 🟢/🟡/🔴 dot, ⚪
 if there's no data): it summarizes how well the car has responded to the latest commands sent.
 
-**The last charge says both 🆕** — the **Last charge** tile leads with the same figure as the charge
-card: at home, with a wallbox counter, the **🔌 wallbox (billed)** kWh, and under it what reached the
+The **Last Known Position** map also draws the GPS track of today's last trip — while you drive, the
+trip under way — as the trip's detail draws it.
+
+**The last charge says both 🆕** — the **Last charge** tile leads with the same figure as the charge's
+row in Charges: at home, with a wallbox counter, the **🔌 wallbox (billed)** kWh, and under it what reached the
 pack — *🔋 12.0 kWh in battery (DC) · efficiency 81%*; elsewhere the battery figure, with the charger's
 own kWh on a line of its own where you typed it. The cost under it is the cost of the number above
 it. It used to show the battery figure alone, beside a cost computed on the other one.
@@ -584,7 +1136,9 @@ Mate looks its position up against [Open-Meteo](https://open-meteo.com) — at m
 minutes or 10 km, whichever comes first — and shows the reading next to the cabin one. It is **off by
 default**, because the lookup sends the car's position to Open-Meteo: the single opt-in is in
 *Settings → trip defaults*. The same reading becomes an **Outside Temp** entity in Home Assistant and
-gives each trip readings along the way, for its highest and lowest temperature.
+gives each trip readings along the way, for its highest and lowest temperature. If the cloud sends
+no GPS position, Mate uses the last one it had, but only while the odometer has not changed since; a
+car driven without GPS keeps its last reading.
 
 #### The three temperatures: cabin, A/C target, battery
 Not every Leapmotor sends all three. Mate tells **three different situations** apart, because
@@ -613,7 +1167,12 @@ duration, consumption (kWh/100 km), energy recovered** in braking and the estima
   trip.
 - **A calendar, and a search.** Trips are browsed by **month**; click a day to see just that day's
   drives, or use the **search** with a date range, a distance or an efficiency window to pull out a
-  set across the whole history.
+  set across the whole history. An open day's heading says how much battery its trips used:
+  *84.4% → 51.6% (−32.8%)*, or, when the car charged between them, *−45.3%* used and *⚡ +40.2%* charged,
+  and how long the day was driven. On a phone each trip's row gives its battery too, *84.4→51.6% (−32.8%)*,
+  under the duration.
+  Shift-click, a mouse drag or, on a phone, holding a day opens **several days at once**: one heading
+  for the range, then each day under its own.
 - **Merging, from the day you are looking at.** A stop long enough to end a drive can split one
   journey into two rows. Open a day and the **🔗** button beside its date offers that day's joinable
   pairs: a slider widens what counts as one stop, you preview the combined route before committing,
@@ -628,6 +1187,18 @@ duration, consumption (kWh/100 km), energy recovered** in braking and the estima
   then parked or charging, the trip ends there, and the kilometres covered in the gap are part of
   it. After a longer silence the trip ends at the last thing the car said before it, and the
   kilometres after that are treated like any others covered out of contact.
+- **A trip ends when the car does 🆕.** A drive closes on the reading that shows the car **switched
+  off**, and that reading gives it its end: time, charge level, odometer, position and fuel. So
+  **waiting in Park with the car still on is a stop inside the trip**, not its end — going to pick
+  someone up and driving back is one trip, not two, and the official consumption the cloud measures
+  from switch-on to switch-off then belongs to that one trip whole, with no halves to merge. It is
+  the first reading that *saw* the car off, so after a gap in the link it comes later than the
+  switch-off itself. A car that does not report whether it is on closes after about a minute in
+  Park, as before, and so does one whose Park reading is a frame the cloud has been repeating for
+  half an hour. The end stays at the last reading when the switch-off reading lacks something, or
+  when a later one shows another odometer. A trip Mate finds still open when it restarts, with the
+  car already parked, is closed on its last recorded point; one standing in Park for half a day on a
+  car that keeps reporting itself on is closed where it stopped moving.
 - **Kilometres Mate did not see are not added to the trips around them.** When the link to the cloud
   drops for longer than a short gap inside one drive (see above), the car keeps moving but Mate
   cannot see it; when the link returns, all it finds is an odometer further along. That jump can
@@ -690,6 +1261,14 @@ duration, consumption (kWh/100 km), energy recovered** in braking and the estima
     trips** to get the real combined consumption. Mate only says so when the car reported it: a stop
     in Park of more than a minute during which the car did not say whether it was on is not counted as
     one session.
+- **Where a trip started and ended 🆕** — a trip's row reads **"A → B"**, and the *Trip summary* on its
+  page names both ends. An end inside one of your **charging places** shows the place's name with
+  "(charging place)", so renaming the place renames those trips; elsewhere it is the address (a shop or a
+  station by its name, else the street and number, then the town). Mate looks it up shortly after a trip
+  ends, with the provider set in *Settings → Address lookup*, where a switch turns it off. A missing
+  address, on an older trip for instance, is looked up at once by 🧭 in the *Trip summary*. The search box
+  finds a trip by either end. Mate no longer writes addresses into the trip's note, which stays yours;
+  notes it wrote before stay as they are.
 - **Your note + driving tags 🆕** (#107) — in a trip's detail you can jot a **free-text note** (traffic,
   weather, road type, any remark) and tag the **drive mode** (Comfort / Normal / Sport) and **One-Pedal**
   (on/off) you used. Mate can't read these from the car — Leapmotor doesn't send them to the cloud — so
@@ -720,8 +1299,15 @@ making the map disappear), and with it:
 
 ### Charges
 **(menu: Charges)** — The list of charges. For each one: **energy added (kWh)**, **peak power**,
-**type** and **cost**, with the **effective €/kWh** clearly visible. The type is classified with a
-label:
+**type** and **cost**, with the **effective €/kWh** clearly visible.
+
+- **A charge is a row 🆕** — the list reads like the Trips one, with a thumbnail of the curve on each row:
+  the power (kW) above the state of charge (%). Click a row to open the rest under it: the energy in
+  detail, the chart, your note and the actions. The type, 🆓, ✎ and 📍 are edited on the row itself.
+  **Expand all**, in the heading of a day, a range or a search, opens every row, and **Collapse all**
+  closes them.
+
+The type is classified with a label:
 
 
 - **The "to confirm" banner takes you there 🆕** (#240) — when a charge has ended without a type,
@@ -744,7 +1330,7 @@ label:
   type menu, type it in the **✎ Manual** row at the bottom, then **OK** (the **✎** beside the badge
   is the same box). It overrides the automatic estimate and **leaves the charge's type alone**: a
   charge with no type then reads **✎ Manual** and is no longer waiting to be confirmed, and a
-  charge with a type keeps it. The cost on the card carries a small **billed** tag instead of
+  charge with a type keeps it. The cost on the row carries a small **billed** tag instead of
   **est.**, and *Reset*, in the ✎, brings the computed figure back. The charges you priced this way
   before v3.16.0 read **✎ Manual** again, with their price: there is nothing to do.
 - **Home vs Public 🆕** — beside the *AC vs DC Distribution* card there is a second one:
@@ -761,14 +1347,14 @@ label:
   there the car is awake and the news keeps coming.
 - **The charger's own kWh 🆕** (#222) — on a public charger Mate **has no meter**: it reads only what
   went into the battery, while the charger bills you for what came out of its own. You can type that
-  figure in: on the charge card, under the three tiles, there is a **✎**; the box **opens only if you
+  figure in: in the charge's opened row, under the energy, there is a **✎**; the box **opens only if you
   open it** and is **always empty** — so a stray click changes nothing, and pressing OK on an empty
   box leaves everything as it was. *Remove* takes a wrong number back. From then on it **prices the
   charge**, exactly as a wallbox counter does at home, and shows the **efficiency** (how much the
   on-board charger turned into heat). The energy Mate reports stays the one **measured at the
   battery**. On a **joined charge** the figure you type covers the pieces it was typed for — a session
   joined to it later counts on its own — and when the pieces bill on different figures (the wallbox
-  caught one piece and not the other, or you typed the figure on one piece before joining) the card
+  caught one piece and not the other, or you typed the figure on one piece before joining) the row
   and the Overview lead with the sum, under the word *delivered*, and the €/kWh divides by it 🆕.
   Efficiency and loss beside the typed readings are shown only when those readings cover every
   piece of the joined charge. A partial wallbox reading still lets you view and correct the solar
@@ -786,18 +1372,22 @@ label:
   own kWh where you typed it, otherwise the battery figure.
 - Charges that happened while the car was off/offline are **reconstructed** too, from the jump in the
   state of charge.
-- **Your note 🆕** (#107) — each charge has a **free-text note** (just above *Delete charge*) for the
-  things the numbers don't capture: where the station was, shade/shelter, how reliable it is, parking
-  conditions, weather, any personal remark.
+- **Your note 🆕** (#107) — each charge has a **free-text note** (in the opened row, under the chart) for
+  the things the numbers don't capture: where the station was, shade/shelter, how reliable it is, parking
+  conditions, weather, any personal remark. *📝 Add a note*, or ✏️ beside a note, opens the field.
+- **Where a charge happened 🆕** — beside 📍 a charge shows the station and its address, or else your
+  **charging place** there or the address, looked up as for trips. A missing address, on an older charge
+  for instance, is looked up at once by 🧭 beside 📍. The search box finds a charge by them, and the
+  charges export lists them. Mate no longer writes into the charge's note, which stays yours; notes it
+  wrote before stay as they are.
 - **The odometer of the charge 🆕** (#237) — every session now carries **what the odometer read when
   it started**. Mate writes it on everything it sees, and recovered it once from the charges already
   in the archive. On a charge **you type in** there is an *Odometer* box: it is the only way a
   session from before Mate existed can carry kilometres at all — nothing from those days can supply
   them. Typed in **your** unit (km or miles).
-- **How far the car went between two charges 🆕** (#237) — under the charge: *"🛣 122 km since the
-  previous charge"*, from the car's own odometer. It appears only where **both** charges carry a
-  reading and only where the car actually moved: two sessions the same afternoon say nothing rather
-  than print a zero.
+- **How far the car went between two charges 🆕** (#237) — on the row, after AC/DC: *🛣 122 km*, from the
+  car's own odometer. It appears only where **both** charges carry a reading and only where the car
+  actually moved: two sessions the same afternoon say nothing rather than print a zero.
 - **Import charges from a spreadsheet (CSV)** — *Import charges from CSV* hands you a
   **self-documenting template**; fill it in with Excel or Numbers and upload it back. Only two
   columns are required, the date and the energy; the rest — cost, AC/DC, start/end percentages, end
@@ -808,9 +1398,24 @@ label:
   silence. ⚠️ On a session already recorded **only** the odometer is written: a cost Mate worked out
   from a real charging curve is never overwritten.
 
+- **Several days at once 🆕** — the calendar opens a range of days the way the Trips one does
+  (Shift-click, a drag across the days or, on a phone, holding a day): one heading with the range's
+  sessions, kWh and cost, then each day under its own. An open day's heading carries the same totals.
 - **A searched period adds itself up 🆕** — above the results, that window's own **sessions, kWh
   delivered (with the battery figure beside it) and cost**. Electricity billed from the 22nd to the
   21st, or any other period that is not a calendar month, no longer has to be added up by hand.
+
+- **Charging data chart 🆕** — in the opened row, first a line with what the readings say: the battery's
+  temperature from the first reading to the last, the outside air from its lowest to its highest and the
+  average power; then one chart in bands on the session's time axis, like a trip's: **charging** (the
+  car's DC power, the wallbox's AC power beside it on a home charge with a mapped wallbox, and how many
+  minutes the car said were left), **battery** (SoC) and **temperatures** (the coldest cell's and, when
+  the outside temperature is switched on in Settings, the outside air at the car's spot). Each entry of
+  the legend switches its line on and off, a band with every line off folds away, the choice is remembered
+  in the browser, and the hover box opens with the time of day and the time since the first reading. The
+  AC-vs-DC comparison on the Wallbox page is this same chart. While a charge runs, the same chart sits
+  with the cards at the top of the page, live, the wallbox's line beside the car's when the charge is at
+  home: it says when the charge began and from which level, and grows with every poll.
 
 ### Charge Prices
 **(menu: Charge Prices)** — Here you set **how much you pay for energy**, so Mate can calculate the
@@ -834,7 +1439,7 @@ costs. You can define a price **for each type** of charge (Home, AC, Fast, HPC) 
 - **Solar kWh (manual) 🆕** — the same case as above, without Home Assistant. Choose it if you have
   solar and would rather type, charge by charge, how many kWh came off your own roof: Mate subtracts
   them from what the wallbox measured and bills you only the rest. A **☀️ Solar** field appears on
-  the charge, under the three tiles, and the line beside it spells the sum out — "20.0 delivered −
+  the charge's opened row, under the energy, and the line beside it spells the sum out — "20.0 delivered −
   8.0 solar = 12.0 paid" — so a number typed the wrong way round shows itself at once. A figure
   larger than the wallbox measured is refused. It is offered only on home charges the wallbox
   actually measured: without that reading there is nothing to subtract from, and a line says so.
@@ -912,8 +1517,58 @@ numbers, so you can see at a glance whether the figure covers most of the window
 rather than counted as zero, and the tile says how many trips it speaks for. On a car where every
 trip carries its own consumption — which is nearly always — none of this shows at all.
 
-### Monthly Report
-**(menu: Monthly Report)** — A summary **month by month**: how much you drove, how much energy you
+### Events
+**(menu: Events)** — What the car did, moment by moment: unlocked and locked again, a door or the
+tailgate opened and closed, the cable in and out, the climate on and off, READY on and off, where the sunshade stopped, every trip
+and charge from its start to its end, and every command sent from Mate. The list opens on the last
+three days, newest first, in one card with a heading per day and a thin line per hour; a row's dot has
+the colour of its group's pill. The buttons above the pills reach further back — 3, 7 or 30 days, 3, 6
+or 12 months, or All — counted back from today; dates typed under ⚙ win over them. A long range comes
+in parts of a thousand rows, the next one loaded as the end of the list comes into view.
+
+- **A beginning and an end are two rows, joined by a line.** Left of the times, a line in the group's
+  colour joins an end's dot to its beginning's, as in a graph of git history, so what went on at the same
+  time, and for how long, shows at a glance. The end says how long the state lasted — "Tailgate closed ·
+  after 35s" — and a click on the line or a dot lights the pair and its two rows without scrolling the list.
+  When the beginning is before the days shown, the line runs faded off the bottom of the list and the end
+  names it: "from 02 Oct 2026 14:20:05". A state still going runs its line to the top and says **(in progress)** only when the car's last frame is fresh; while the cloud repeats an old frame (the car asleep, or
+  out of coverage) the row names the time of that frame instead.
+- **The sunshade is one row where it stopped** — "Sunshade 50% open", "Sunshade closed" — with no line and no
+  "after": it stays open for days, and a line would only cross the whole page. A level seen in one frame
+  only is not listed: the sunshade moving past it, or a stop shorter than the time between two frames.
+- **Times are the car's, to the second**: the time of the first frame that showed the new state,
+  confirmed by the next one. Holding the pointer over a time shows it beside the time Mate recorded the
+  row. Trips, charges and commands have only Mate's clock, so beside a signal from the same few seconds
+  their order can differ by those seconds.
+- **An end answers its own question.** READY off: how far the car went and the charge level before and
+  after. Climate on: parked or during a trip, the target and the outside temperature; Climate off: the
+  cabin before and after. Cable disconnected: the energy charged and, when the first charge began more
+  than five minutes after the cable went in (a wallbox waiting for its schedule), how long it waited.
+  The end of a trip or a charge carries the figures of Trips and Charges.
+  These figures stand out from the rest of the row; a cost is green, the delay before charging amber.
+- **Places**: a row at one of your charging places (*Charge Prices → Charging places*) names it; a trip's
+  start or end elsewhere is named by its address, as in Trips, and a charge as on its row in Charges.
+- **The map** is hidden until **🗺 Show map** above the list shows it (beside the list on a wide screen,
+  above it on a phone or a narrower one), and next time it is as you left it. Every row with a position
+  has a 🌍: it shows the map if needed, lights the row's point and brings it into view, and lights the row
+  and the other half of its pair. A click on a point lights it and its rows and scrolls the list to its
+  newest row; the row under the pointer lights its own point while the pointer is there. A point stands
+  for a spot about 110 m across, or for a whole charging place. A trip's or a charge's row opens it, and
+  **← Events** there comes back to the list as it was.
+- **Two frames make an event.** The cloud sends one-frame blinks — a door "open" for a single
+  poll — so a change counts only once two consecutive frames hold it. A change the car reversed between
+  two of its own reports is never seen, and the cloud can drop the lock signal for a poll or two, which
+  then reads as a short unlock.
+- **Filters**: a word (the event's name, a command's outcome, a place, where a trip started or ended or
+  a charge happened — its name or its full address — or the note of a trip or a charge), the group pills (Security,
+  Doors, Windows, Charging, Climate, Driving, Commands) and, under ⚙, a date range and single kinds.
+  The filters live in the address, so a link or a reload keeps them.
+- **History**: the events are derived from the positions Mate already stores, so on an existing install
+  the first start reads the whole history back, a slice per poll, and until it is done the page says how
+  far it got. Events are kept as long as the positions are (*Settings → Database*).
+
+### Reports
+**(menu: Reports)** — A summary **month by month**: how much you drove, how much energy you
 used and charged, how much you spent. Handy for keeping an eye on the trend. It also carries the
 **official consumption** cards (Today / This week / This month) from the cloud.
 
@@ -986,6 +1641,8 @@ because whatever comes first is what's due.
 **(menu: Commands)** — The **remote commands**. From here you can:
 
 - **lock/unlock**, open the **trunk**, **find the car** (horn/lights);
+- open or close the **sunshade** of the roof: the tile says how far it is open, and when it was
+  stopped part-way it offers both **Open** (all the way) and **Close**, the only two the car acts on;
 - manage the **climate**: cooling, heating, defrost, ventilation, **switch off**;
 - activate **seat heating**, **steering wheel** and **mirror heating** (where supported);
 - manage the **charge limit**.
@@ -1036,7 +1693,7 @@ stations**. The page has three parts:
 
 - **Destination** — type an **address** (and, if needed, the **city**), press **Search**: the
   destination appears on the map and with **🧭 Send to car** you send it to the on-board navigation.
-  *Searching by address requires a geocoding key* (see [Settings → Geocoder](#7-settings)).
+  *Searching by address requires a geocoding key* (see [Settings → Address lookup](#7-settings)).
 - **⚡ Charging stations — "Find charging stations"** — searches for **public charging stations around
   the car** (using its current GPS position). You can set:
   - **Max distance** — 500 m, 1, 2, **5 km** (default) or 10 km;
@@ -1060,7 +1717,8 @@ stations**. The page has three parts:
 (charge, range, inside temperature, gear, doors, windows, tyres, locks, charge status…), now also the
 **climate detail**: **fan level** (1–7), **air recirculation** (fresh / recirculate) and the **active
 climate mode** (AUTO / Cool / Heat / Vent). Mate shows **only what your car actually reports** (some
-models don't expose certain data).
+models don't expose certain data). The sunshade tile says how far it is open — "40%" over "Open" —
+as the window tiles do.
 
 ### Wallbox
 **(menu: Wallbox)** — If you've connected a wallbox (see
@@ -1119,8 +1777,9 @@ divided into three columns.
 **Column 2 — Integrations**
 
 - **ABRP** — sending telemetry to A Better Routeplanner (see [§8](#8-the-integrations-in-detail)).
-- **Geocoder** — the service that translates addresses ↔ coordinates on the Navigation page (Geoapify
-  *recommended*, LocationIQ, TomTom). It requires a free **key** for the chosen service.
+- **Address lookup** — the service that translates addresses ↔ coordinates on the Navigation page and names
+  where your trips start and end and where you charge (Geoapify *recommended*, LocationIQ, TomTom). It
+  requires a free **key** for the chosen service; without one, Mate uses the keyless OpenStreetMap service.
 - **⚡ Charging stations** — enables the **station names** on charges (📍) and accepts optional keys
   (Open Charge Map, TomTom) to enrich the search. It's **off** by default.
 - **Wallbox** — connect your wallbox for **real costs** and any controls (see
@@ -1215,7 +1874,7 @@ Sends the car's telemetry to ABRP for real-time trip planning.
 
 ### MQTT → Home Assistant
 Publishes the car's status (charge, range, position, doors, charge status…) as **entities in Home
-Assistant**, with **auto-discovery**. You can also **command** the car from the HA entities — including a writable **Charge Limit** number to set the target SoC, a writable **Charge Schedule** text entity that takes a JSON plan for automations (`{"start":"23:00","soc":90}` — every key optional, and anything you omit keeps its current value), a writable **Fan Level** number (1–7) and a writable **Recirculation** switch, plus a **Climate Mode** sensor (AUTO / Cool / Heat / Vent). The published entities also include three read-only V2L ones: **`V2L Active`** (binary sensor), **`V2L Power`** (W) and **`V2L Session Energy`** (Wh), and a **`Ready`** binary sensor that turns on the moment the car is powered up — before it moves, which is when an automation still has time to act.
+Assistant**, with **auto-discovery**. You can also **command** the car from the HA entities — including a writable **Charge Limit** number to set the target SoC, a writable **Charge Schedule** text entity that takes a JSON plan for automations (`{"start":"23:00","soc":90}` — every key optional, and anything you omit keeps its current value), a writable **Fan Level** number (1–7) and a writable **Recirculation** switch, plus a **Climate Mode** sensor (AUTO / Cool / Heat / Vent). The published entities also include three read-only V2L ones: **`V2L Active`** (binary sensor), **`V2L Power`** (W) and **`V2L Session Energy`** (Wh), and a **`Ready`** binary sensor that turns on the moment the car is powered up — before it moves, which is when an automation still has time to act. A **`Sunshade Position`** sensor says how far the sunshade is open, in % (0 = closed); the binary **`Sunshade`** stays as it was, on for any opening.
 
 Entities **your** car doesn't support aren't left on your hands: the ones the model lacks (heated seats,
 steering wheel…) are never created, and a **temperature entity** whose sensor the car has never reported
@@ -1322,6 +1981,25 @@ Already running the BetaTester build? You do not have to move — it keeps worki
 is a backup and a restore, in that order: see
 [From the BetaTester build to the official one](BETA-TO-OFFICIAL.md).
 
+**Mate receives no data, and I have a firewall (Synology or any other).**
+Mate never needs to be reachable from outside. The only **incoming** rule it needs is TCP **4001**
+from your own network, so that you can open the page. Everything else is **outgoing**: DNS on port
+53, then HTTPS on 443 to `app-gw-global-master.leapmotor-international.de` and
+`appgateway.leapmotor-international.de` — the same load balancer in AWS Frankfurt, whose addresses
+rotate, so allow the names or the region and never pin today's addresses.
+This is why adding ports or countries to a firewall profile changes nothing: those rules describe
+**incoming** connections, and the cloud's answers come back on a connection Mate opened itself. What
+stops it is the profile's final deny-all, applied to the traffic leaving the Docker bridge.
+On a Synology, what worked ([#384](https://github.com/ProtossBlaster/leapmotor-mate/issues/384)):
+read the container's own network — its gateway and address, for example `172.28.0.1` and
+`172.28.0.2` — then create a rule allowing **all ports** for that whole range (`172.28.0.1` to
+`172.28.255.254`) and move it to the **top**, above the others. The rest of the profile, deny-all
+included, can stay exactly as it is.
+From **4.7.18** a failed connection ends with one word in the log and on the setup page —
+`dns_failure`, `connection_refused`, `timeout`, `network_unreachable`… — which tells you in one
+glance whether the machine cannot resolve the name or cannot reach the address. From **4.8.0** that
+word is no longer hidden by Mate's own "login temporarily deferred" message.
+
 **I'm not in Europe.**
 At the moment Mate only works with the **European** Leapmotor cloud. Accounts on servers in other
 regions cannot log in.
@@ -1351,7 +2029,7 @@ its `secret.key`**.
 - **Poller / Web** — Mate's two internal components: the *poller* collects the data, the *web* shows
   the interface. For you as a user it's a detail: they work together.
 - **VIN** — the car's chassis number; it uniquely identifies your vehicle.
-- **Operation PIN** — the account's 4-digit PIN, needed to authorize remote commands.
+- **Operation PIN** — the car's 4-digit PIN, set on the car and needed to authorize remote commands.
 
 ---
 

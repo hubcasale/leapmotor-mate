@@ -40,7 +40,7 @@ def _charging_frame(ts):
         charge_power_kw=7.0, latitude=45.0, longitude=9.0, outside_temp=20.0,
         inside_temp=20.0, climate_target_temp=21.0, battery_min_temp=20.0,
         is_locked=True, climate_on=False, climate_cooling=False, climate_heating=False,
-        climate_defrost=False, trunk_open=False, windows_open=False, sunshade_open=False,
+        climate_defrost=False, trunk_open=False, windows_open=False, sunshade_pct=0,
         any_door_open=False, plug_connected=True, remaining_charge_min=60,
         charge_voltage_v=230.0, charge_current_a=30.4,
     )
@@ -64,7 +64,7 @@ def _recorder_mid_charge(monkeypatch, wallbox_reading):
     rec._charge_at_wallbox = True
     rec._last_soc, rec._last_soc_ts = 50.0, "2026-08-31T10:00:00+00:00"
     rec._odometer_reading = R.OdometerReading(1000.0, 50.0, "2026-08-31T10:00:00+00:00")
-    monkeypatch.setattr(rec, "_read_wallbox_energy", lambda: wallbox_reading)
+    monkeypatch.setattr(rec, "_read_wallbox", lambda: {"energy_kwh": wallbox_reading})
     # Seed the counter baseline, so the first real poll is a rise of zero rather than a seed.
     db.accumulate_wallbox_energy(charge_id, wallbox_reading, 0.0)
     return db, rec, charge_id

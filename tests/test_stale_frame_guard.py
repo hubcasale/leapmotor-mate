@@ -28,7 +28,7 @@ def _vd(ts, *, gear="D", speed=50.0, odo=1000.0, soc=80.0, current=0.0, power=0.
         charging_status=0, charge_power_kw=power, latitude=51.8, longitude=5.8,
         outside_temp=None, inside_temp=20.0, climate_target_temp=21.0, battery_min_temp=15.0,
         is_locked=False, climate_on=False, climate_cooling=False, climate_heating=False,
-        climate_defrost=False, trunk_open=False, windows_open=False, sunshade_open=False,
+        climate_defrost=False, trunk_open=False, windows_open=False, sunshade_pct=0,
         any_door_open=False, plug_connected=False, remaining_charge_min=0,
         charge_voltage_v=0.0, charge_current_a=current)
 
@@ -43,7 +43,7 @@ class _SpyDB:
     def save_position(self, vid, data):
         self.positions += 1
 
-    def finalize_trip(self, trip_id, data, regen_kwh=0.0, end_at_override=None):
+    def finalize_trip(self, trip_id, data, regen_kwh=0.0, end_at_override=None, drop_points=()):
         self.finalized.append(trip_id)
         return 17.0        # a real distance, so the short-hop discard stays out of the way
 
@@ -51,6 +51,9 @@ class _SpyDB:
         """Mirrors the real one's contract: a trip ends when the car was last HEARD. None here —
         this spy keeps no positions, and the recorder then falls back to now, as it must."""
         return None
+
+    def trip_switched_off(self, trip_id):
+        return None          # no positions kept, so no switch-off to find
 
     def add_trip_position(self, trip_id, data):
         self.trip_points += 1

@@ -60,6 +60,22 @@
           {{ t('cloud_import_enabled') }}
         </label>
         <p class="text-xs text-slate-400">{{ t('cloud_import_help') }}</p>
+        {% if settings.cloud_import_months %}
+        <div>
+          <label for="cloud-import-from" class="block text-xs text-slate-400 mb-1.5">{{ t('cloud_import_from') }}</label>
+          <select id="cloud-import-from" name="cloud_import_from"
+                  onchange="document.getElementById('cloud-import-span').textContent = this.selectedOptions[0].dataset.span"
+                  class="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-600 text-white
+                         text-sm focus:outline-none focus:border-brand cursor-pointer">
+            <option value="" data-span="{{ settings.cloud_import_span_none }}" {% if not settings.cloud_import_from %}selected{% endif %}>{{ t('cloud_import_from_current') }}</option>
+            {% for value, label, span in settings.cloud_import_months %}
+            <option value="{{ value }}" data-span="{{ span }}" {% if settings.cloud_import_from == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <p id="cloud-import-span" class="text-sm text-white mt-1.5">{{ settings.cloud_import_span }}</p>
+          <p class="text-xs text-slate-400 mt-1">{{ t('cloud_import_from_help') }}</p>
+        </div>
+        {% endif %}
         <button type="submit" class="px-4 py-2 rounded-xl bg-slate-700 text-white text-sm">{{ t('cloud_import_save') }}</button>
         <span id="cloud-import-result" role="status" class="text-sm"></span>
       </form>
@@ -289,24 +305,23 @@
            the setup wizard, so retyping four digits meant unlinking the Leapmotor account and
            walking the wizard again. Typed twice for the same reason as the access password (#214):
            a PIN stored with a typo fails at the CAR, later, with an error that names no digit. #}
-        {# With TWO cars the PIN stops being a property of the install: they can differ, and only the
-           commands would ever notice — reads carry no PIN, so the pages look healthy while the
-           buttons quietly fail (#186, @cookingeek). The form gains a car picker from the second car
-           on; leave it on «all cars» and it writes the install-wide PIN, exactly as before. #}
+        {# The PIN is set on the car, so it is always one car's (#186, @cookingeek): the form says
+           which, the car of this card, or the one picked from the second car on. #}
         <form hx-post="api/settings/pin" hx-swap="none" class="flex flex-col gap-2 pt-3 mt-2 border-t border-slate-700/60">
           <span class="text-[11px] text-slate-500 leading-snug">{{ t('account_pin_hint') }}</span>
           {% if vehicles and vehicles|length > 1 %}
           <label class="text-slate-400">{{ t('account_pin_which_car') }}
             <select name="vin"
                     class="block w-full mt-1 px-2 py-1.5 rounded-lg text-sm text-white border border-slate-600 bg-slate-800 focus:outline-none focus:border-brand">
-              <option value="">{{ t('account_pin_all_cars') }}</option>
               {% for v in vehicles %}
-              <option value="{{ v.vin }}">{{ v.car_type or v.vin[-6:] }} · {{ v.vin[-6:] }}</option>
+              <option value="{{ v.vin }}"{% if v.vin == vehicle.vin %} selected{% endif %}>{{ v.car_type or v.vin[-6:] }} · {{ v.vin[-6:] }}</option>
               {% endfor %}
             </select>
           </label>
+          {% else %}
+          <input type="hidden" name="vin" value="{{ vehicle.vin }}">
           {% endif %}
-          <label class="text-slate-400">{{ t('setup_pin') }}
+          <label class="text-slate-400">{{ t('account_pin_label') }}{% if not (vehicles and vehicles|length > 1) %} · {{ vehicle.car_type }} · {{ vehicle.vin[-6:] }}{% endif %}
             <span class="relative block mt-1">
               <input type="password" name="pin" required maxlength="4" inputmode="numeric"
                      autocomplete="off" placeholder="{{ t('setup_pin_ph') }}"
@@ -684,7 +699,7 @@
       </form>
     {% endcall %}
 
-    <!-- Geocoder (Navigation address lookup) -->
+    <!-- Geocoder (address lookup: Navigation, where trips start and end and charges happen, a refuel's 🧭 note) -->
     {% call scard('geocoder', t('geocoder_section'), card_open.get('geocoder')) %}
       <p class="text-xs text-slate-400 mb-4">{{ t('geocoder_desc') }}</p>
       <form hx-post="api/settings/geocoder" hx-target="#geocoder-feedback" hx-swap="innerHTML" class="space-y-3">
@@ -708,17 +723,15 @@
                         text-sm font-mono focus:outline-none focus:border-brand">
           <div class="text-[11px] text-slate-500 mt-1">{{ t('geocoder_key_hint') }}</div>
         </div>
-        <!-- The one thing in this card that reaches out on its own, rather than when asked. Turning
-             it off leaves the 🧭 button on every trip and charge — the note is still one tap away,
-             it just stops happening by itself. Marker field: an unticked checkbox submits nothing. -->
-        <input type="hidden" name="auto_note_present" value="1">
+        <!-- Marker field: an unticked checkbox submits nothing. -->
+        <input type="hidden" name="place_lookup_present" value="1">
         <label class="flex items-center justify-between gap-3 cursor-pointer pt-1">
           <div>
-            <div class="text-sm text-white">{{ t('auto_note_enable') }}</div>
-            <div class="text-xs text-slate-400">{{ t('auto_note_enable_desc') }}</div>
+            <div class="text-sm text-white">{{ t('place_lookup_enable') }}</div>
+            <div class="text-xs text-slate-400">{{ t('place_lookup_enable_desc') }}</div>
           </div>
-          <input type="checkbox" name="auto_note" value="1"
-                 {% if settings.get('auto_note', '1') != '0' %}checked{% endif %}
+          <input type="checkbox" name="place_lookup" value="1"
+                 {% if settings.get('place_lookup') == '1' %}checked{% endif %}
                  class="w-5 h-5 accent-brand cursor-pointer flex-shrink-0">
         </label>
         <div class="flex items-center justify-between gap-3">

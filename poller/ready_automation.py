@@ -27,6 +27,8 @@ import json
 import logging
 import time
 
+from client import use_pin_of
+
 log = logging.getLogger("leapmotor.ready_automation")
 
 READY_DEBOUNCE_S = 60   # same job and same number as db_reader._READY_BLIP_S: how short a
@@ -121,9 +123,9 @@ def _condition_met(cfg: dict, inside_temp) -> bool:
 
 
 def _ensure_web_on_path() -> None:
-    """Same cross-directory trick Recorder._read_wallbox_energy uses for ha_client — web/ isn't
+    """Same cross-directory trick Recorder._read_wallbox uses for ha_client — web/ isn't
     normally on the poller's sys.path, but command_client.py's own imports are lightweight
-    (leapmotor_api + stdlib, no fastapi), so it's safe to reach into from here."""
+    (the cloud client + stdlib, no fastapi), so it's safe to reach into from here."""
     import sys
     import pathlib
     web = str(pathlib.Path(__file__).resolve().parent.parent / "web")
@@ -190,6 +192,7 @@ def maybe_trigger(db, client, data, api_lock, now: float = None, vehicle=None) -
         bundle = _build_bundle(cfg)
         sent = False
         with api_lock:
+            use_pin_of(client._api, db, vin)
             if bundle:
                 client._api.prepare_car(vin, params=bundle)
                 sent = True

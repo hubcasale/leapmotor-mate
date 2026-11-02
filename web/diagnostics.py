@@ -12,15 +12,20 @@ import os
 import re
 import sqlite3
 import time
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import db_reader
+import mate_api  # noqa: F401 — the runtime read below (abilities, the account's rights) is on its path
 
 # Coordinate signal IDs stripped from the raw-signal dump before it leaves the box, so the
 # bundle can be shared publicly without revealing where the car (home) is. 3724/3725 = lon/lat,
 # 2190/2191 = fallbacks, 2/3 = the signed pair. Everything else in the dict is non-locating.
 _GPS_SIGNAL_IDS = {"2", "3", "2190", "2191", "3724", "3725"}
+# …and a T03 can send the same coordinates by NAME (its signal map is named, #368): a 4.7.11 bundle
+# posted in public carried a car's exact position under these two keys.
+_GPS_SIGNAL_NAMES = {"latitude", "longitude"}
 
 
 def data_dir() -> Path:
@@ -101,46 +106,6 @@ def _journal_line(mode) -> str:
             "(a network share usually cannot).")
 
 
-def _migration_decision_line(raw) -> str:
-    """What the activation decided about the cloud client, and when it last tried.
-
-    A `legacy` decision is never a verdict on the account — since 4.2.0 every model qualifies — so it
-    is always a qualification that did not FINISH, and 4.7.2 made it re-attempted every six hours
-    instead of kept for the life of a release. @dommi1966 (#338) is still on the bundled SDK three
-    releases later, which means the re-attempt runs and fails, and nothing said on what: the
-    activation stores no exception and logs nothing, because the payload could carry credentials.
-
-    It does store a `state`, a `reason` and the time it last tried, and those three are not secrets.
-    The identity is: it is an HMAC of the account's own credentials, and nothing here needs it.
-    """
-    try:
-        decision = json.loads(raw or "")
-    except (ValueError, TypeError):
-        return ""
-    if not isinstance(decision, dict) or not decision:
-        return ""
-    state = str(decision.get("state") or "?")
-    reason = decision.get("reason")
-    part = f"{state} ({reason})" if reason else state
-    attempted = decision.get("attempted")
-    if state == "qualified":
-        # A qualified decision DROPS `attempted` on purpose: it succeeded, it promoted session
-        # material, and it is never re-attempted. Reading that absence as "never attempted" would
-        # print the opposite of what happened, on the one decision that worked.
-        return f" · {part}"
-    if attempted is None:
-        # 4.4.0 wrote no `attempted` at all, and that absence is exactly what pinned an
-        # installation: the retry gate reads it as zero, so such a decision is due at once.
-        when = "never attempted"
-    else:
-        try:
-            when = f"last tried {(time.time() - float(attempted)) / 3600:.1f} h ago"
-        except (TypeError, ValueError):
-            when = "last tried at an unreadable time"
-    return f" · {part}, {when}"
-
-
-# ── system snapshot ──────────────────────────────────────────────────────────
 def build_system_info(version: str) -> dict:
     """Cheap (no live cloud call) support snapshot for the card + the bundle header."""
     vehicle, settings = db_reader.get_vehicle()
@@ -200,10 +165,9 @@ def build_system_info(version: str) -> dict:
         # which case the health page falls back to the capacity above.
         "battery_nominal_kwh": settings.get("battery_capacity_nominal_kwh", "— (not set)"),
         "language": settings.get("language", "en"),
-        "migration_decision": settings.get("mate_api_migration_decision", ""),
         "db_size_mb": round(db_reader.get_db_size_bytes() / 1048576, 1),
         "counts": {"trips": _count("trips"), "charges": _count("charges"),
-                   "positions": _count("positions")},
+                   "positions": _count("positions"), "ha_samples": _count("ha_samples")},
         "poll_parked": settings.get("poll_parked", "30"),
         "poll_driving": settings.get("poll_driving", "10"),
         "retention_days": settings.get("positions_retention_days", "0"),
@@ -332,7 +296,8 @@ def _signals_section(signals: dict | None, vin: str | None) -> str:
     if not signals:
         return ("(no live signals — car asleep or unreachable; use the car briefly, then download "
                 "again)")
-    clean = {k: v for k, v in signals.items() if k not in _GPS_SIGNAL_IDS}
+    clean = {k: v for k, v in signals.items()
+             if k not in _GPS_SIGNAL_IDS and str(k).lower() not in _GPS_SIGNAL_NAMES}
     return _redact(json.dumps(clean, indent=2, sort_keys=True), vin)
 
 
@@ -421,22 +386,45 @@ def _vampire_section() -> str:
     return "\n".join(out)
 
 
+# A reading farther than this from the day's median odometer is not the car's own: no car drives
+# that far in a day. Before 4.14.1 a reading of the other car on an account could be filed under
+# this one (#338).
+_ODO_DAY_SPREAD_KM = 1500
+
+
 def _soc_daily_section() -> str:
     """Per-day SoC hi→lo + km driven for the last 14 days — reveals the parked-drain pattern and
-    any data gaps behind a 'my history vanished' report (#63)."""
+    any data gaps behind a 'my history vanished' report (#63).
+
+    The km are the spread of the day's readings that carry an odometer (one without is stored as
+    0). A reading farther than _ODO_DAY_SPREAD_KM from the day's median odometer is left out of the
+    day's km and SoC and counted apart, so it still shows: a T03's day read "drove 9228 km", and
+    another "8573 km" with its A10's 96.8 %, on days it drove a dozen (#338)."""
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
         rows = db_reader._get().execute(
-            "SELECT substr(recorded_at,1,10) d, COUNT(*) n, MIN(soc) lo, MAX(soc) hi, "
-            "MIN(odometer_km) o0, MAX(odometer_km) o1 FROM positions "
+            "SELECT substr(recorded_at,1,10) d, soc, odometer_km FROM positions "
             "WHERE vehicle_id = COALESCE(?, vehicle_id) AND soc IS NOT NULL AND recorded_at >= ? "
-            "GROUP BY d ORDER BY d", (db_reader._current_vehicle_id(), cutoff)).fetchall()
+            "ORDER BY recorded_at", (db_reader._current_vehicle_id(), cutoff)).fetchall()
     except Exception as e:  # noqa: BLE001
         return f"(soc-daily failed: {e})"
-    out = []
+    days: dict = {}
     for r in rows:
-        drove = (r["o1"] or 0) - (r["o0"] or 0)
-        out.append(f"  {r['d']}  n={str(r['n']):<5} soc {r['hi']:.1f}→{r['lo']:.1f}  drove {drove:.0f} km")
+        days.setdefault(r["d"], []).append((r["soc"], r["odometer_km"] or 0))
+    out = []
+    for d, readings in days.items():
+        odos = sorted(o for _, o in readings if o > 0)
+        mid = odos[len(odos) // 2] if odos else 0
+        own = [(s, o) for s, o in readings if o <= 0 or abs(o - mid) <= _ODO_DAY_SPREAD_KM]
+        kept = [o for _, o in own if o > 0]
+        drove = max(kept) - min(kept) if kept else 0
+        socs = [s for s, _ in own]
+        line = (f"  {d}  n={str(len(readings)):<5} soc {max(socs):.1f}→{min(socs):.1f}"
+                f"  drove {drove:.0f} km")
+        if len(own) < len(readings):
+            line += (f"  ⚠ {len(readings) - len(own)} reading(s) over {_ODO_DAY_SPREAD_KM} km off the"
+                     " day's odometer, left out (another car's?)")
+        out.append(line)
     return "\n".join(out) or "(no SoC samples in the last 14 days)"
 
 
@@ -798,11 +786,37 @@ def _missed_charges_section() -> str:
 
 
 def _abilities_section() -> str:
-    """The car's DECLARED ability codes (leapmotor_api VehicleAbility) — the ground truth for what
+    vehicle, settings = db_reader.get_vehicle()
+    return "\n".join([_declared_abilities(vehicle)] + _account_rights(vehicle, settings))
+
+
+def _account_rights(vehicle, settings) -> list[str]:
+    """What the ACCOUNT may do with this car, as the cloud's vehicle list last gave it (#400). A
+    command needs the account's right beside the car's ability, and an account the car is shared
+    with can hold fewer; with the abilities alone a refused command could not be told from a right
+    the account lacks. Parsed by the client's own reader; the account's hash stays out.
+    The entry's `funcConfig` (the fan's and the temperature's range for remote climate) follows as sent."""
+    try:
+        from ui_command_access import snapshot_key
+        from leapmotor_cloud.mate_compat import Vehicle
+        listed = settings.get(snapshot_key((vehicle or {}).get("vin")))
+        if not listed:
+            return ["rights : (not listed yet — Mate reads them from the cloud's vehicle list at login)"]
+        snapshot = json.loads(listed)
+        car = Vehicle.from_dict(snapshot["vehicle"], is_shared=snapshot["shared"])
+    except Exception as exc:  # noqa: BLE001 — never let a bad snapshot break the diagnostic
+        return [f"rights : (unreadable access snapshot: {type(exc).__name__})"]
+    return [f"rights : {','.join(map(str, sorted(car.rights))) or '(none)'}",
+            f"modules: {','.join(map(str, sorted(car.module_rights))) or '(none)'}",
+            f"shared : {'yes' if car.is_shared else 'no'}",
+            f"funcConfig: {json.dumps(snapshot['vehicle'].get('funcConfig'))}"]
+
+
+def _declared_abilities(vehicle) -> str:
+    """The car's DECLARED ability codes (the cloud's VehicleAbility codes) — the ground truth for what
     THIS model actually supports, so we stop assuming every car has the same commands (#67). Shows the
     raw codes + names and calls out the climate/seat features that differ across models (the T03 lacks
     several the B10/C10 have; also lets us learn a new model like the B05 the moment it connects)."""
-    vehicle, _ = db_reader.get_vehicle()
     raw = (vehicle or {}).get("abilities")
     if not raw:
         return ("(not reported yet — restart the add-on once on this version so the poller stores the "
@@ -882,6 +896,46 @@ def _polling_section() -> str:
     return "\n".join(lines)
 
 
+_CLOUD_LINES = 200   # the list of answers keeps its newest lines, and says how many it left out
+
+
+def _cloud_answers_section() -> str:
+    """What the cloud answered Mate's last requests, from the bridge's record of each answer: time,
+    endpoint, HTTP status and the cloud's code, never a parameter, a VIN or a token. Logins and
+    renewals are listed with the refusals, so the end of a session reads against its start."""
+    from api_v2_bridge import LOGIN_PATH, REFRESH_PATH, recorded_answer_accepted
+    try:
+        db = db_reader._get()
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                          "AND name = 'api_v2_http_log'").fetchone():
+            return "(none recorded)"
+        rows = db.execute("SELECT at, method, path, http_status, api_code "
+                          "FROM api_v2_http_log ORDER BY id").fetchall()
+    except sqlite3.Error as e:
+        return f"(unavailable: {e})"
+    if not rows:
+        return "(none recorded)"
+    answers = defaultdict(Counter)
+    listed = []
+    for r in rows:
+        answer = (r["http_status"], str(r["api_code"]))
+        answers[(r["method"], r["path"])][answer] += 1
+        if r["path"] in (LOGIN_PATH, REFRESH_PATH) or not recorded_answer_accepted(*answer):
+            listed.append(r)
+    width = max(len(path) for _, path in answers)
+    out = [(f"{len(rows)} requests · {(rows[0]['at'] or '')[:19]} → {(rows[-1]['at'] or '')[:19]} · "
+            "per endpoint: HTTP status, cloud code ×times")]
+    for (method, path), seen in sorted(answers.items(), key=lambda item: -item[1].total()):
+        out.append(f"  {seen.total():5d}  {method:4} {path:{width}}  "
+                   + " · ".join(f"{status} {code} ×{n}" for (status, code), n in seen.most_common()))
+    out.append(f"logins, renewals and every answer that was not a success (oldest first, at most {_CLOUD_LINES}):")
+    if len(listed) > _CLOUD_LINES:
+        out.append(f"  … {len(listed) - _CLOUD_LINES} earlier not shown")
+    out += [f"  {(r['at'] or '')[:19]}  {r['method']:4} {r['path']}  {r['http_status']} {r['api_code']}"
+            for r in listed[-_CLOUD_LINES:]]
+    return "\n".join(out)
+
+
 def _cloud_history_section() -> str:
     """Did the cloud's own trip history arrive, and did it carry fuel? Counts only — this text is
     attached to public issues. Since 4.5.3 every install stages these records, range-extender
@@ -927,20 +981,19 @@ def build_bundle(version: str, parts=_BUNDLE_PARTS, lines: int = 300, signals: d
             f"VIN          : {info['vin_masked']}",
             f"Battery kWh  : {info['battery_kwh']}  (SoH reference: {info['battery_nominal_kwh']})",
             f"Language     : {info['language']}",
-            # 🔴 Mate 4 runs one of two cloud clients, and they fail differently: #327 was a
-            # refusal that only happens on the bundled SDK. @arzthilfe's bundle did not say
-            # which he had, and it had to be inferred from the shape of a log line.
-            # `api_backend` selects the SDK only on an explicit '0'.
-            f"Cloud client : " + ("bundled SDK (leapmotor-api)"
-                                  if os.environ.get("MATE_API_V2") == "0"
-                                  else "independent (mate-api)")
-            # …and, when the activation left one, what it decided and when it last tried: a bundle
-            # that only says "bundled SDK" states the question, not the answer (#338).
-            + _migration_decision_line(info["migration_decision"]),
+            # Mate's own client, the only one since 01/10/2026 (#327 and #338 lived on the other).
+            "Cloud client : independent (mate-api)",
+            # The last sign-in the cloud did not grant, as the bridge recorded it: the stage it failed
+            # at and, since mate-api 0.1.0a15, why the transport failed (dns_failure, timeout…). An
+            # install that could not resolve the cloud's name wrote 9,049 lines no bundle explained
+            # (#381, #384). Absent until a sign-in has failed.
+            *([f"Last sign-in failure : {failure}"]
+              if (failure := db_reader.get_setting("api_v2_login_failure", "")) else []),
             f"DB size (MB) : {info['db_size_mb']}",
             f"Journal mode : {_journal_line(info['journal_mode'])}",
             f"Rows         : trips={info['counts']['trips']} "
-            f"charges={info['counts']['charges']} positions={info['counts']['positions']}",
+            f"charges={info['counts']['charges']} positions={info['counts']['positions']} "
+            f"ha_samples={info['counts']['ha_samples']}",
             f"Poll (s)     : parked={info['poll_parked']} driving={info['poll_driving']}",
             # 🔴 The floor a charge has to clear to be SEEN. Default 2.0 A; a home AC charge moves
             # the pack at 11-12 A, so anything above that silently stops every charge from being
@@ -980,6 +1033,7 @@ def build_bundle(version: str, parts=_BUNDLE_PARTS, lines: int = 300, signals: d
                 _missed_charges_section()]
         out += ["", "----- vehicle abilities (what the car DECLARES it can do) -----", _abilities_section()]
         out += ["", "----- polling (last 7 days, local days) -----", _polling_section()]
+        out += ["", "----- cloud answers (Mate's last requests, UTC) -----", _cloud_answers_section()]
         out += ["", "----- cloud trip history (staged from Leapmotor) -----",
                 _cloud_history_section()]
     if "poller" in want:

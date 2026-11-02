@@ -2,12 +2,12 @@
 Recorder: reacts to state machine events to persist trips, charges, and positions.
 """
 import logging
-import threading
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import NamedTuple, Optional
 
 from db import (Database, _WB_STUCK_MIN_KW, _now_iso, _generator_was_running)
+from schema import WALLBOX_ENERGY_KWH, WALLBOX_POWER_KW
 from state_machine import (State, StateMachine, StateEvent, _PARKED_STATES,
                            FROZEN_DRIVE_LIMIT_S)
 from client import VehicleData
@@ -39,6 +39,15 @@ class OdometerReading(NamedTuple):
                    data.timestamp_ms or None)
 
 
+class _TripPoll(NamedTuple):
+    """What one poll added to the active trip: the `positions` row it wrote, its route point (None
+    without a GPS fix) and its regen. Known by the rows, in the order they were written, so a part
+    of the trip can be told apart without asking any clock."""
+    position_id: int
+    point_id: Optional[int]
+    regen_kwh: float
+
+
 class Recorder:
     def __init__(self, db: Database, vehicle_id: int):
         self._db = db
@@ -46,7 +55,7 @@ class Recorder:
         self._sm = StateMachine()
         self._active_trip_id: Optional[int] = None
         self._active_charge_id: Optional[int] = None
-        self._regen_kwh: float = 0.0
+        self._trip_polls: list[_TripPoll] = []
         # The last litre reading the car gave, from any poll — the baseline the regen gate uses to
         # tell braking from the range-extender's generator. NOT reset per trip on purpose: the poll
         # that opens a drive then already has something to compare against. None on a BEV for ever.
@@ -55,6 +64,8 @@ class Recorder:
         # Whether the active charge may trust the home wallbox counter (decided from its GPS at open
         # / resume). Default True = attribute, so anything unlocated behaves exactly as before.
         self._charge_at_wallbox: bool = True
+        # The counter is read on the side: the charge is away from the learned wallbox location (#442).
+        self._wb_probe: bool = False
         self._started: bool = False
         # SoC-jump charge reconstruction (GitHub #29): baseline SoC + when we last saw it.
         self._last_soc: Optional[float] = None
@@ -80,6 +91,10 @@ class Recorder:
     @property
     def state(self) -> State:
         return self._sm.state
+
+    @property
+    def _regen_kwh(self) -> float:
+        return sum(poll.regen_kwh for poll in self._trip_polls)
 
     @property
     def poll_interval(self) -> int:
@@ -113,8 +128,12 @@ class Recorder:
             if is_charging:
                 self._active_charge_id = open_charge["id"]
                 self._max_charge_kw = open_charge["max_power_kw"] or 0.0
-                self._charge_at_wallbox = self._db.wallbox_energy_applies(
+                # Away from the wallbox, it goes on being read on the side only if it was from the
+                # start (#442): one opened by an older version would be measured from halfway.
+                at_wallbox = self._db.wallbox_energy_applies(
                     self._vehicle_id, open_charge["latitude"], open_charge["longitude"])
+                self._wb_probe = not at_wallbox and open_charge["wb_probe_last_kwh"] is not None
+                self._charge_at_wallbox = at_wallbox or self._wb_probe
                 self._sm.state = State.CHARGING
                 log.info("Resumed open charge #%d (car still charging)", open_charge["id"])
             else:
@@ -169,8 +188,9 @@ class Recorder:
         # readings to close the trip — hiding them would strand the trip open until the link returns,
         # which is the very bug #128 reports.
         self._polled_at = _now_iso()
+        position_id = None
         if not (stale and self._sm.state == State.DRIVING):
-            self._db.save_position(self._vehicle_id, data)
+            position_id = self._db.save_position(self._vehicle_id, data)
 
         # Read the baseline before advancing it: the regen gate below asks what the counter said
         # at the PREVIOUS reading, not at this one.
@@ -190,7 +210,7 @@ class Recorder:
         # on-road verification — gating this way stays conservative: at worst it counts 0,
         # never mistaking driving discharge for regen.
         if self._sm.state == State.DRIVING and self._active_trip_id and not stale:
-            self._db.add_trip_position(self._active_trip_id, data)
+            point_id = self._db.add_trip_position(self._active_trip_id, data)
             # …and on a range-extender, only when the generator was NOT running. It refills the
             # pack while driving, unplugged, with the same sign as braking, so petrol burned to make
             # electricity was being recorded as recovered energy. Measured on @ebagnoli's signal log
@@ -210,9 +230,11 @@ class Recorder:
             # is only ever too small is one an owner can act on; one inflated by petrol is not.
             # → tests/test_a_reevs_regen_is_braking_not_its_own_generator.py
             _generator_ran = _generator_was_running(fuel_before, data.fuel_liters)
+            regen = 0.0
             if (not data.plug_connected and (data.charge_current_a or 0) < -3.0
                     and data.charge_power_kw is not None and not _generator_ran):
-                self._regen_kwh += data.charge_power_kw * (self._sm.poll_driving / 3600)
+                regen = data.charge_power_kw * (self._sm.poll_driving / 3600)
+            self._trip_polls.append(_TripPoll(position_id, point_id, regen))
 
         # During active charge: track peak power, and sum the wallbox counter's rises so the billed
         # energy is MEASURED (reset/race-proof). Both are persisted → survive a poller restart mid-charge.
@@ -221,7 +243,14 @@ class Recorder:
                 self._max_charge_kw = data.charge_power_kw
                 self._db.update_charge_max_power(self._active_charge_id, self._max_charge_kw)
             if self._charge_at_wallbox:
-                wb = self._read_wallbox_energy()
+                reading = self._read_wallbox()
+                wb = reading.get("energy_kwh")
+                # Kept with the poll's row, so the chart's wallbox line outlives Home Assistant's history.
+                # Not for a counter read on the side (#442): on a public charge it is not this charge's
+                # line, and one that turns out to be is filled from Home Assistant like any home charge.
+                if not self._wb_probe:
+                    self._db.save_ha_samples_at_position(position_id, {WALLBOX_POWER_KW: reading.get("power_kw"),
+                                                                 WALLBOX_ENERGY_KWH: wb})
                 if wb is not None:
                     # What the CAR says it took over this poll — the only thing that can tell a
                     # STOPPED counter from a slow one (#215). Sent only while the car reports real
@@ -236,7 +265,7 @@ class Recorder:
                     car_kwh = (data.charge_power_kw * (self._sm.poll_interval / 3600)
                                if not stale and data.charge_power_kw is not None
                                and data.charge_power_kw >= _WB_STUCK_MIN_KW else 0.0)
-                    self._db.accumulate_wallbox_energy(self._active_charge_id, wb, car_kwh)
+                    self._accumulate_wallbox(wb, car_kwh)
                     log.debug("Charge #%d: wallbox counter %.3f kWh", self._active_charge_id, wb)
                 else:
                     # Home Assistant had no answer: this poll measured nothing, and a total summed
@@ -368,10 +397,7 @@ class Recorder:
         # two are the same on a healthy link and hours apart behind a frozen frame — and it is the
         # second case that produced 4 km "in 30 seconds", an implied 480 km/h, and a trip with no
         # duration at all.
-        trip_id = self._db.create_reconstructed_trip(self._vehicle_id, prev_soc, prev_odo,
-                                                    prev_ts, data)
-        if trip_id is not None:
-            self._auto_note_trip(trip_id)
+        self._db.create_reconstructed_trip(self._vehicle_id, prev_soc, prev_odo, prev_ts, data)
 
     def _maybe_reconstruct_charge(self, data: VehicleData) -> None:
         """Catch a charge that was never seen live. While the car is asleep/offline to the cloud
@@ -402,9 +428,7 @@ class Recorder:
             return                                                 # live charge/trip owns this
         if data.soc - prev_soc < self._reconstruct_min_pct:
             return                                                 # drop or jitter, not a charge
-        charge_id = self._db.create_reconstructed_charge(self._vehicle_id, prev_soc, prev_ts, data)
-        if charge_id is not None:
-            self._auto_note_charge(charge_id)
+        self._db.create_reconstructed_charge(self._vehicle_id, prev_soc, prev_ts, data)
 
     # Below this a movement is a manoeuvre, not a trip: finalize it, then drop it. It was 0.5 km
     # from v1.0.4 to match HA's leapmotor_trip ("spostamento breve ignorato"), which deleted real
@@ -414,7 +438,8 @@ class Recorder:
     _MIN_TRIP_KM = 0.2
 
     def _finalize_trip(self, data, end_at: Optional[str] = None,
-                       reading: Optional[OdometerReading] = None) -> None:
+                       reading: Optional[OdometerReading] = None,
+                       stood_still: bool = False) -> None:
         # The trip ends on this reading, so everything driven up to it is the trip's: unseen kilometres
         # are measured from here on. Without an odometer nothing says where it ended, so from nowhere.
         # A baseline already at this odometer keeps its time: behind a frozen frame, when news stopped.
@@ -426,18 +451,32 @@ class Recorder:
             self._odometer_reading = None
         elif prev is None or prev.odometer_km != reading.odometer_km:
             self._odometer_reading = reading
+        regen, dropped = self._regen_kwh, ()
+        # Where the trip ended, when a reading inside it says so better than the frame in hand: the
+        # switch-off that closed it, or — for the trip given up on after half a day of standing in P
+        # on a car still reading on — the moment it stopped moving. Both answer in the same shape.
+        off = None
+        if end_at is None:
+            off = (self._db.trip_stood_still(self._active_trip_id) if stood_still
+                   else self._db.trip_switched_off(self._active_trip_id))
+        if off is not None:
+            # It ended on that reading, and what the polls written after it added is not the trip's.
+            # The baseline above stays: no later reading shows another odometer.
+            end_at, data = off.ended_at, SimpleNamespace(**dict(off.row))
+            regen = sum(p.regen_kwh for p in self._trip_polls if p.position_id <= off.position_id)
+            dropped = tuple(p.point_id for p in self._trip_polls
+                            if p.position_id > off.position_id and p.point_id is not None)
         # End the trip when the car was last HEARD, not when we noticed. On a healthy link the two
         # are the same poll, so nothing moves; behind a frozen frame the difference is everything
         # the 30-minute guard used to fold into the trip. Same shape as the charge close (#208).
         distance_km = self._db.finalize_trip(
-            self._active_trip_id, data, self._regen_kwh,
-            end_at_override=end_at or self._db.trip_end_from_last_seen(self._active_trip_id))
+            self._active_trip_id, data, regen,
+            end_at_override=end_at or self._db.trip_end_from_last_seen(self._active_trip_id),
+            drop_points=dropped)
         if distance_km is not None and distance_km < self._MIN_TRIP_KM:
             self._db.delete_trip(self._active_trip_id)
             log.info("Trip #%d discarded — short hop %.2f km (< %.1f km)",
                      self._active_trip_id, distance_km, self._MIN_TRIP_KM)
-            return
-        self._auto_note_trip(self._active_trip_id)
 
     def _settle_trip_after_outage(self, to: State, data: VehicleData) -> None:
         """The cloud refused us mid-drive and answers again: the open trip is resumed or closed,
@@ -467,7 +506,7 @@ class Recorder:
             self._finalize_trip(last, end_at=ended_at, reading=OdometerReading(
                 last.odometer_km, last.soc, last.recorded_at, False, last.frame_ts))
         self._active_trip_id = None
-        self._regen_kwh = 0.0
+        self._trip_polls = []
 
     def sample_wallbox_meter(self) -> None:
         """Read the home wallbox counter on a cycle where the CAR said nothing (#295 @gm27271).
@@ -488,9 +527,13 @@ class Recorder:
         """
         if self._active_charge_id is None or not self._charge_at_wallbox:
             return
-        wb = self._read_wallbox_energy()
+        reading = self._read_wallbox()
+        wb = reading.get("energy_kwh")
+        if not self._wb_probe:
+            self._db.save_ha_samples(self._vehicle_id, _now_iso(), {WALLBOX_POWER_KW: reading.get("power_kw"),
+                                                                    WALLBOX_ENERGY_KWH: wb})
         if wb is not None:
-            self._db.accumulate_wallbox_energy(self._active_charge_id, wb, 0.0)
+            self._accumulate_wallbox(wb, 0.0)
         else:
             self._db.note_wallbox_unread(self._active_charge_id, self.poll_interval / 60)
 
@@ -534,24 +577,28 @@ class Recorder:
                 now = _now_iso()                # read just now, so it ended no later than now
                 end = (data.soc, min(_frame_iso(data) or now, now))
         if self._charge_at_wallbox:
-            end_wb = self._read_wallbox_energy()
+            end_wb = self._read_wallbox().get("energy_kwh")
             if end_wb is not None:
-                self._db.accumulate_wallbox_energy(self._active_charge_id, end_wb)
+                self._accumulate_wallbox(end_wb)
         log.info("Charge #%d: the charge is over — closing it on the last reading seen while "
                  "charging (%s)", self._active_charge_id,
                  "SoC %.1f%% at %s" % end if end else "none available, using the live frame")
         self._db.finalize_charge(self._active_charge_id, data,
                                  max_power_kw=self._max_charge_kw, end_override=end,
                                  reason=reason)
-        self._auto_note_charge(self._active_charge_id)
         self._active_charge_id = None
         self._max_charge_kw = 0.0
         self._charge_closed_this_poll = True
 
-    def _read_wallbox_energy(self) -> Optional[float]:
-        """Current wallbox kWh-counter reading from Home Assistant (best-effort, never raises).
-        Returns None when no wallbox is configured/reachable → the charge falls back to DC billing.
-        Reuses web/ha_client.get_live() (the same reader the web layer uses)."""
+    def _accumulate_wallbox(self, reading: float, car_kwh: float = 0.0) -> None:
+        """Add a counter reading to the open charge — on the side when it is away from the wallbox."""
+        self._db.accumulate_wallbox_energy(self._active_charge_id, reading, car_kwh, probe=self._wb_probe)
+
+    def _read_wallbox(self) -> dict:
+        """The wallbox as Home Assistant reports it now: `energy_kwh` (the counter) and `power_kw`, each
+        None when unread; {} when no wallbox is configured or reachable → the charge falls back to DC
+        billing. Best-effort, never raises. Reuses web/ha_client.get_live() (the same reader the web
+        layer uses)."""
         try:
             import sys
             import pathlib
@@ -559,73 +606,10 @@ class Recorder:
             if web not in sys.path:
                 sys.path.insert(0, web)
             import ha_client
-            return ha_client.get_live().get("energy_kwh")
+            return ha_client.get_live()
         except Exception as e:  # noqa: BLE001
-            log.debug("wallbox energy read failed: %s", e)
-            return None
-
-    @staticmethod
-    def _web_db_reader():
-        """web/db_reader.py — same sys.path trick as _read_wallbox_energy's ha_client
-        import. Reused here since the auto-note generation (reverse-geocoding + station
-        lookup) lives there, and pulls in only stdlib-http modules (web/geocode.py,
-        web/charger_locator.py) already covered by web's own requirements — no new pip
-        dependency for the poller."""
-        import sys
-        import pathlib
-        web = str(pathlib.Path(__file__).resolve().parent.parent / "web")
-        if web not in sys.path:
-            sys.path.insert(0, web)
-        import db_reader
-        return db_reader
-
-    def _auto_note_on(self) -> bool:
-        """Whether the AUTOMATIC note may run. On by default — the feature is the point —
-        but a trip's endpoints are, for most people, home and work, and this sends both to
-        a reverse-geocoding service without being asked each time. Settings ▸ Geocoder can
-        turn it off; the 🧭 button stays, so nobody loses the feature, they just decide
-        when it happens. Read from the poller's own connection so an off switch costs no
-        thread and no import."""
-        try:
-            return self._db.get_setting("auto_note", "1") != "0"
-        except Exception:  # noqa: BLE001 — a settings read must never break recording
-            return True
-
-    def _auto_note_trip(self, trip_id: int) -> None:
-        """Kick the address/time/temperature auto-note for a brand-new trip, off-thread —
-        reverse-geocoding can take a few seconds and must never delay the next poll cycle.
-        only_if_note_empty=True is the safety net: never clobbers a note the user
-        somehow already typed in the few seconds between the trip closing and this
-        thread running (the 🧭 button is the only thing allowed to overwrite a note, and
-        only after the user confirms — see web/main.py trip_generate_auto_note)."""
-        if not self._auto_note_on():
-            return
-        threading.Thread(target=self._auto_note_trip_body, args=(trip_id,), daemon=True).start()
-
-    def _auto_note_trip_body(self, trip_id: int) -> None:
-        try:
-            db_reader = self._web_db_reader()
-            provider = db_reader.get_setting("geocoder_provider", "")
-            key = db_reader.get_secret("geocoder_key", "") or None
-            db_reader.generate_trip_auto_note(trip_id, provider, key, only_if_note_empty=True)
-        except Exception as e:  # noqa: BLE001 — best-effort, must never take the poller down
-            log.debug("trip #%d auto-note failed: %s", trip_id, e)
-
-    def _auto_note_charge(self, charge_id: int) -> None:
-        """Same as _auto_note_trip, for a brand-new charge (station address + telemetry
-        temperatures instead of reverse-geocoded endpoints + Open-Meteo)."""
-        if not self._auto_note_on():
-            return
-        threading.Thread(target=self._auto_note_charge_body, args=(charge_id,), daemon=True).start()
-
-    def _auto_note_charge_body(self, charge_id: int) -> None:
-        try:
-            db_reader = self._web_db_reader()
-            provider = db_reader.get_setting("geocoder_provider", "")
-            key = db_reader.get_secret("geocoder_key", "") or None
-            db_reader.generate_charge_auto_note(charge_id, provider, key, only_if_note_empty=True)
-        except Exception as e:  # noqa: BLE001 — best-effort, must never take the poller down
-            log.debug("charge #%d auto-note failed: %s", charge_id, e)
+            log.debug("wallbox read failed: %s", e)
+            return {}
 
     def _handle_event(self, event: StateEvent, data: Optional[VehicleData]) -> None:
         frm, to = event.from_state, event.to_state
@@ -651,7 +635,7 @@ class Recorder:
                 # the same thing since #208, one branch below: re-entering with one still open
                 # means we never stopped.
                 return
-            self._regen_kwh = 0.0
+            self._trip_polls = []
             # Before the trip is created, so both baselines still hold the last poll's reading:
             # anything the odometer gained while the cloud was quiet is declared on its own instead
             # of becoming the front of this trip.
@@ -680,16 +664,16 @@ class Recorder:
                 self._db.set_setting(f"frozen_drive_frame_{self._vehicle_id}",
                                      str(data.timestamp_ms))
             if self._active_trip_id and data:
-                self._finalize_trip(data)
+                self._finalize_trip(data, stood_still=event.stood_still)
             self._active_trip_id = None
-            self._regen_kwh = 0.0
+            self._trip_polls = []
 
         elif to == State.CHARGING:
             if self._active_trip_id and data:
                 # Plug inserted while driving → trip closed immediately, no 20s wait
                 self._finalize_trip(data)
                 self._active_trip_id = None
-                self._regen_kwh = 0.0
+                self._trip_polls = []
             # Only OPEN a new charge if none is already open. Re-entering CHARGING with a
             # charge still open means we never unplugged — typically an OFFLINE gap mid-charge
             # (3 API errors → OFFLINE → recovery → CHARGING). Opening a second row there would
@@ -699,20 +683,24 @@ class Recorder:
                 self._max_charge_kw = 0.0
                 if data:
                     self._active_charge_id = self._db.create_charge(self._vehicle_id, data)
-                    # Only seed the wallbox baseline if this charge is AT the wallbox. A charge known
-                    # to be far (public station) leaves the wallbox columns NULL → its idle/standby
-                    # counter is never attributed, and it stays eligible for the 📍 station lookup.
-                    self._charge_at_wallbox = self._db.wallbox_energy_applies(
+                    # A charge known to be far from the learned wallbox (public station) reads the
+                    # counter ON THE SIDE: its wallbox columns stay NULL → its idle/standby counter is
+                    # never attributed, and it stays eligible for the 📍 station lookup — unless the
+                    # counter follows the car, which is how a wallbox that moved house is found
+                    # again (#442; decided in db.finalize_charge).
+                    self._wb_probe = not self._db.wallbox_energy_applies(
                         self._vehicle_id, data.latitude, data.longitude)
-                    if self._charge_at_wallbox:
-                        start_wb = self._read_wallbox_energy()  # seed the wallbox-counter baseline
-                        if start_wb is not None:
-                            self._db.set_charge_wallbox_start(self._active_charge_id, start_wb)
-                            log.info("Charge #%d: wallbox counter at start = %.3f kWh",
-                                     self._active_charge_id, start_wb)
-                    else:
-                        log.info("Charge #%d: away from the home wallbox → its counter is not "
-                                 "attributed to this charge", self._active_charge_id)
+                    self._charge_at_wallbox = True
+                    start_wb = self._read_wallbox().get("energy_kwh")  # seed the wallbox-counter baseline
+                    if start_wb is not None:
+                        self._db.set_charge_wallbox_start(self._active_charge_id, start_wb,
+                                                          probe=self._wb_probe)
+                    if self._wb_probe:
+                        log.info("Charge #%d: away from the home wallbox → its counter is read on the "
+                                 "side, attributed only if it follows the car", self._active_charge_id)
+                    elif start_wb is not None:
+                        log.info("Charge #%d: wallbox counter at start = %.3f kWh",
+                                 self._active_charge_id, start_wb)
 
         elif frm == State.CHARGING and to in _PARKED_STATES:
             if event.frozen and self._active_charge_id and data:
@@ -724,20 +712,21 @@ class Recorder:
                 return
             if self._active_charge_id and data:
                 if self._charge_at_wallbox:
-                    end_wb = self._read_wallbox_energy()          # final reading → capture the last rise
+                    end_wb = self._read_wallbox().get("energy_kwh")   # final reading → capture the last rise
                     if end_wb is not None:
-                        self._db.accumulate_wallbox_energy(self._active_charge_id, end_wb)
+                        self._accumulate_wallbox(end_wb)
                         log.info("Charge #%d: wallbox counter at stop = %.3f kWh",
                                  self._active_charge_id, end_wb)
                 # The cable read gone is the ordinary end; the car declaring the charge
                 # postponed to its programmed window (1149==4, #243) is the other way this
                 # branch is reached, and triage wants them apart.
+                # Dated when it stopped adding energy: the car ends its charge session some time after that.
                 self._db.finalize_charge(
                     self._active_charge_id, data, max_power_kw=self._max_charge_kw,
+                    stopped=self._db.charge_stopped_adding_at(self._active_charge_id),
                     reason=("deferred" if (data.plug_connected and data.charge_deferred)
                             else "unplugged"),
                 )
-                self._auto_note_charge(self._active_charge_id)
             self._active_charge_id = None
             self._max_charge_kw = 0.0
             self._charge_closed_this_poll = True

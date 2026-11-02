@@ -1,8 +1,625 @@
 # LeapMotor Mate — Manuel utilisateur
 
-> **Version de Mate :** v4.7.5 · **Langue :** Français
+> **Version de Mate :** v4.18.0 · **Langue :** Français
 
-## Nouveautés de la version 4.7.5
+## Nouveautés de la version 4.18.0
+
+**Chaque voiture a son propre code PIN d'opération.** Dans *Paramètres → Véhicule*, le formulaire
+indique « Code PIN d'opération de cette voiture », avec le modèle et la fin du VIN ; avec deux
+voitures, on choisit d'abord la voiture (« Toutes les voitures » n'existe plus). Le code PIN saisi là
+est celui qu'utilisent les commandes : avec une seule voiture, il pouvait être enregistré là où les
+commandes ne le lisaient pas. Un code PIN enregistré par une version précédente devient celui de la
+voiture au démarrage de Mate. Une commande vers une voiture sans code PIN n'est pas envoyée, et la page
+indique de le saisir dans Paramètres → Véhicule. Si après la mise à jour une commande est refusée pour
+un code PIN erroné, saisissez-le là une fois de plus.
+
+### Nouveautés de la version 4.17.0
+
+**Le panneau de recharge indique quand la recharge se termine.** Sur la page *Recharges*, *État de charge*
+affiche sous le temps restant l'heure de fin de la recharge, par ex. « Fin à 14:30 », avec le
+jour quand elle se termine un autre jour. Le calcul part du moment où la voiture a mesuré les minutes
+restantes : une lecture vieille de quelques minutes ne la déplace pas.
+
+### Nouveautés de la version 4.16.3
+
+**Une wallbox qui a déménagé est retrouvée.** Mate apprend où se trouve votre wallbox à partir des
+recharges qu'elle a mesurées, et n'attribue son compteur qu'aux recharges à cet endroit. Après un
+déménagement, les recharges à domicile restaient sans lui. Désormais, une recharge éloignée de cet endroit
+lit quand même le compteur et le garde s'il a augmenté avec la voiture (plus de 2 kWh, jamais immobile
+pendant que la voiture chargeait) ; ces recharges déplacent l'endroit vers votre nouveau domicile. Les
+recharges enregistrées avant cette version ne changent pas.
+
+### Nouveautés de la version 4.16.2
+
+**La carte prend l'écran sur lequel elle est.** La carte de la page *Carte* occupe désormais toute la
+largeur de la page et s'arrête là où la ligne du dessous, avec *Trajets affichés* et *Bornes affichées*,
+tient encore à l'écran : plus grande sur un grand moniteur, plus petite sur un portable, 400 px au moins.
+Elle suit la fenêtre quand vous la redimensionnez.
+
+### Nouveautés de la version 4.16.1
+
+**Un T03 affiche son objectif de recharge.** Sur un T03, la carte *Objectif de la recharge programmée* de la
+page Recharges restait vide juste après un enregistrement, et le *Charge Limit* de Home Assistant restait
+inconnu : l'état de la voiture ne le contient pas. Mate le lit désormais dans le plan de recharge de la
+voiture, qui le contient.
+
+### Nouveautés de la version 4.16.0
+
+**La carte de l'Aperçu trace le dernier trajet du jour.** Sous le point de la voiture, la carte *Dernière
+position connue* trace désormais l'itinéraire du dernier trajet : celui en cours pendant que vous roulez, et
+celui terminé aujourd'hui pour le reste de la journée. Les lignes sont celles de la page du trajet. Après
+minuit la carte est de nouveau vide.
+
+**Les commandes ne sont plus refusées à cause d'une horloge d'ordinateur en retard de quelques secondes.**
+Avant une commande, Mate regarde l'heure de la dernière lecture de la voiture, et refusait une lecture datée
+après l'horloge de l'ordinateur (*Command not sent: state_timestamp_invalid*). Une lecture jusqu'à une minute
+en avance compte désormais comme actuelle.
+
+### Nouveautés de la version 4.15.12
+
+**Sur la T03, la carte de l'objectif de recharge dit ce qu'elle est.** La carte *Objectif de la recharge
+programmée* de la page Recharges disait que son nombre n'est pas la limite haute de l'application de la
+voiture. Sur la T03, il l'est : un propriétaire a réglé 92 % puis 90 % depuis la carte, et l'application
+officielle a affiché chacun comme limite haute de recharge. Sur une voiture à programmation simple, comme
+la T03, la carte le dit désormais.
+
+### Nouveautés de la version 4.15.11
+
+**Le compteur kilométrique sur MQTT ne tombe plus à 0 km.** Quand une lecture de la voiture ne porte pas
+le compteur, comme certaines de la T03, Mate publiait 0 km sur MQTT (le capteur du compteur dans Home
+Assistant) et envoyait 0 km à ABRP. Une telle lecture ne publie désormais rien pour le compteur : le
+capteur garde la dernière valeur, comme le faisait déjà l'autonomie, et ABRP ne reçoit pas de compteur.
+
+### Nouveautés de la version 4.15.10
+
+**La santé de la batterie ne lit plus une température absente comme 0 °C.** Sur une voiture qui n'envoie
+pas la température de sa batterie, comme la T03, une lecture faite par la page web pendant une recharge
+enregistrait 0 °C, et la *Santé de la batterie* écartait la recharge comme faite à froid. Une température
+absente reste désormais vide, et les 0 °C déjà enregistrés d'une telle voiture ne sont plus pris pour des
+mesures.
+
+### Nouveautés de la version 4.15.9
+
+**La santé de la batterie compte les recharges d'une T03.** La T03 envoie son niveau de batterie en
+points entiers, et la page *Santé de la batterie* prenait chaque point gagné pendant une recharge AC pour
+un recalibrage de la batterie, et laissait la recharge de côté : la page restait sans valeur. Désormais
+un point à la fois est une montée normale ; un vrai saut écarte toujours une recharge. Les recharges déjà
+enregistrées comptent aussi.
+
+### Nouveautés de la version 4.15.8
+
+**L'assistant de configuration propose les packs du prolongateur d'autonomie.** Une C10 ou une B10 avec
+prolongateur d'autonomie peut choisir son pack (*28.4 kWh — REEV* ou *18.8 kWh — REEV*) sous *Pack
+batterie* dans l'assistant de configuration. Jusqu'ici la version officielle les laissait hors de la
+liste.
+
+**Le paquet de diagnostic montre ce que le cloud a répondu.** Avec *Infos système* coché, le fichier de
+*Paramètres → Diagnostic → Télécharger le diagnostic* contient une section avec les réponses du cloud aux
+dernières requêtes de Mate : combien par adresse, et chaque connexion, renouvellement et réponse refusée,
+avec son heure. Elle ne contient ni paramètres, ni VIN, ni jetons.
+
+### Nouveautés de la version 4.15.7
+
+**La santé de la batterie compte une recharge fusionnée en entier.** Une recharge que la voiture a
+enregistrée en plusieurs morceaux et qui a été réunie en une seule séance (par Mate après une courte pause,
+ou à la main avec *Fusionner avec la précédente* sur la page *Recharges*) donne maintenant à la page *Santé
+de la batterie* l'énergie de tous ses morceaux. Jusqu'ici seul le premier morceau comptait : la recharge
+restait hors du graphique, ou donnait une capacité calculée sur une partie seulement de la séance.
+
+### Nouveautés de la version 4.15.6
+
+**Le capteur MQTT de la prise suit le câble.** Avec MQTT activé, le capteur *Plug Connected* (et
+`evcc/plugged` pour EVCC) est désormais allumé chaque fois que l'Aperçu montre le câble : aussi après
+la fin d'une recharge, ou pendant qu'une recharge attend sa programmation, le câble encore branché.
+Jusqu'ici il suivait seulement la session de recharge, et s'éteignait le câble encore branché.
+
+**L'image de la voiture s'affiche tout de suite.** Pendant la recharge, l'Aperçu montre tout de suite la
+voiture avec son câble et met l'animation de recharge à sa place dès qu'elle est prête, au lieu d'une
+carte vide pendant quelques secondes. Après un redémarrage de Mate, la première image n'attend plus un
+téléchargement non plus.
+
+### Nouveautés de la version 4.15.5
+
+**Santé de la batterie garde vos vues.** La page se met toujours à jour toute seule quand elle reste
+ouverte, et désormais les vues choisies sur ses deux graphiques (*Distance*, *% perdu*, *par date*)
+reviennent avec elle : elles sont gardées dans l'adresse de la page, comme un calendrier garde son mois.
+
+**Le graphique d'une recharge en cours ne clignote plus.** À chaque mise à jour, toutes les 30 secondes,
+la carte restait un instant sans graphique et la page en dessous sautait ; désormais le nouveau
+graphique prend la place de l'ancien.
+
+**La température extérieure après un redémarrage.** Quand Open-Meteo refuse la première demande après
+un redémarrage de Mate, Mate garde la valeur de la dernière position de la voiture, si elle a moins de
+20 minutes, au lieu de rester jusqu'à 20 minutes sans valeur.
+
+### Nouveautés de la version 4.15.4
+
+**La température extérieure sans GPS.** Quand le cloud n'envoie pas la position GPS d'une voiture à
+l'arrêt, Mate demande la température extérieure à la dernière position connue de la voiture, tant que
+le kilométrage n'a pas changé depuis. Jusqu'ici la valeur restait figée, et après un redémarrage de
+Mate elle manquait.
+
+### Nouveautés de la version 4.15.3
+
+**La ligne de la wallbox reste avec la recharge.** Avec la wallbox activée et Home Assistant
+configuré, Mate conserve désormais les mesures de la wallbox de chaque recharge à domicile : la ligne
+verte *Wallbox (AC)* de son graphique ne disparaît plus quand Home Assistant efface son historique, et
+le graphique s'ouvre plus vite. Une seule fois après la mise à jour, les lignes des recharges
+précédentes sont copiées à partir de ce que Home Assistant conserve encore (#419, @arekm).
+
+**Une aide (helper) de kWh personnalisés en Wh.** Avec le tarif *kWh personnalisés (Home Assistant)*,
+une aide qui indique des Wh est désormais facturée en kWh (#419).
+
+**Les heures des graphiques sur téléphone.** Sur un téléphone, les heures sous le graphique d'une
+recharge ou d'un trajet ne se chevauchent plus.
+
+### Nouveautés de la version 4.15.2
+
+**Le graphique d'une recharge arrive à l'ouverture de sa ligne.** Dans le calendrier des Recharges, le
+graphique d'une recharge est demandé dès que vous ouvrez sa ligne, même sur un téléphone où il se trouve
+sous le bord de l'écran, et il dessine au plus une mesure par pixel de sa largeur : une recharge de nuit
+s'affiche plusieurs fois plus vite. Ce qu'il dessine, ce sont de vraies mesures, et une pause coupe
+toujours la ligne (#417, @arekm).
+
+**Une ligne ouverte vient à l'écran.** Une ligne de recharge que vous ouvrez en bas de l'écran défile
+maintenant, une fois son graphique dessiné, juste assez pour s'afficher en entier, ou jusqu'à son début
+si elle est plus haute que l'écran. Les lignes ouvertes avec *Tout déplier* restent où elles sont
+(#418, @arekm).
+
+### Nouveautés de la version 4.15.1
+
+**Une recharge se termine quand l'énergie cesse d'entrer.** Après une recharge, câble branché, la
+voiture garde sa session de charge ouverte encore un moment. Mate termine maintenant la recharge quand
+l'énergie cesse d'entrer : son heure de fin et sa durée sont celles de la recharge elle-même, et une fois
+la batterie arrivée à la limite de charge réglée dans la voiture, l'Aperçu affiche *Charge terminée* au
+lieu de *En charge* (#414, @arekm).
+
+**Une ligne qui se termine un autre jour le dit.** Dans les calendriers Recharges et Trajets, une
+recharge ou un trajet qui se termine le lendemain de son début affiche ce jour avant son heure de fin,
+par exemple « 23:05 → 09 oct 06:40 » (#415, @arekm).
+
+### Nouveautés de la version 4.15.0
+
+**Une recharge se lit comme un trajet.** Dans le calendrier des Recharges, chaque recharge est désormais
+une ligne, avec à côté une miniature de sa courbe ; un clic l'ouvre en dessous, avec l'énergie, la
+température de la batterie, la température extérieure et la puissance moyenne, le graphique, la note et
+les actions. *Tout déplier* ouvre toutes les lignes du jour. Avec Maj-clic, en faisant glisser ou en
+maintenant un jour, on ouvre plusieurs jours à la fois, avec les totaux de la période et de chaque jour
+(#412, @arekm).
+
+**La puissance d'une recharge lente.** *État de charge* sur la page Recharges et la recharge en cours dans
+l'Aperçu affichent maintenant aussi la puissance d'une recharge sous 3 A, ce qui sur une C10, à environ 720 V,
+est une recharge à domicile sous environ 2,2 kW : ils affichaient 0,00 kW (#409).
+
+**Une programmation enregistrée ici s'affiche tout de suite.** Après une plage de recharge enregistrée sur
+la page *Programmation* et confirmée par la voiture, l'Aperçu affiche aussitôt la nouvelle plage, au lieu
+de l'ancienne pendant jusqu'à 30 minutes (#395).
+
+### Nouveautés de la version 4.14.2
+
+**Un mot de passe refusé est nommé.** Quand Leapmotor refuse l'e-mail et le mot de passe que vous avez
+donnés à Mate, l'Aperçu dit désormais « le mot de passe a été refusé » et vous renvoie au compte
+Leapmotor dans les Paramètres, et Mate attend une heure avant de réessayer le même mot de passe, au lieu
+de toutes les 5 minutes (#411). Un mot de passe que vous changez dans les Paramètres est essayé tout de
+suite.
+
+### Nouveautés de la version 4.14.1
+
+**Une mesure reste avec sa voiture.** Sur un compte avec deux voitures, une mesure prise par Mate après
+une commande, ou avec le bouton 🔄 Actualiser, pouvait être rangée sous l'autre voiture si vous changiez
+de voiture dans la barre latérale pendant que le cloud répondait : cette voiture montrait alors une
+journée de plusieurs milliers de kilomètres et une perte à l'arrêt qu'elle n'avait jamais eue. La mesure
+est désormais toujours rangée sous la voiture dont elle vient (#338). Une ligne déjà rangée sous la
+mauvaise voiture reste où elle est.
+
+### Nouveautés de la version 4.14.0
+
+**Mate n'écrit plus la note des recharges.** Jusqu'ici, avec les réglages par défaut, Mate écrivait une
+note sur chaque recharge qu'il clôturait — l'adresse, les heures, les températures — et, pour trouver
+l'adresse, il envoyait à OpenStreetMap la position de chaque recharge hors du domicile, même avec la
+recherche d'adresses désactivée. Les deux s'arrêtent : la note est la vôtre, comme celle des trajets
+depuis la 4.13.0, et les notes écrites avant restent telles quelles. Les heures sont dans l'en-tête de la
+recharge, les températures sur son graphique et l'adresse sur sa ligne 📍. Une recharge qui n'y a pas
+encore d'adresse, une plus ancienne par exemple, a **🧭** à côté de 📍 : il interroge tout de suite le
+service choisi dans *Paramètres → Recherche d'adresses*, même interrupteur désactivé, et redessine la
+ligne ; quand aucune adresse n'arrive, une ligne en dessous dit pourquoi. *Rédiger la note
+automatiquement* disparaît de cette carte. Le 🧭 d'un trajet dit lui aussi pourquoi aucune adresse
+n'est venue : le service n'a rien à cet endroit, ou comment la demande a échoué. Par @arekm (#406).
+
+**Mate dans Home Assistant depuis une installation Docker.** Avec hass_ingress dans son mode par défaut
+`ingress`, mettez dans `MATE_FRAME_ANCESTORS` l'adresse avec laquelle vous ouvrez Home Assistant. Le
+README explique désormais ce que fait un mot de passe de Mate dans un cadre (#407).
+
+### Nouveautés de la version 4.13.1
+
+**Chaque recharge montre où elle a eu lieu.** À côté de 📍, une recharge affiche la borne suivie de son
+adresse ; sans borne, votre lieu de recharge à cet endroit, avec « (lieu de recharge) », ou l'adresse —
+une recharge à domicile comprise. Les adresses viennent de la même recherche que celles des trajets : une
+recharge là où un trajet s'est déjà terminé ne coûte aucune requête ; l'interrupteur de *Paramètres →
+Recherche d'adresses*, désormais appelé **Rechercher les adresses des trajets et des recharges**, couvre
+les deux. Les recharges de plus de trois jours ne sont pas recherchées d'elles-mêmes. La recherche dans
+Recharges et dans Événements trouve une recharge par son adresse, sa ville ou son code postal, et le CSV
+des recharges gagne `place` et `address`. Un trajet fusionné dont le dernier morceau s'est terminé dans
+les trois derniers jours voit désormais son départ recherché même si le premier morceau s'est terminé
+avant. Par @arekm (#405).
+
+### Nouveautés de la version 4.13.0
+
+**Les trajets montrent d'où ils sont partis et où ils sont arrivés.** La ligne d'un trajet indique
+« A → B », le *Résumé du trajet* sur sa page nomme les deux extrémités, de même que les lignes de début
+et de fin du trajet dans Événements. Une extrémité située dans l'un de vos lieux de recharge affiche son
+nom suivi de « (lieu de recharge) » ; ailleurs, c'est l'adresse. Mate recherche les adresses peu après
+la fin d'un trajet, avec le service choisi dans *Paramètres → Recherche d'adresses* ; le nouvel
+interrupteur **Rechercher le départ et l'arrivée des trajets** la désactive, et après la mise à jour il
+démarre comme l'était **Rédiger la note automatiquement**. Les trajets de plus de trois jours ne sont
+pas recherchés d'eux-mêmes : la 🧭 à côté d'une adresse manquante dans le *Résumé du trajet* recherche
+ce trajet tout de suite. La recherche trouve un trajet par l'une ou l'autre extrémité, et le CSV des
+trajets gagne `start_place` et `end_place`. Mate n'écrit plus la note d'un trajet tout seul —
+**Rédiger la note automatiquement** ne concerne plus que les recharges — et les notes écrites avant
+restent telles quelles. Par @arekm (#404).
+
+### Nouveautés de la version 4.12.1
+
+**Recharger la page garde le mois que vous regardez.** Dans les calendriers Trajets, Recharges,
+Wallbox et Pleins, le mois à l'écran va dans l'adresse de la page (par exemple `?month=2026-09`) : un
+rechargement — le vôtre, ou celui que la page fait toute seule — revient sur ce mois, avec le jour ou la
+période que vous aviez ouverts ; avant, il revenait toujours au mois en cours. Le bouton Retour du
+navigateur, après l'ouverture d'un trajet, fait de même. **Revenir à aujourd'hui** retire le mois de
+l'adresse. Quand une recharge se termine, la page Recharges se recharge toute seule et reste désormais
+sur le mois que vous regardez : la nouvelle recharge est dans le mois en cours, à un clic sur **Revenir
+à aujourd'hui**. Dans Pleins, ajouter ou supprimer un plein redessine le mois à l'écran, et non plus le
+mois en cours. Par @arekm (#403).
+
+### Nouveautés de la version 4.12.0
+
+**Plusieurs jours à la fois dans le calendrier des Trajets.** Une semaine, un week-end ou des vacances
+s'ouvrent d'un seul geste : sur un ordinateur, **Maj+clic** sur un second jour, ou **glisser** la souris
+sur les jours ; sur un téléphone, **appui long** sur un jour — un contour en pointillés le marque — puis
+**toucher** le dernier. Le tiroir s'ouvre avec un en-tête pour toute la période — batterie, temps de
+conduite, kilomètres et les autres chiffres d'un jour — et en dessous chaque jour avec des trajets, du
+plus récent au plus ancien, avec son propre en-tête. La période reste dans le mois affiché. La date
+d'un jour sous la période ouvre ce jour seul, avec son bouton 🔗 pour fusionner les trajets, qu'une
+période n'a pas. Les autres calendriers ouvrent toujours un jour à la fois. Une ligne sous le
+calendrier des Trajets rappelle les trois gestes. Par @arekm (#402).
+
+Si la voiture a chargé entre le premier et le dernier trajet — sur quelques jours, c'est presque
+toujours le cas —, la batterie de la période se lit comme celle d'un jour avec une recharge : ce que les
+trajets ont consommé et ce que les recharges ont ajouté, et chacun des deux chiffres dit ce qu'il compte
+quand vous le survolez ou le touchez. Le chiffre de la période peut donc différer de la somme de ceux
+de ses jours : un jour sans recharge va de sa première lecture à sa dernière, et compte aussi ce que la
+voiture a perdu à l'arrêt entre ses trajets.
+
+**Le tiroir affiche le dernier jour choisi.** Deux jours choisis coup sur coup envoyaient deux requêtes
+en parallèle, et une réponse lente pour le premier pouvait remplir le tiroir sous le contour du second
+— dans les quatre calendriers. Désormais, un nouveau choix remplace la requête encore en cours, et la
+bande **Réessayer** d'un jour qui n'a pas pu être chargé disparaît dès que vous en demandez un autre.
+Par @arekm (#402).
+
+### Nouveautés de la version 4.11.2
+
+**Le pare-soleil porte le nom de l'application officielle dans toutes les langues.** Les pages
+l'appelaient « Toit panoramique » sur les tuiles Véhicule et Commandes, et « store » dans les
+confirmations et les Événements. En français, c'est désormais le **Pare-soleil** partout : les tuiles,
+les confirmations (« Ouvrir le pare-soleil ? ») et les Événements (« Pare-soleil ouvert à 40 % »). Les
+autres langues prennent elles aussi les noms de l'application (#391). Rien ne change dans Home
+Assistant.
+
+### Nouveautés de la version 4.11.1
+
+**En italien, le store s'appelle « Parasole ».** Les pages en italien le nommaient de trois façons :
+« Tetto panoramico » sur les tuiles Véhicule et Commandes, « tendina » dans les Événements et les
+confirmations, et « parasole » dans l'avis affiché pendant la conduite. Elles disent désormais
+« Parasole » partout, le nom que lui donne l'application officielle. Rien ne change en français ni
+dans Home Assistant.
+
+### Nouveautés de la version 4.11.0
+
+**La T03 retrouve ses vitres dans Commandes.** Depuis la 4.0.0, Mate cherchait le code des vitres que
+déclarent la B10 et la C10, et une T03 en déclare un autre : sur une T03, la tuile **Vitres** de
+Commandes cachait son bouton **Ouvrir** / **Fermer**, et le curseur restant répondait *« Command not
+sent »*. L'un ou l'autre code suffit désormais, et une T03 reçoit la position sur sa propre échelle de
+0 à 100. Pas encore essayé sur une T03 (#400). Là où c'est la voiture elle-même qui n'autorise pas les
+vitres, le curseur disparaît maintenant avec le bouton.
+
+**Mate démarre sur un dossier partagé de NAS.** Depuis la 4.0.0, un dossier de données qui ne garde
+pas les permissions des fichiers — ce que peut être le dossier partagé d'un NAS avec ses propres règles
+d'accès — arrêtait Mate au démarrage avec *« Private directory permissions required »*. Mate démarre
+maintenant, et écrit une fois dans son journal que ce sont les permissions de ce dossier qui décident
+qui peut lire les fichiers du compte. Sur un disque ordinaire, un dossier de données ouvert à tous est
+toujours refusé (#401).
+
+**Le store en pourcentage.** La tuile du toit sur la page Véhicule et celle du store dans Commandes
+disent de combien le store est ouvert ; arrêté à mi-course, la tuile de Commandes propose à la fois
+**Ouvrir** et **Fermer**, les deux positions que la voiture exécute. La page Événements indique où il
+s'est arrêté, et Home Assistant reçoit un capteur **Sunshade Position** en %. Par @arekm (#391).
+
+**Un court trajet que le cloud lit à 0,0 kWh garde ce chiffre.** Mate prenait cette réponse pour une
+absence, redemandait pendant six heures et laissait le trajet sans énergie. Si la batterie affichait la
+même valeur aux deux extrémités, le trajet garde maintenant 0,0 kWh et compte dans les moyennes ; sur
+un trajet où la batterie a baissé, ou n'a pas été lue, un zéro reste une non-réponse. Par @arekm (#394).
+
+**Les ⓘ s'ouvrent au toucher.** Les ⓘ à côté de la température extérieure dans l'Aperçu et à côté du
+courant maximal de la Wallbox s'ouvrent maintenant au toucher, aussi dans l'application Home Assistant,
+et un nouveau ⓘ à côté de **READY** dit ce que signifie cet état. Par @arekm (#399).
+
+**Le paquet de support dit ce que votre compte peut faire avec la voiture** : ses droits, et si la
+voiture est partagée avec vous, à côté de ce que la voiture déclare — une commande peut être refusée
+pour l'une ou l'autre raison.
+
+### Nouveautés de la version 4.10.0
+
+**La batterie et le temps de conduite du jour dans Trajets.** Ouvrez un jour dans le calendrier des
+Trajets : son en-tête indique désormais la batterie consommée par les trajets du jour,
+*84,4% → 51,6% (−32,8%)* du premier trajet au dernier — ou, si la voiture a chargé entre-temps, ce que
+les trajets ont consommé et ce que les recharges ont ajouté, *−45,3%* et *⚡ +40,2%* — ainsi que le temps
+de conduite de la journée, sans les trajets reconstruits, comme le fait Statistiques. S'il manque une
+lecture, la batterie n'apparaît pas au lieu d'être devinée. Chaque chiffre de l'en-tête du jour et de
+la bande du mois dit ce qu'il est quand on le survole ou qu'on le touche. La ligne de chaque trajet
+affiche sa variation de batterie, *84,4→51,6% (−32,8%)*, aussi sur un téléphone, où les heures du
+trajet ne sont plus écrasées. Par @arekm (#392).
+
+**« Rétablir l'estimation » seulement là où il y en a une.** Sur la page d'un trajet, le bouton
+apparaissait aussi sur des trajets sans estimation mise de côté, où il demandait une confirmation puis
+ne changeait rien. Il n'apparaît plus que là où il peut rétablir une estimation. Par @arekm (#396).
+
+**La programmation de recharge attend la réponse de la voiture.** Enregistrer une programmation de
+recharge, ou envoyer une destination au navigateur, attend désormais que la voiture dise l'avoir
+exécutée, pendant le temps que le cloud lui accorde — sur une B10, 30 s quand la voiture dort et 5 s
+quand elle est réveillée. « Programmation enregistrée » veut dire que la voiture l'a prise ; si la
+voiture reste muette, l'avis **ambre** indique qu'elle n'a pas confirmé à temps, et Mate garde les
+horaires qu'il avait. Chaque commande écrit désormais une ligne dans le journal : ce qu'elle a envoyé,
+sans l'adresse ni les coordonnées d'une destination, et ce que le cloud a répondu (#395).
+
+### Nouveautés de la version 4.9.2
+
+**Une fin dit que son temps est venu après l'état précédent.** Sur la page Événements,
+« Verrouillée · 4 min » se lisait comme une voiture verrouillée depuis quatre minutes, alors que ces
+minutes étaient le temps pendant lequel elle était restée déverrouillée. On lit désormais
+« Verrouillée · après 4 min ». La fin d'un trajet et d'une recharge garde son chiffre, qui est la
+durée du trajet ou de la recharge.
+
+**La ligne à laquelle vous revenez arrive à l'écran, même sur un téléphone lent.** En revenant d'un
+trajet avec la carte affichée, un téléphone qui dessine lentement pouvait laisser cette ligne sous
+l'écran.
+
+**La page Événements ne lit plus que les jours qu'elle affiche**, et en parcourant une longue liste
+elle ne la recompose plus pour chaque morceau : chaque morceau suivant arrive tout de suite. Sur un
+Raspberry Pi, la lecture de l'historique au premier démarrage est aussi plus légère, et avec une
+conservation du GPS réglée, un trajet encore ouvert garde ses événements comme il garde ses
+positions.
+
+### Nouveautés de la version 4.9.1
+
+**La liste Événements ne glisse plus sous vos yeux.** En parcourant une longue période,
+les en-têtes d'heure et de jour situés au-dessus changeaient de hauteur à mesure que le navigateur
+les rattrapait, et ce que vous lisiez se décalait de quelques pixels — jusqu'à 25 d'un coup. Les
+en-têtes d'heure et de jour annoncent désormais la hauteur qu'ils prendront réellement : ils ne
+décalent plus ce que vous lisez.
+
+### Nouveautés de la version 4.9.0
+
+**Un branchement, une recharge.** Vous branchez le soir, vous débranchez le matin, et la page
+Recharges affichait quatre sessions. C'est la voiture qui les découpe : elle déclare le câble retiré
+à l'instant où le courant s'arrête, ce qui est exactement l'allure, vue de l'intérieur de la
+voiture, d'une wallbox qui équilibre la charge, d'un chargeur qui suit le soleil ou d'un réseau qui
+rationne la puissance. Les morceaux sont désormais réunis d'eux-mêmes, quand la pause fait moins de
+six minutes et que rien d'autre n'a changé — la même jonction que réalise le bouton **Joindre à la
+précédente**, avec toutes ses vérifications. Rien n'est réécrit : **Séparer** rend les morceaux
+exactement comme la voiture les a rapportés, et une recharge que vous avez séparée n'est jamais
+rejointe. Au premier démarrage, les nuits déjà présentes dans votre base reviennent ensemble elles
+aussi.
+
+**L'énergie d'un trajet ne peut plus valoir le double de ce que la batterie a perdu.** Un trajet de
+7 km affichait 41,4 kWh/100km sur le graphique de consommation, parce que le chiffre du cloud valait
+2,90 kWh là où la batterie avait perdu 1,07. Mate refusait déjà un chiffre au-delà du double de la
+batterie, mais seulement s'il dépassait aussi 60 kWh/100km. Quand le niveau de charge a baissé d'un
+point entier ou plus — une vraie mesure, pas deux ou trois dixièmes d'arrondi — le double de la
+batterie suffit désormais à lui seul. Les trajets déjà convertis reviennent à l'estimation par la
+batterie au premier démarrage.
+
+**Les kilomètres mesurés hors contact disent combien d'entre eux sont revenus.** Les trajets que
+l'historique Leapmotor rend pour une période de silence apparaissent maintenant à côté de ce
+chiffre, dans les Statistiques et sur le mois du calendrier des Trajets. Ils n'en sont pas
+soustraits : ces kilomètres ont bien été parcourus hors contact, et le silence ne se partage
+toujours pas entre la fin d'un trajet, un arrêt et le début d'un autre.
+
+**Le réglage de capacité dit pourquoi les kilowattheures de l'application officielle sont plus
+élevés.** L'application officielle compte tout le pack, tampon compris ; Mate compte la partie
+utilisable. La même énergie, mesurée sur un 100 % différent.
+
+### Nouveautés de la version 4.8.0
+
+**Une page Événements raconte, minute par minute, ce qu'a fait la voiture.** Verrouillée,
+déverrouillée, portes, vitres, câble, climatisation, READY, trajets, charges et les commandes que
+vous avez envoyées — un début et une fin sont deux lignes reliées par un trait de la couleur du
+groupe, si bien que ce qui s'est passé en même temps, et pendant combien de temps, se voit d'un coup
+d'œil. Une carte à côté de la liste dit où ; les filtres par mot, groupe et type vivent dans
+l'adresse, donc un lien ou un rechargement les garde. Les événements sont dérivés des positions que
+Mate enregistre déjà : sur une installation existante, le premier démarrage relit tout l'historique,
+une tranche par relevé, et la page dit où elle en est. Merci à **@arekm**, qui l'a écrite.
+
+**Un trajet se termine quand la voiture se termine.** Aller chercher quelqu'un — sans éteindre,
+juste P et une attente — clôturait le trajet après une minute et en ouvrait un second au redémarrage.
+Le trajet se termine désormais sur le relevé qui montre la voiture **éteinte** : attendre en P avec
+la voiture allumée est un arrêt à l'intérieur du trajet, comme un feu rouge. Une course est un seul
+trajet, et la consommation officielle que le cloud mesure de l'allumage à l'extinction lui appartient
+tout entière.
+
+**Une panne que Mate a reportée ne cache plus la vraie.** Mate garde une minute entre deux
+connexions, et le relevé qui tombait dans cette minute indiquait « Login temporarily deferred after a
+recent attempt » — des mots sur notre propre minuterie, qui prenaient la place de la panne qui tient
+réellement le cloud à distance.
+
+### Nouveautés de la version 4.7.18
+
+**La restauration d'une sauvegarde fonctionne sous Windows.** Sur MateDesktop pour Windows, la
+restauration d'une sauvegarde de la base répondait une erreur, parce que le fichier ne pouvait pas
+être remplacé pendant que Mate le gardait ouvert. La sauvegarde entre maintenant dans la base en
+service ; rien d'autre ne change.
+
+**Une panne vers le cloud dit pourquoi.** Là où le journal, la page de configuration et le paquet
+de diagnostic disaient seulement « Cloud transport failed » ou « stage=transport », ils ajoutent
+maintenant un mot : « dns_failure », « timeout », « connection_refused », « certificate_rejected »,
+etc.
+
+**Mettre à jour une installation Docker :** le manuel ne suggère plus Watchtower, qui a été archivé.
+Téléchargez l'image et recréez le conteneur.
+
+### Nouveautés de la version 4.7.17
+
+**L'Aperçu affiche le câble pendant que la wallbox le retient.** Une wallbox programmée prend le câble et
+ne donne pas de courant avant l'ouverture de sa plage ; l'Aperçu n'affichait alors aucun câble. Il le lit
+maintenant aussi depuis la prise AC de la voiture : l'étiquette au-dessus de la voiture indique « Câble
+connecté (Pas en charge) », ou « (Charge terminée) », et le mot sous la voiture indique « Stationné ». Par @arekm.
+
+### Nouveautés de la version 4.7.16
+
+**Une écriture qui trouve la base de données occupée ne bloque plus toutes les suivantes.** Une écriture
+qui avait trop attendu la base laissait sa transaction ouverte, et dès lors chaque écriture échouait avec
+« database is locked » jusqu'au redémarrage du conteneur : 17 heures perdues sur une installation. Chaque
+cycle de lecture termine maintenant cette transaction en premier, et le dit dans le journal.
+
+**Une T03 relit sa programmation de recharge.** Après l'enregistrement, la page Recharges affichait
+« Aucune programmation », parce que la configuration de la T03 ne la contient pas. Mate la lit maintenant
+là où la bibliothèque précédente la lisait, seulement pour une voiture dont la configuration ne dit pas
+si la programmation est active ni quand elle commence.
+
+**Rapport s'appelle Rapports**, dans le menu et sur la page, comme toutes les autres entrées du menu.
+
+### Nouveautés de la version 4.7.15
+
+**Une T03 enregistre de nouveau sa programmation de recharge.** Depuis la 4.7.7, la page Recharges
+refusait d'enregistrer la programmation de recharge d'une T03 ou de régler sa limite de charge
+(« complete current charging configuration is required »). Mate complète maintenant ce que la T03 ne
+transmet pas, comme le faisait la bibliothèque précédente.
+
+### Nouveautés de la version 4.7.14
+
+**Le graphique de la recharge en cours, en direct.** Pendant que la voiture charge, la page Recharges
+affiche parmi les cartes du haut le graphique *📈 Données de la recharge* de cette recharge, qui
+s'allonge à chaque relevé. À la maison, il trace la ligne de la wallbox à côté de celle de la voiture ;
+une pause câble branché vaut 0 kW. Quand les relevés s'arrêtent, LIVE laisse place à l'âge du dernier.
+Par @arekm.
+
+**Le Rapport mensuel s'appelle maintenant Rapport**, dans le menu et sur la page. Rien d'autre ne change.
+
+### Nouveautés de la version 4.7.13
+
+**Une T03 reçoit de nouveau les commandes.** Depuis la 4.7.7, aucune commande n'arrivait à une T03 ;
+avec la 4.7.12, chacune se terminait par « signal ». Avant une commande, Mate vérifie le dernier relevé
+de la voiture, et celui d'une T03, il le cherchait au mauvais endroit.
+
+**Une charge manquante n'est pas 0 %.** *Actualiser* enregistrait à 0 % un relevé sans niveau de
+charge. Il n'enregistre plus rien, comme le poller, et les positions déjà enregistrées ainsi sont
+supprimées une seule fois, au premier démarrage.
+
+### Nouveautés de la version 4.7.12
+
+**Une T03 affiche ses relevés.** Avec la 4.7.11, une T03 était de nouveau lue, mais Mate affichait 0 %,
+0 km et 0 °C : le cloud répond à une T03 avec des champs nommés, et la 4.7.11 les lisait comme des
+champs numérotés. Ils sont maintenant lus par leur nom, et les positions enregistrées à 0 % sont
+supprimées une seule fois, au premier démarrage.
+
+**Le paquet de diagnostic écarte aussi les coordonnées nommées.** Si vous avez publié un paquet pris sur
+une T03 avec la 4.7.11, il contient la position de votre voiture : supprimez-le.
+
+### Nouveautés de la version 4.7.11
+
+**Une T03 est de nouveau lue.** Depuis la 4.7.7, une T03 recevait du cloud « No data found » à chaque
+relevé, et Mate n'enregistrait rien. Mate demande maintenant une voiture qu'il n'a jamais lue sous le
+modèle avec lequel le cloud la liste, puis à l'adresse qu'utilisait l'ancienne bibliothèque ; la voie
+qui répond est gardée pour cette voiture. Les voitures déjà lues le sont exactement comme avant.
+
+**Données de la recharge.** Sous chaque recharge, *📈 Données de la recharge* ouvre un graphique en
+bandes comme celui d'un trajet : la puissance avec les minutes qu'il restait selon la voiture, le
+niveau de charge et les températures — celle de la cellule la plus froide et, si elle est activée,
+celle de l'air extérieur.
+
+### Nouveautés de la version 4.7.10
+
+**Une C10 à prolongateur d'autonomie affiche de nouveau son courant et sa puissance de recharge.**
+Depuis la 4.0.0, pendant une recharge AC d'une C10 à prolongateur d'autonomie, Mate écartait le
+courant de la batterie et la puissance calculée à partir de lui : Home Assistant affichait *Charge
+Current* et *Charge Power* comme inconnus, et la puissance maximale de chaque recharge valait 0,0 kW.
+Le capteur de la voiture mesure bien, et les deux reviennent. Les recharges enregistrées avant cette
+mise à jour gardent 0,0 kW : leur courant n'avait pas été conservé.
+
+### Nouveautés de la version 4.7.9
+
+**Les mois précédents des trajets, depuis le cloud Leapmotor.** Dans **Paramètres → Historique des
+trajets du cloud**, avec **Importer les trajets du cloud Leapmotor** activé, le nouveau menu
+**Importer aussi les mois précédents, à partir de** liste les mois de septembre 2026 au mois dernier.
+On choisit une seule fois : Mate télécharge ce mois et tous les suivants, une seule fois chacun, et
+les mois qui se terminent s'ajoutent d'eux-mêmes. La ligne sous le menu indique ce que le choix
+ajoute. Le cloud Leapmotor n'a aucun trajet individuel avant septembre 2026.
+
+**La santé de la batterie s'ouvre plus vite**, tout comme le graphique de puissance d'une recharge
+([#363](https://github.com/ProtossBlaster/leapmotor-mate/pull/363), par @hubcasale) : mesuré sur
+quatre mois d'historique, d'environ 1,4 s à 0,05 s.
+
+### Nouveautés de la version 4.7.8
+
+**Une nouvelle installation démarre proprement.** Au premier démarrage, avec un dossier de données
+vide, les deux processus de Mate pouvaient ouvrir la nouvelle base au même instant et celui qui
+enregistre s'arrêtait sur « database is locked ». Il attend désormais les quelques millisecondes dont
+l'autre a besoin. Les installations existantes ne l'ont jamais rencontré.
+
+### Nouveautés de la version 4.7.7
+
+**Rien à télécharger pour configurer Mate.** Le certificat de l'application Leapmotor dont Mate a
+besoin pour se connecter — identique pour tout le monde, il identifie l'application et non vous — est
+désormais fourni avec Mate et s'installe tout seul au premier démarrage. L'assistant passe directement
+à votre compte : l'étape du certificat et son lien ont disparu. Une installation qui possède déjà le
+certificat le garde ; un certificat envoyé dans l'ancien format d'export, avec des lignes d'attributs
+en tête, est réécrit comme la copie que Mate embarque — c'est le même certificat — et les fichiers
+précédents restent dans un dossier de sauvegarde à côté des données.
+
+**Mate ne fonctionne plus qu'avec son propre client cloud.** Le client est celui de Mate depuis la
+4.0, mais une installation dont la première vérification n'avait jamais abouti était remise sur la
+bibliothèque tierce que Mate utilisait auparavant. Cette bibliothèque et ce repli ont disparu : chaque
+installation utilise le client de Mate. Celle qui était encore sur l'ancienne bibliothèque se connecte
+une fois avec le nouveau client au premier démarrage. Dans le paquet de diagnostic, la ligne
+`Cloud client` indique `independent (mate-api)` pour tout le monde.
+
+**Une C10 n'affiche plus 0 km à côté d'une batterie pleine.** En s'endormant, la C10 envoie son
+autonomie à 0 alors que la batterie est encore chargée, et l'aperçu affichait « 100 % · 0 km ». Mate ne
+prend plus ce zéro pour une mesure : l'aperçu garde la dernière autonomie transmise par la voiture, et
+Home Assistant garde sa dernière valeur. Sous 5 % de charge un zéro compte encore, car une batterie
+vide peut le signifier.
+
+**La carte des coûts compte une recharge fusionnée une seule fois.** Dans les statistiques, la carte du
+coût aux 100 km disait qu'il manquait le prix d'une recharge alors qu'il s'agissait de l'une des deux
+lignes que vous aviez fusionnées. Elle compte désormais les recharges comme la page Recharges les
+affiche ; les euros et les kWh ne changent pas.
+
+### Nouveautés de la version 4.7.6
+
+**Un trajet se termine désormais quand vous éteignez la voiture.** Mate déclare un trajet terminé
+lorsque la voiture est restée en P environ une minute, et il inscrivait cette minute *entière* dans le
+trajet. La fin — heure, niveau de charge, compteur, position et carburant — provient maintenant de la
+première lecture de cet arrêt qui montre la voiture **éteinte**. Sur quatre mois d'historique d'un
+propriétaire, cela a déplacé la fin de 183 trajets, de 7 à 54 secondes (42 en moyenne). Cela se voit
+sur les trajets courts : un saut de 1 km qui affichait 2,9 minutes à 21 km/h affiche maintenant
+2,2 minutes à 27 km/h. Kilomètres, kWh et consommation ne changent pas.
+
+Si vous descendez ouvrir un portail et remontez pour faire la marche arrière dans la place, cela reste
+un seul trajet. Une voiture laissée allumée en P, ou qui ne dit pas si elle est allumée, conserve la
+fin que Mate écrivait avant.
+⚠️ **Les trajets déjà enregistrés ne changent pas** — cela s'applique à partir de cette version.
+
+ℹ️ Sur un trajet d'un ou deux kilomètres, le cloud donne parfois son énergie à 0,0 kWh, et Mate
+préfère le chiffre de la voiture à sa propre estimation. Quelques trajets très courts peuvent donc
+afficher `0,00 kWh/100 km` là où ils montraient avant une estimation de quelques centièmes.
+
+**La page Recharges s'ouvre immédiatement.** Ouvrir les Recharges, ou un jour de leur calendrier,
+lisait tout le journal des positions pour chaque recharge de la page. Sur une base de 381 076 lignes de
+position, elle est passée de **880 ms à 1 ms**, avec les mêmes chiffres à l'écran.
+
+**Une recharge fusionnée peut recevoir son lieu directement.** Avant, il fallait la séparer, attribuer
+le lieu et la refusionner ; maintenant le lieu s'applique à tout le groupe. Fusionner et séparer ne
+rechargent plus toute la page et ne perdent plus le jour que vous consultiez.
+
+### Nouveautés de la version 4.7.5
 
 Deux changements, trouvés tous les deux dans un même paquet de diagnostic envoyé par un utilisateur.
 
@@ -286,7 +903,7 @@ Sous l'énergie d'un trajet, l'étiquette **getEC** devient **Mesurée par la vo
 5. [Découvrir l'interface](#5-découvrir-linterface)
 6. [Les pages, une par une](#6-les-pages-une-par-une)
    - [Aperçu](#aperçu) · [Trajets](#trajets) · [Carte](#carte) · [Recharges](#recharges)
-   - [Prix de recharge](#prix-de-recharge) · [Statistiques](#statistiques) · [Rapport mensuel](#rapport-mensuel)
+   - [Prix de recharge](#prix-de-recharge) · [Statistiques](#statistiques) · [Événements](#événements) · [Rapports](#rapports)
    - [Santé de la batterie](#santé-de-la-batterie) · [Entretien](#entretien) · [Commandes](#commandes)
    - [Programmation](#programmation) · [Préparer le véhicule](#préparer-le-véhicule)
    - [Navigation](#navigation) · [Véhicule](#véhicule) · [Wallbox](#wallbox)
@@ -346,12 +963,12 @@ Pour configurer Mate, il vous faut trois choses :
    **données perdues** (trajets et recharges non enregistrés). C'est la cause numéro un des problèmes
    signalés. *Solution :* un compte secondaire avec un **mot de passe utilisé uniquement dans Mate**.
 
-2. **Le certificat de l'application Leapmotor** (`app.crt` + `app.key`). C'est un certificat **identique pour
-   tout le monde** (celui de l'application, pas de votre compte), nécessaire pour dialoguer avec le cloud.
-   Il se télécharge depuis un dépôt public — l'assistant vous donne le lien direct
-   ([github.com/markoceri/leapmotor-certs](https://github.com/markoceri/leapmotor-certs)).
+2. **Rien à télécharger pour le certificat de l'application.** Mate a besoin du certificat TLS de
+   l'application Leapmotor (`app.crt` + `app.key`) pour se connecter — il est **identique pour tout le
+   monde** (celui de l'application, pas de votre compte). Il est fourni avec Mate et s'installe tout seul
+   au premier démarrage : il ne vous est jamais demandé.
 
-3. **L'e-mail, le mot de passe et le code PIN d'opération du compte.** Le **PIN à 4 chiffres** est celui que
+3. **L'e-mail, le mot de passe et le code PIN d'opération de la voiture.** Le **PIN à 4 chiffres** est celui que
    vous utilisez aussi dans l'application officielle pour autoriser les commandes à distance (verrouillage,
    climatisation…).
 
@@ -415,7 +1032,6 @@ bouton : ce sur quoi tu appuies dépend de la façon dont tu fais tourner Mate.
   ```
 
   La base de données est dans le volume, pas dans l'image : rien n'est perdu.
-  [Watchtower](https://containrrr.dev/watchtower/) peut s'en charger tout seul.
 - **MateDesktop** — rien à télécharger : l'application récupère Mate depuis le dépôt **à chaque
   démarrage**, donc la fermer et la rouvrir *est* la mise à jour.
 
@@ -456,20 +1072,7 @@ Deux boutons :
 - **🧪 Essayer la démo** — entre en mode démonstration avec des données fictives. Vous pouvez en sortir quand
   vous voulez.
 
-### Étape 1 — Certificat de l'application
-
-Mate vous demande le certificat TLS de l'application Leapmotor. Vous avez deux moyens :
-
-- **Téléverser les fichiers** `app.crt` et `app.key` (mode par défaut), ou
-- **Coller le texte PEM** des deux fichiers (bouton *« Coller le texte PEM à la place »*).
-
-Téléchargez-les depuis le lien affiché, chargez-les et appuyez sur **Enregistrer le certificat**. Mate
-ouvre les deux fichiers avant de les garder : si l'un d'eux est illisible — un fichier tronqué, ou la
-page web qui l'affiche enregistrée à la place du fichier — il est refusé, et le message en rouge dit
-lequel. Cette étape n'apparaît que si Mate n'a pas déjà un certificat qu'il arrive à lire : un
-certificat abîmé enregistré auparavant ne compte pas.
-
-### Étape 2 — Connexion au compte
+### Étape 1 — Connexion au compte
 
 Saisissez :
 
@@ -484,7 +1087,7 @@ Appuyez sur **🔍 Détecter ma voiture**. Mate vérifie les identifiants et lit
 numéro de châssis (VIN)**. Si tout se passe bien, vous voyez une fiche « Voiture détectée » avec
 `Leapmotor <modèle> · VIN ···xxxxxx`.
 
-### Étape 3 — Batterie
+### Étape 2 — Batterie
 
 Selon le modèle :
 
@@ -506,7 +1109,7 @@ Selon le modèle :
 > Aujourd'hui il s'agit de la **C10 RWD** : 69,9 kWh est la valeur de la plaque, et les recharges
 > réelles donnent une batterie utile de 67,0.
 
-### Étape 4 — Connexion
+### Étape 3 — Connexion
 
 Appuyez sur **Connecter et démarrer**. Mate enregistre la configuration, se connecte et vous amène à
 l'**Aperçu**. À partir de ce moment, le « poller » commence à collecter des données en arrière-plan : les
@@ -536,15 +1139,16 @@ défini un mot de passe d'accès* — celle-ci ferme la session du mot de passe,
 de passe, elle n'apparaît pas, car il n'y a rien à fermer.
 
 **Pour changer le code PIN de la voiture 🆕** — si vous le changez sur la voiture, rien à délier :
-allez dans **Paramètres → Véhicule**, sous l'adresse du compte se trouve **Code PIN d'opération**.
-Il se saisit deux fois, avec un œil pour le relire, et prend effet immédiatement — aussi bien pour
-les commandes depuis la page que pour celles venant de Home Assistant. Demandé par **@alextchao**
-(#225).
+allez dans **Paramètres → Véhicule**, sous l'adresse du compte se trouve **Code PIN d'opération de cette
+voiture**. Chaque voiture a son propre PIN, celui réglé sur la voiture ; avec deux voitures, choisissez
+d'abord la voiture. Il se saisit deux fois, avec un œil pour le relire, et prend effet immédiatement —
+aussi bien pour les commandes depuis la page que pour celles venant de Home Assistant. Demandé par
+**@alextchao** (#225).
 
 **Si deux Leapmotor partagent votre compte 🆕** — un **sélecteur de voiture** apparaît dans l'en-tête,
 à côté du badge du modèle. Il n'est là qu'à partir de la deuxième voiture : avec une seule Leapmotor,
 rien ne change. Choisissez une voiture et tout la suit — l'Aperçu, les Statistiques, les trajets, les
-recharges, le rapport mensuel, les commandes que cette voiture autorise et ses entités Home
+recharges, les rapports, les commandes que cette voiture autorise et ses entités Home
 Assistant. Votre choix est mémorisé. Sur un téléphone, le sélecteur se trouve dans le menu ☰, sous l'en-tête.
 
 Les réglages restent partagés, car ils diffèrent rarement sous un même toit : tarifs, devise, fuseau
@@ -560,6 +1164,11 @@ trajets et les recharges restent.
 
 De nombreuses pages **se mettent à jour toutes seules** environ toutes les 30 secondes ; ainsi les valeurs
 « en direct » (état, recharge en cours…) restent fraîches sans recharger la page.
+
+Un calendrier garde dans l'adresse de la page le mois que vous regardez : un rechargement — celui de la
+page ou le vôtre — ramène ce mois avec le jour ou la période que vous aviez ouverts ; **Revenir à
+aujourd'hui** revient au mois en cours. **Santé de la batterie** fait de même avec les vues choisies sur
+ses deux graphiques.
 
 **La langue, la devise et les unités** se changent depuis *Paramètres → 🌍 Langue et Devise* :
 
@@ -586,8 +1195,9 @@ et l'état en direct :
   actuel ;
 - quand la voiture est **en charge**, une **animation** montre le flux d'énergie ainsi qu'une étiquette avec
   l'estimation du temps « jusqu'à X % » (X = la limite de charge que vous avez définie dans la voiture) ;
-- une étiquette **« Câble branché / Charge terminée »** quand le câble est inséré mais qu'aucune charge active
-  n'est en cours. À côté, si vous avez défini une **charge programmée**, la plage horaire de la
+- une étiquette **« Câble branché (Pas en charge / Charge terminée) »** quand le câble est inséré mais qu'aucune charge active
+  n'est en cours ; *Charge terminée* quand la batterie a atteint la limite de charge réglée dans la
+  voiture. À côté, si vous avez défini une **charge programmée**, la plage horaire de la
   voiture s'affiche (par exemple **« Charge 01:50 – 12:00 »**) : c'est la réponse à « le câble est
   branché, pourquoi ça ne charge pas ? ».
 
@@ -603,9 +1213,13 @@ avec une barre 0–3500 W — et l'**énergie soutirée durant la session** ; il
 sur P + un appareil branché), pas depuis Mate. Il est précis à partir d'environ **42 W** (la résolution du
 capteur de courant de la voiture — une petite charge de ~10 W reste invisible).
 
-**La dernière recharge dit les deux 🆕** — la tuile **Dernière recharge** met en avant le même chiffre
-que la carte : à la maison, avec un compteur de wallbox, les kWh **🔌 wallbox (à payer)**, et en
-dessous ce qui est arrivé dans le pack — *🔋 12,0 kWh dans la batterie (DC) · rendement 81 %* ;
+La carte **Dernière position connue** affiche aussi le tracé GPS du dernier trajet du jour — pendant la
+conduite, celui du trajet en cours — comme le détail du trajet.
+
+**La dernière recharge dit les deux 🆕** — la tuile **Dernière recharge** met en avant le même chiffre que
+la ligne de cette recharge dans Recharges : à la maison, avec un compteur de wallbox, les kWh
+**🔌 wallbox (à payer)**, et en dessous ce qui est arrivé dans le pack —
+*🔋 12,0 kWh dans la batterie (DC) · rendement 81 %* ;
 ailleurs le chiffre de la batterie, avec les kWh de la borne sur une ligne à part là où vous les avez
 saisis. Le coût en dessous est le coût du nombre au-dessus. Avant, seul le chiffre de la batterie
 s'affichait, à côté d'un coût calculé sur l'autre.
@@ -623,7 +1237,9 @@ les 10 km, au premier des deux — et affiche la valeur à côté de celle de l'
 **désactivé par défaut**, parce que la requête envoie la position de la voiture à Open-Meteo :
 l'unique interrupteur se trouve dans *Réglages → valeurs par défaut des trajets*. La même donnée
 devient une entité **Température extérieure** dans Home Assistant et donne à chaque trajet des
-relevés en route, d'où viennent sa température la plus haute et la plus basse.
+relevés en route, d'où viennent sa température la plus haute et la plus basse. Si le cloud n'envoie
+pas de position GPS, Mate utilise la dernière qu'il avait, mais seulement tant que le kilométrage n'a
+pas changé ; une voiture conduite sans GPS garde la dernière valeur.
 
 #### Les trois températures : habitacle, cible A/C, batterie
 Toutes les Leapmotor n'envoient pas les trois. Mate distingue **trois situations différentes**, car les
@@ -650,6 +1266,12 @@ journal. Avant, elle comptait pour 0 °C : sur une voiture sans capteur d'habita
 
 - En cliquant sur un trajet, vous ouvrez le **détail**, avec le **tracé GPS** sur la carte et les données de
   ce trajet précis.
+- L'en-tête d'un jour ouvert dans le calendrier indique la batterie consommée par ses trajets :
+  *84,4% → 51,6% (−32,8%)* ou, si la voiture a chargé entre deux trajets, *−45,3%* consommés et *⚡ +40,2%* chargés,
+  ainsi que le temps de conduite de la journée. Sur un téléphone, la ligne de chaque trajet affiche
+  aussi sa batterie, *84,4→51,6% (−32,8%)*, sous la durée.
+  Un **Maj+clic**, un glisser de la souris sur les jours ou, sur un téléphone, un appui long sur un jour
+  ouvre **plusieurs jours à la fois** : un en-tête pour toute la période, puis chaque jour avec le sien.
 - Vous pouvez **fusionner** deux trajets coupés par erreur (Fusionner 🔗) ou les **séparer** à nouveau, et
   **supprimer** un trajet.
 - Les arrêts brefs (feux, embouteillages) **ne** coupent **pas** un trajet : une conduite reste une seule
@@ -664,6 +1286,20 @@ journal. Avant, elle comptait pour 0 °C : sur une voiture sans capteur d'habita
   parcourus pendant la coupure en font partie. Après un silence plus long, le trajet se termine à la
   dernière nouvelle de la voiture avant ce silence, et les kilomètres suivants sont traités comme
   tous ceux parcourus hors contact.
+- **Un trajet se termine quand la voiture se termine 🆕.** Un trajet est clos sur le relevé qui
+  montre la voiture **éteinte**, et c'est de ce relevé que vient sa fin : heure, niveau de charge,
+  kilométrage, position et carburant. **Attendre en P avec la voiture allumée est donc un arrêt à
+  l'intérieur du trajet**, et non sa fin — aller chercher quelqu'un et rentrer est un seul trajet,
+  pas deux, et la consommation officielle que le cloud mesure de l'allumage à l'extinction
+  appartient alors tout entière à ce trajet, sans moitiés à fusionner. C'est le premier relevé qui a
+  *vu* la voiture éteinte : après une coupure de la liaison, il arrive donc plus tard que
+  l'extinction elle-même. Une voiture qui n'indique pas si elle est allumée est close après environ
+  une minute en P, comme avant, et de même lorsque le relevé en P est une image que le cloud répète
+  depuis une demi-heure. La fin reste au dernier relevé lorsqu'il manque une donnée au relevé de
+  l'extinction ou qu'un relevé suivant montre un autre kilométrage. Un trajet que Mate trouve encore
+  ouvert à son redémarrage, voiture déjà garée, est clos sur son dernier point enregistré ; un
+  trajet immobile en P pendant une demi-journée sur une voiture qui se déclare toujours allumée est
+  clos là où elle s'est arrêtée.
 - **Les kilomètres que Mate n'a pas vus ne sont pas ajoutés aux trajets qui les entourent.** Quand
   la liaison avec le cloud tombe plus longtemps qu'une courte coupure au sein d'un même trajet (voir
   ci-dessus), la voiture continue de rouler mais Mate ne la voit pas ; au retour, il ne trouve qu'un
@@ -731,6 +1367,15 @@ journal. Avant, elle comptait pour 0 °C : sur une voiture sans capteur d'habita
   replie. Toutes les courbes sont affichées au départ ; le choix est mémorisé dans le navigateur
   pour tous les trajets. La bulle commence par l'heure, à la seconde près, et la minute du trajet.
 
+- **D'où à où 🆕** — la ligne d'un trajet affiche **« A → B »**, et le *Résumé du trajet* de sa page nomme
+  les deux extrémités. Une extrémité dans l'un de vos **lieux de recharge** affiche son nom suivi de «
+  (lieu de recharge) » : renommer le lieu renomme donc ces trajets ; ailleurs, c'est l'adresse (un
+  commerce ou une station par son nom, sinon la rue et le numéro, puis la commune). Mate la cherche peu
+  après la fin du trajet auprès du service choisi dans *Paramètres → Recherche d'adresses*, où elle peut
+  être désactivée. Une adresse manquante, par exemple sur un trajet plus ancien, est recherchée tout de
+  suite par 🧭 dans le *Résumé du trajet*. La recherche trouve un trajet par l'une ou l'autre extrémité.
+  Mate n'écrit plus d'adresses dans la note du trajet, qui reste la vôtre ; les notes écrites avant
+  restent telles quelles.
 - **Votre note + tags de conduite 🆕** (#107) — dans le détail d'un trajet, vous pouvez écrire une **note
   libre** (trafic, météo, type de route, toute remarque) et indiquer le **mode de conduite** (Confort /
   Normal / Sport) et le **One-Pedal** (activé/désactivé) utilisés. Mate ne peut pas les lire depuis la
@@ -764,8 +1409,15 @@ valide** au lieu de faire disparaître la carte), et avec elle :
 
 ### Recharges
 **(menu : Recharges)** — La liste des recharges. Pour chacune : **énergie ajoutée (kWh)**, **puissance
-maximale**, **type** et **coût**, avec le **€/kWh effectif** bien en évidence. Le type est classé par une
-étiquette :
+maximale**, **type** et **coût**, avec le **€/kWh effectif** bien en évidence.
+
+- **Une recharge est une ligne 🆕** — la liste se lit comme celle des Trajets, avec une miniature de la
+  courbe sur chaque ligne : la puissance (kW) au-dessus de l'état de charge (%). Un clic sur une ligne
+  ouvre le reste en dessous : l'énergie en détail, le graphique, votre note et les actions. Le type, 🆓, ✎
+  et 📍 se modifient sur la ligne même. **Tout déplier**, dans l'en-tête d'un jour, d'une période ou d'une
+  recherche, ouvre toutes les lignes, et **Tout replier** les ferme.
+
+Le type est classé par une étiquette :
 
 
 - **Le bandeau « à confirmer » vous y emmène 🆕** (#240) — quand une recharge s'est terminée sans
@@ -789,7 +1441,7 @@ maximale**, **type** et **coût**, avec le **€/kWh effectif** bien en évidenc
   type, tapez-le dans la ligne **✎ Manuel** en bas, puis **OK** (le **✎** à côté du type est le même
   champ). Cette valeur remplace l'estimation automatique et **ne touche pas au type de la
   recharge** : une recharge sans type se lit alors **✎ Manuel** et n'attend plus d'être confirmée,
-  une recharge qui a un type le garde. Le coût sur la fiche porte la mention **facturé** au lieu de
+  une recharge qui a un type le garde. Le coût sur la ligne porte la mention **facturé** au lieu de
   **est.**, et *Réinitialiser*, dans le ✎, ramène la valeur calculée. Les recharges saisies ainsi
   avant la v3.16.0 se lisent de nouveau **✎ Manuel**, avec leur prix : il n'y a rien à faire.
 - **Domicile / Public 🆕** — à côté de la carte *Répartition AC / DC*, il y en a une deuxième :
@@ -807,7 +1459,7 @@ maximale**, **type** et **coût**, avec le **€/kWh effectif** bien en évidenc
   éveillée et les nouvelles arrivent.
 - **Les kWh de la borne 🆕** (#222) — sur une borne publique, Mate **n'a pas de compteur** : il ne lit
   que ce qui est entré dans la batterie, alors que la borne vous facture ce qui est sorti du sien.
-  Vous pouvez saisir ce chiffre : sur la fiche de la recharge, sous les trois tuiles, il y a un
+  Vous pouvez saisir ce chiffre : dans la ligne ouverte de la recharge, sous l'énergie, il y a un
   **✎** ; le cadre **ne s'ouvre que si vous l'ouvrez** et la case est **toujours vide** — un clic de
   trop ne change donc rien, et valider à vide laisse tout en l'état. *Retirer* enlève une valeur
   erronée. Dès lors, ce nombre **tarife la recharge**, exactement comme le compteur de la wallbox à
@@ -816,7 +1468,7 @@ maximale**, **type** et **coût**, avec le **€/kWh effectif** bien en évidenc
   chiffre que vous saisissez couvre les morceaux pour lesquels il a été saisi — une session fusionnée
   ensuite compte pour elle-même — et quand les morceaux se facturent sur des chiffres différents (le
   compteur a pris un morceau et pas l'autre, ou vous avez saisi le chiffre sur un morceau avant la
-  fusion), la carte et l'Aperçu affichent la somme, sous le mot *délivrés*, et le €/kWh divise par
+  fusion), la ligne et l'Aperçu affichent la somme, sous le mot *délivrés*, et le €/kWh divise par
   elle 🆕. Le rendement et la perte à côté des chiffres saisis n'apparaissent que si ces chiffres
   couvrent chaque morceau. Un compteur qui n'a pris qu'une partie vous laisse quand même voir et
   corriger l'énergie solaire saisie.
@@ -835,19 +1487,24 @@ maximale**, **type** et **coût**, avec le **€/kWh effectif** bien en évidenc
   saisis, sinon le chiffre de la batterie.
 - Même les recharges effectuées pendant que la voiture était éteinte/hors ligne sont **reconstruites** à
   partir du saut de pourcentage de charge.
-- **Votre note 🆕** (#107) — chaque recharge a une **note libre** (juste au-dessus de *Supprimer la
-  recharge*) pour ce que les chiffres ne capturent pas : l'emplacement de la borne, ombre/abri, sa
-  fiabilité, les conditions de stationnement, la météo, toute remarque personnelle.
+- **Votre note 🆕** (#107) — chaque recharge a une **note libre** (dans la ligne ouverte, sous le
+  graphique) pour ce que les chiffres ne capturent pas : l'emplacement de la borne, ombre/abri, sa
+  fiabilité, les conditions de stationnement, la météo, toute remarque personnelle. *📝 Ajouter une note*,
+  ou ✏️ à côté d'une note, ouvre le champ.
+- **Où a eu lieu une recharge 🆕** — à côté de 📍, une recharge affiche la borne et son adresse, sinon votre
+  **lieu de recharge** à cet endroit ou l'adresse, cherchée comme pour les trajets. Une adresse manquante,
+  par exemple sur une recharge plus ancienne, est recherchée tout de suite par 🧭 à côté de 📍. La
+  recherche trouve une recharge par ces noms, et l'export des recharges les reprend. Mate n'écrit plus
+  dans la note de la recharge, qui reste la vôtre ; les notes écrites avant restent telles quelles.
 - **Le compteur de la recharge 🆕** (#237) — chaque session emporte désormais **ce qu'affichait le
   compteur au moment où elle a commencé**. Mate l'inscrit tout seul sur tout ce qu'il voit, et l'a
   récupéré une fois sur les recharges déjà enregistrées. Sur une recharge que **vous saisissez**, une
   case *Compteur* : c'est le seul moyen de donner des kilomètres à une session antérieure à
   l'installation de Mate — rien de ces jours-là ne peut les fournir. Saisi dans **votre** unité (km
   ou miles).
-- **Combien de km entre deux recharges 🆕** (#237) — sous la recharge : *« 🛣 122 km depuis la
-  recharge précédente »*, d'après le compteur de la voiture. N'apparaît que si les **deux** recharges
-  portent leur relevé et seulement si la voiture a réellement roulé : deux sessions le même
-  après-midi n'écrivent rien plutôt qu'un zéro.
+- **Combien de km entre deux recharges 🆕** (#237) — sur la ligne, après AC/DC : *🛣 122 km*, d'après le
+  compteur de la voiture. N'apparaît que si les **deux** recharges portent leur relevé et seulement si la
+  voiture a réellement roulé : deux sessions le même après-midi n'écrivent rien plutôt qu'un zéro.
 - **Importer les recharges depuis un tableur (CSV)** — *Importer des recharges depuis un CSV* vous
   donne un **modèle commenté** ; vous le remplissez dans Excel ou Numbers et vous le renvoyez. Deux
   colonnes seulement sont obligatoires, la date et l'énergie ; les autres — coût, AC/DC, pourcentages
@@ -858,10 +1515,28 @@ maximale**, **type** et **coût**, avec le **€/kWh effectif** bien en évidenc
   tout doublait en silence. ⚠️ Sur une session déjà enregistrée, **seul** le compteur est écrit : un
   coût que Mate a calculé à partir d'une vraie courbe de charge n'est jamais écrasé.
 
+- **Plusieurs jours à la fois 🆕** — le calendrier ouvre une période comme celui des Trajets (Maj+clic,
+  un glisser de la souris sur les jours ou, sur un téléphone, un appui long sur un jour) : un en-tête
+  avec les sessions, les kWh et le coût de la période, puis chaque jour avec le sien. L'en-tête d'un jour
+  ouvert porte les mêmes totaux.
 - **Une période recherchée s'additionne toute seule 🆕** — au-dessus des résultats, les **sessions,
   les kWh délivrés (avec la valeur en batterie à côté) et le coût** de cette fenêtre. L'électricité
   facturée du 22 au 21, ou toute autre période qui n'est pas un mois civil, ne se calcule plus à la
   main.
+
+- **Graphique Données de la recharge 🆕** — dans la ligne ouverte, d'abord ce que disent les relevés : la
+  température de la batterie du premier relevé au dernier, celle de l'air extérieur, de la plus basse à la
+  plus haute, et la puissance moyenne ; puis un graphique en bandes sur l'axe du temps de la session,
+  comme celui d'un trajet : **recharge** (la puissance DC de la voiture, à côté la puissance AC de la
+  wallbox pour une recharge à domicile avec wallbox associée, et combien de minutes il restait selon la
+  voiture), **batterie** (SoC) et **températures** (celle de la cellule la plus froide et, si la
+  température extérieure est activée dans les Réglages, l'air extérieur à l'emplacement de la voiture).
+  Chaque entrée de la légende allume et éteint sa ligne, une bande dont toutes les lignes sont éteintes se
+  replie, le navigateur retient le choix, et l'encadré au survol s'ouvre sur l'heure et le temps écoulé
+  depuis le premier relevé. La comparaison AC-DC de la page Wallbox est ce même graphique. Pendant qu'une
+  recharge est en cours, le même graphique s'affiche en direct parmi les cartes en haut de la page, avec
+  la ligne de la wallbox à côté de celle de la voiture pour une recharge à domicile : il indique quand la
+  recharge a commencé et à partir de quel niveau, et s'allonge à chaque relevé.
 
 ### Prix de recharge
 **(menu : Prix de recharge)** — Ici, vous définissez **combien vous payez l'énergie**, afin que Mate puisse
@@ -887,7 +1562,7 @@ et choisir entre :
 - **kWh solaires (manuels) 🆕** — le même cas que ci-dessus, sans Home Assistant. Choisis-le si tu
   as du solaire et préfères saisir toi-même, recharge par recharge, combien de kWh sont venus de ton
   installation : Mate les soustrait de ce que la borne a mesuré et ne te facture que le reste. Un
-  champ **☀️ Solaire** apparaît sur la recharge, sous les trois tuiles, et la ligne à côté écrit le
+  champ **☀️ Solaire** apparaît dans la ligne ouverte, sous l'énergie, et à côté s'affiche le
   calcul en toutes lettres — « 20,0 délivrés − 8,0 solaires = 12,0 payés » — pour qu'un nombre saisi
   à l'envers se voie tout de suite. Une valeur supérieure à ce que la borne a mesuré est refusée. Le
   champ n'apparaît que sur les recharges à domicile que la borne a réellement mesurées : sans cette
@@ -973,8 +1648,69 @@ cette donnée est **exclu**, et non compté comme zéro, et la tuile indique de 
 parle. Sur une voiture où chaque trajet porte sa consommation — presque toujours — rien de tout cela
 ne s'affiche.
 
-### Rapport mensuel
-**(menu : Rapport mensuel)** — Une synthèse **mois par mois** : combien vous avez roulé, combien d'énergie vous
+### Événements
+**(menu : Événements)** — Ce qu'a fait la voiture, moment par moment : déverrouillée puis reverrouillée, une
+porte ou le hayon ouverts et fermés, le câble branché et débranché, la climatisation allumée et éteinte,
+READY activé et désactivé, la position où le pare-soleil s'est arrêté, chaque trajet et chaque recharge de leur début à leur fin, et chaque commande
+envoyée depuis Mate. La liste s'ouvre sur les trois derniers jours, du plus récent au plus ancien, dans une
+seule carte avec un titre par jour et une fine ligne par heure ; le point d'une ligne a la couleur du
+bouton de son groupe. Les boutons au-dessus des groupes remontent plus loin — 3, 7 ou 30 jours, 3, 6 ou 12
+mois, ou Tout —, comptés à partir d'aujourd'hui ; des dates saisies sous ⚙ l'emportent sur eux. Une longue
+période arrive par tranches de mille lignes, la suivante se chargeant quand la fin de la liste apparaît à
+l'écran.
+
+- **Un début et une fin font deux lignes, reliées par un trait.** À gauche des heures, un trait de la
+  couleur du groupe relie le point d'une fin à celui de son début, comme dans un graphe d'historique git :
+  on voit d'un coup d'œil ce qui a duré en même temps, et combien de temps. La fin dit combien de temps
+  l'état a duré — « Hayon fermé · après 35s » — et un clic sur le trait ou sur un point allume la paire et ses
+  deux lignes sans faire défiler la liste. Quand le début précède les jours affichés, le trait sort,
+  estompé, par le bas de la liste et la fin le nomme : « début 02 oct 2026 14:20:05 ». Un état encore en
+  cours prolonge son trait jusqu'en haut et dit **(en cours)** seulement si la dernière donnée de la voiture
+  est récente ; tant que le cloud répète une donnée ancienne (voiture en veille, ou sans couverture), la
+  ligne indique à la place l'heure de cette donnée.
+- **Le pare-soleil est une ligne là où il s'est arrêté** — « Pare-soleil ouvert à 50 % », « Pare-soleil fermé » — sans trait
+  ni « après » : il reste ouvert des jours entiers, et un trait ne ferait que traverser toute la page. Une
+  valeur vue dans une seule donnée n'apparaît pas : le pare-soleil en mouvement, ou un arrêt plus court que
+  l'intervalle entre deux données.
+- **Les heures sont celles de la voiture, à la seconde** : l'heure de la première donnée qui a montré le
+  nouvel état, confirmé par la suivante. Le pointeur posé sur une heure l'affiche à côté de l'heure à
+  laquelle Mate a enregistré la ligne. Les trajets, les recharges et les commandes n'ont que l'horloge de
+  Mate ; à côté d'un signal des mêmes secondes, leur ordre peut donc différer de ces secondes.
+- **Une fin répond à sa propre question.** READY désactivé : la distance parcourue et le niveau de charge
+  avant et après. Climatisation allumée : à l'arrêt ou pendant un trajet, la température de consigne et la
+  température extérieure ; Climatisation éteinte : l'habitacle avant et après. Câble débranché : l'énergie
+  chargée et, si la première recharge a commencé plus de cinq minutes après le branchement (une borne qui
+  attend sa programmation), combien de temps il a attendu. La fin d'un trajet ou d'une recharge porte les
+  chiffres de Trajets et de Recharges. Ces chiffres ressortent du reste de la ligne ; un coût est en vert
+  et le délai avant le début de la recharge en ambre.
+- **Lieux** : une ligne à l'un de vos lieux de recharge (*Prix de recharge → Lieux de recharge*) le nomme ;
+  le départ ou l'arrivée d'un trajet ailleurs porte son adresse, comme dans Trajets, et une recharge le nom
+  de sa ligne dans Recharges.
+- **La carte** reste masquée jusqu'à ce que **🗺 Afficher la carte**, au-dessus de la liste, l'ouvre (à
+  côté de la liste sur un écran large, au-dessus sur un téléphone ou un écran plus étroit), et la fois
+  suivante elle est telle que vous l'avez laissée. Chaque ligne avec une position a un 🌍 : il ouvre la
+  carte si besoin, allume le point de la ligne, l'amène dans le champ et allume la ligne et l'autre moitié
+  de sa paire. Un clic sur un point l'allume avec ses lignes et fait défiler la liste jusqu'à sa ligne la
+  plus récente ; la ligne sous le pointeur allume son point tant que le pointeur y reste. Un point
+  représente un endroit d'environ 110 m, ou un lieu de recharge entier. La ligne d'un trajet ou d'une
+  recharge l'ouvre, et **← Événements** y ramène à la liste telle qu'elle était.
+- **Deux données font un événement.** Le cloud envoie des clignotements d'une seule donnée — une portière
+  « ouverte » le temps d'une seule lecture —, donc un changement ne compte que lorsque deux lectures
+  consécutives le confirment. Un changement que la voiture a annulé entre deux de ses envois n'est jamais
+  vu, et le cloud peut perdre le signal du verrouillage pendant une ou deux lectures, ce qui ressemble alors
+  à un bref déverrouillage.
+- **Filtres** : un mot (le nom de l'événement, le résultat d'une commande, un lieu, d'où est parti ou
+  où est arrivé un trajet ou où a eu lieu une recharge — son nom ou son adresse complète — ou la note d'un
+  trajet ou d'une recharge), les boutons de groupe
+  (Sécurité, Portes, Vitres, Recharge, Climat, Conduite, Commandes) et, sous ⚙, une période et des types
+  isolés. Les filtres vivent dans l'adresse : un lien ou un rechargement les conserve.
+- **Historique** : les événements sont dérivés des positions que Mate enregistre déjà ; sur une installation
+  existante, le premier démarrage relit tout l'historique, une tranche par lecture, et jusqu'à la fin la page
+  dit où elle en est. Les événements sont conservés aussi longtemps que les positions (*Paramètres → Base de
+  données*).
+
+### Rapports
+**(menu : Rapports)** — Une synthèse **mois par mois** : combien vous avez roulé, combien d'énergie vous
 avez consommée et rechargée, combien vous avez dépensé. Pratique pour suivre l'évolution. Il porte
 aussi les cartes **consommation officielle** (Aujourd'hui / Cette semaine / Ce mois-ci) du cloud.
 
@@ -1049,6 +1785,9 @@ car c'est la première échéance atteinte qui compte.
 **(menu : Commandes)** — Les **commandes à distance**. D'ici, vous pouvez :
 
 - **verrouiller/déverrouiller**, ouvrir le **coffre**, **localiser la voiture** (klaxon/phares) ;
+- ouvrir ou fermer le **pare-soleil** du toit : la tuile indique de combien il est ouvert et, s'il
+  s'est arrêté à mi-course, propose **Ouvrir** (en entier) et **Fermer**, les deux seules que la voiture
+  exécute ;
 - gérer la **climatisation** : refroidissement, chauffage, dégivrage, ventilation, **extinction** ;
 - activer le **chauffage des sièges**, du **volant** et des **rétroviseurs** (là où c'est pris en charge) ;
 - gérer la **limite de charge**.
@@ -1131,7 +1870,8 @@ modèle (charge, autonomie, température intérieure, rapport, portes, vitres, p
 charge…). Mate lit désormais aussi, en direct, les réglages de **climatisation** : la **vitesse de ventilation**
 (1–7), le **recyclage de l'air** (air frais / recyclage) et le **mode de climatisation actif** (AUTO /
 Refroidissement / Chauffage / Ventilation). Mate n'affiche **que ce que votre voiture rapporte réellement**
-(certains modèles n'exposent pas certaines données).
+(certains modèles n'exposent pas certaines données). La tuile du pare-soleil indique de combien il
+est ouvert — « 40% » au-dessus de « Ouvert » —, comme le font celles des vitres.
 
 ### Wallbox
 **(menu : Wallbox)** — Si vous avez connecté une wallbox (voir [Intégrations](#8-les-intégrations-en-détail)),
@@ -1184,7 +1924,9 @@ Elle est divisée en trois colonnes.
 
 - **ABRP** — envoi de la télémétrie à A Better Routeplanner (voir [§8](#8-les-intégrations-en-détail)).
 - **Recherche d'adresses** — le service pour traduire les adresses ↔ coordonnées dans la page Navigation
-  (Geoapify *recommandé*, LocationIQ, TomTom). Nécessite une **clé** gratuite du service choisi.
+  et nommer le départ et l'arrivée de vos trajets et le lieu de vos recharges (Geoapify *recommandé*,
+  LocationIQ, TomTom). Nécessite une **clé** gratuite du service choisi ; sans elle, Mate utilise le service
+  sans clé d'OpenStreetMap.
 - **⚡ Bornes de recharge** — active les **noms des bornes** sur les recharges (📍) et accepte des clés
   optionnelles (OpenChargeMap, TomTom) pour enrichir la recherche. **Désactivé** par défaut.
 - **Wallbox** — connectez votre wallbox pour les **coûts réels** et les éventuels contrôles (voir
@@ -1286,7 +2028,7 @@ Envoie la télémétrie de la voiture à ABRP pour la planification d'itinérair
 
 ### MQTT → Home Assistant
 Publie l'état de la voiture (charge, autonomie, position, portes, état de charge…) sous forme d'**entités dans
-Home Assistant**, avec **auto-discovery**. Vous pouvez aussi **commander** la voiture depuis les entités de HA — y compris une **limite de charge** (`number` modifiable) pour régler le SoC cible et une entité **Programmation de charge** (`text` modifiable) qui accepte un plan JSON pensé pour les automatisations (`{"start":"23:00","soc":90}` — chaque champ est optionnel, et ce que vous omettez reste inchangé). Les réglages de climatisation sont également exposés : **Vitesse de ventilation** (`number` modifiable, 1–7), **Recyclage** (`switch` modifiable) et **Mode climatisation** (capteur : AUTO / Refroidissement / Chauffage / Ventilation). Trois entités V2L en lecture seule sont aussi publiées : **`V2L Active`** (binary sensor), **`V2L Power`** (W) et **`V2L Session Energy`** (Wh), ainsi qu'un binary sensor **`Ready`** qui s'allume dès que la voiture est sous tension — avant qu'elle ne roule, c'est-à-dire tant qu'une automatisation a encore le temps d'agir.
+Home Assistant**, avec **auto-discovery**. Vous pouvez aussi **commander** la voiture depuis les entités de HA — y compris une **limite de charge** (`number` modifiable) pour régler le SoC cible et une entité **Programmation de charge** (`text` modifiable) qui accepte un plan JSON pensé pour les automatisations (`{"start":"23:00","soc":90}` — chaque champ est optionnel, et ce que vous omettez reste inchangé). Les réglages de climatisation sont également exposés : **Vitesse de ventilation** (`number` modifiable, 1–7), **Recyclage** (`switch` modifiable) et **Mode climatisation** (capteur : AUTO / Refroidissement / Chauffage / Ventilation). Trois entités V2L en lecture seule sont aussi publiées : **`V2L Active`** (binary sensor), **`V2L Power`** (W) et **`V2L Session Energy`** (Wh), ainsi qu'un binary sensor **`Ready`** qui s'allume dès que la voiture est sous tension — avant qu'elle ne roule, c'est-à-dire tant qu'une automatisation a encore le temps d'agir. Un capteur **`Sunshade Position`** indique de combien le pare-soleil est ouvert, en % (0 = fermé) ; le binary sensor **`Sunshade`** reste tel quel, allumé dès la moindre ouverture.
 
 Les entités que **votre** voiture ne prend pas en charge ne vous restent pas sur les bras : celles que le
 modèle n'a pas (sièges chauffants, volant…) ne sont jamais créées, et une **entité de température** dont le
@@ -1400,6 +2142,28 @@ Vous utilisez déjà la version BetaTester ? Vous n'êtes pas obligé de changer
 fonctionner. Si vous le souhaitez, c'est une sauvegarde et une restauration, dans cet ordre :
 [De la version BetaTester à la version officielle](BETA-TO-OFFICIAL.md).
 
+**Mate ne reçoit aucune donnée, et j'ai un pare-feu (Synology ou autre).**
+Mate n'a jamais besoin d'être joignable depuis l'extérieur. La seule règle **entrante** dont il a
+besoin est le port TCP **4001** depuis votre propre réseau, pour que vous puissiez ouvrir la page.
+Tout le reste est **sortant** : DNS sur le port 53, puis HTTPS sur le 443 vers
+`app-gw-global-master.leapmotor-international.de` et `appgateway.leapmotor-international.de` — le
+même répartiteur de charge chez AWS Francfort, dont les adresses tournent : autorisez les noms ou la
+région, et ne figez jamais les adresses du jour.
+C'est pourquoi ajouter des ports ou des pays au profil du pare-feu ne change rien : ces règles
+décrivent les connexions **entrantes**, et les réponses du cloud reviennent sur une connexion que
+Mate a ouverte lui-même. Ce qui le bloque, c'est la règle « tout refuser » finale du profil,
+appliquée au trafic qui sort du pont Docker.
+Sur un Synology, ce qui a fonctionné
+([#384](https://github.com/ProtossBlaster/leapmotor-mate/issues/384)) : lisez le réseau du conteneur
+— sa passerelle et son adresse, par exemple `172.28.0.1` et `172.28.0.2` — puis créez une règle
+autorisant **tous les ports** pour toute cette plage (`172.28.0.1` à `172.28.255.254`) et placez-la
+**tout en haut**, au-dessus des autres. Le reste du profil, « tout refuser » compris, peut rester
+tel quel.
+Depuis la **4.7.18**, une connexion en échec se termine par un mot, dans le journal et sur la page de
+configuration — `dns_failure`, `connection_refused`, `timeout`, `network_unreachable`… — qui dit d'un
+coup d'œil si la machine n'arrive pas à résoudre le nom ou à joindre l'adresse. Depuis la **4.8.0**,
+ce mot n'est plus masqué par le message de Mate « login temporarily deferred ».
+
 **Je ne suis pas en Europe.**
 Pour le moment, Mate ne fonctionne qu'avec le cloud Leapmotor **européen**. Les comptes sur des serveurs
 d'autres régions ne parviennent pas à se connecter.
@@ -1429,7 +2193,8 @@ données **avec sa `secret.key`**.
 - **Poller / Web** — les deux composants internes de Mate : le *poller* collecte les données, le *web* affiche
   l'interface. Pour vous, utilisateur, c'est un détail : ils travaillent ensemble.
 - **VIN** — le numéro de châssis de la voiture ; il identifie de façon unique votre véhicule.
-- **PIN d'opération** — le PIN à 4 chiffres du compte, nécessaire pour autoriser les commandes à distance.
+- **PIN d'opération** — le PIN à 4 chiffres de la voiture, réglé sur la voiture et nécessaire pour
+  autoriser les commandes à distance.
 
 ---
 

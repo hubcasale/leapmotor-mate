@@ -1,6 +1,6 @@
 """
 Leapmotor API client wrapper.
-Uses leapmotor-api 0.3.1, which natively maps the B10/B11 status path to /c10 and
+The cloud client maps the B10/B11 status path to /c10 and
 serves the T03 named-field status, so no endpoint patching is needed here. We still
 parse the raw signal dict ourselves (_parse_signal) to stay independent of the
 library's typed model and insulated from its enum changes.
@@ -10,10 +10,12 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from typing import Optional
 
 from api_backend import LeapmotorApiClient
 
 import capability_profile
+from events import cable_in_port
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +25,7 @@ class VehicleData:
     vin: str
     timestamp_ms: int
     soc: float
-    range_km: float
+    range_km: Optional[float]           # None when the car reports none (#365)
     odometer_km: float
     speed_kmh: float
     gear: str            # P R N D
@@ -43,7 +45,7 @@ class VehicleData:
     climate_defrost: bool     # windshield defrost active (signal 1945 == 2)
     trunk_open: bool
     windows_open: bool
-    sunshade_open: bool
+    sunshade_pct: int | None  # how far the sunshade is open, % (signal 1724); 0 = closed, None = not said
     any_door_open: bool       # driver/passenger/rear doors or trunk
     plug_connected: bool      # cable inserted (signal 1149)
     remaining_charge_min: int # minutes to full (signal 1200), 0 when not charging
@@ -87,7 +89,7 @@ class VehicleData:
     mirror_heat_right: int = 0      # signal 50 rightMirrorHeating
     ready: bool = False             # signal 1258 bcmKeyPositionOn3 — faithful READY/ON3 (physical key only)
     ready_reported: bool = True     # whether the frame carried 1258; if not: ready False, `positions` NULL
-    charge_completed: bool = False  # signal 3736 chargeCompleted — true at full charge (validate on a real charge)
+    charge_completed: bool = False  # signal 3736 chargeCompleted — not a full-charge flag, see _parse_signal
     security_active: bool | None = None   # signal 1255 vehicleSecurityActive — None = the car never said
     charge_limit_percent: int | None = None  # configured max-charge SoC (from the config block, not a
                                              # signal); None if unknown / model doesn't report it
@@ -99,7 +101,7 @@ class VehicleData:
 
     # Climate detail (read+write validated on-car 2026-06-20): fan level (signal 1941 acAirVolume,
     # 1-7; HOLDS the last level even when A/C is off), recirculation (signal 1943: 1=recirc/in,
-    # 0=fresh/out), base mode (signal 3713: 0=auto·1=cool·3=heat·4=vent). NB: markoceri's lib
+    # 0=fresh/out), base mode (signal 3713: 0=auto·1=cool·3=heat·4=vent). NB: the old SDK
     # mislabels 1941 as drive_status — the on-car diff proved it's the fan air-volume.
     fan_level: int = 0
     recirculation: bool = False
@@ -112,6 +114,12 @@ class VehicleData:
     # Kept apart from plug_connected because the two answer different questions: the Overview and
     # the MQTT sensor want "is the cable in", the session machinery wants "is a charge running".
     charge_deferred: bool = False
+
+    @property
+    def cable_connected(self) -> bool:
+        """The cable in the port, as the pages and the events read it — not `plug_connected`, which is
+        the charge session the poller opens and closes charges on (#429)."""
+        return cable_in_port(self.plug_connected, self.ac_port_mode, self.gear, self.speed_kmh)
 
     @property
     def v2l_active(self) -> bool:
@@ -287,7 +295,7 @@ class LeapmotorMateClient:
             # T03 / EU responses carry live data as NAMED fields at the top level of
             # `data` (e.g. "soc", "speed", "gearStatus") instead of a numeric-ID
             # `signal` sub-dict like C10/B10. Rebuild the signal dict our parser
-            # expects from those named fields (id↔name map per leapmotor-api 0.3.1).
+            # expects from those named fields (the cloud's id↔name map).
             sig = _named_fields_to_signal(data)
             if sig and not self._named_mode_logged:
                 log.info("T03/EU named-field status detected — mapped %d live fields", len(sig))
@@ -302,10 +310,8 @@ class LeapmotorMateClient:
         # often a poll perturbed by a just-issued command (e.g. changing the charge limit). Treat it
         # as "no live data" (like an asleep poll) so it can't be stored as a spurious soc=0 row that
         # then seeds a phantom "charged from 0%" reconstruction / "recover missed charges" hit.
-        _soc_raw = sig.get("100003")
-        if _soc_raw is None:
-            _soc_raw = sig.get("1204")
-        if _soc_raw is None or (float(_soc_raw or 0) == 0 and float(sig.get("3260") or 0) > 5):
+        # The rule lives in capability_profile: the web stores positions too and refuses the same.
+        if not capability_profile.has_soc_reading(sig):
             raise EmptyStatusError("vehicle status carries no usable SoC (partial/glitch read)")
         vd = _parse_signal(vehicle.vin, sig)
         vd.raw_signals = sig   # full dict for research-mode full-PID logging (ignored in normal builds)
@@ -410,7 +416,7 @@ class LeapmotorMateClient:
         self._api.close()
 
 
-# Numeric signal-id → T03 named-field map (from leapmotor-api 0.3.1's
+# Numeric signal-id → T03 named-field map (from the cloud's
 # _SIGNAL_TO_NAMED). C10/B10 report these as numeric IDs inside `data["signal"]`;
 # the T03 / EU API reports the SAME data as these named fields at the top level of
 # `data`. We invert this to rebuild a numeric `signal` dict for the T03 so the shared
@@ -491,6 +497,19 @@ def _si(sig: dict, k: str):
 _CHARGE_CURRENT_MIN_A = 2.0
 
 
+def use_pin_of(api, db, vin: str) -> None:
+    """Authorise the next command with the PIN of the car it is for (#186, @cookingeek).
+
+    The session is shared by every car, and a command can arrive for either: with two cars that
+    differ, the session's own PIN would authenticate one car's command with the other's four digits,
+    a failure that happens only sometimes and never says why. A car without one gets none, not the
+    last car's."""
+    try:
+        api.operation_password = db.get_operate_pin(vin)
+    except Exception:  # noqa: BLE001 — a PIN lookup must never stop a command from being tried
+        api.operation_password = ""
+
+
 def set_charge_current_min(amps: float) -> None:
     """Update the charge-detection current floor (A) from the Settings value."""
     global _CHARGE_CURRENT_MIN_A
@@ -522,27 +541,32 @@ def _charge_power_kw(sig: dict) -> float:
 
 def _is_plugged_in(sig: dict) -> bool:
     """Whether the charge cable is physically connected. Uses signal 1149 (charge
-    connection status: 1=connected, 2=charging), gated by motion.
+    state: 1–4 = a cable in, see below), gated by motion.
 
     Why 1149 and not 47: signal 47 (acInputSlowCharge) was the old primary, but on the
     B10 it LATCHES at 1 after an AC charge and only clears ~5 min later, when the car's
     charge controller tears down the AC subsystem — it does NOT drop on unplug. That kept
     a finished charge SESSION open long after the cable was pulled (the plug_connected
     OR-term in the state machine never went false), inflating the session window.
-    Signal 1149 instead drops to 0 promptly when the charge SESSION ends — at completion
-    (target SoC reached) or on unplug. Verified on-car twice: 1149 fell ~40s after the car
-    hit its charge limit and the session closed at once, while 47 stayed latched at 1 for
-    10+ minutes (right through the physical unplug). Its only flaw is reading 1 spuriously
+    Signal 1149 instead drops to 0 when the charge SESSION ends — on unplug, or once the car
+    has wound the session down after reaching its limit (seconds on one B10, verified on-car
+    twice with the session closing at once; minutes on another, see below), while 47 stayed
+    latched at 1 for 10+ minutes (right through the physical unplug). Its only flaw is reading 1 spuriously
     during regen at speed, so we suppress it while the car is moving (it can never be
     plugged in while driving anyway — same motion gate as _is_charging). Falls back to
-    signal 47 only when 1149 is absent (other models)."""
+    signal 47 only when 1149 is absent (other models).
+
+    1 and 2 differ between cars. The official app interprets 1 as charging and 2 as finished, and a
+    BEV B10 agrees: 1 for the whole of a charge, 2 from the moment it ends, then 0 a while later
+    with the cable still in. A C10 charging AC (beta #13) and the B10 in #243 read 2 mid-charge.
+    Either way the cable is in."""
     if _si(sig, "1010") not in (None, 0):       # gear R/N/D → moving, cannot be plugged
         return False
     if (_sf(sig, "1319") or 0) > 2.0:            # speed > 2 km/h → moving (gear may lag)
         return False
     conn = _si(sig, "1149")
     if conn is not None:
-        # 1=connected, 2=charging, 3=a third connected state the REEVs cycle THROUGH mid-charge
+        # 1, 2 = connected (see above), 3=a third connected state the REEVs cycle THROUGH mid-charge
         # (seen on the C10/B10 range-extenders alongside 1=2, always parked, current ~0). Treating
         # 3 as unplugged made the cable read as pulled every time it flickered 2→3→2, which closed
         # and reopened the session and shredded one slow AC charge into many empty fragments — each
@@ -618,8 +642,8 @@ def _is_charging(sig: dict) -> bool:
             # during slow AC charging — the on-board charger feeds the pack by a path this sensor
             # doesn't see — so the BEV rule "current ≥ 2 A" never fires and the session is missed
             # (beta #13 ebagnoli; same signature back to the earliest 1.36.1 bundle). Trust the
-            # cable's OWN state when it explicitly says "charging" (1149==2, not the
-            # "connected/waiting" 1149==1 of a scheduled charge) AND a charge is in progress
+            # cable's OWN state when it reads 1149==2, as that car does while charging AC (a BEV
+            # B10 sends 2 only once its charge has ended), AND a charge is in progress
             # (remaining minutes > 0). Driving is already gated out above, and a bare 0→2→0 cable
             # blip has no remaining-time so it still can't open a phantom.
             #
@@ -638,7 +662,7 @@ def _is_charging(sig: dict) -> bool:
         return remaining is not None or power >= 1.0
     if power >= 1.0:
         return remaining is not None
-    return _si(sig, "1149") == 2                    # fallback: connection status "charging"
+    return _si(sig, "1149") == 2                    # fallback: 2 is "charging" on a C10 (see above)
 
 
 # ── GPS sign memory (GitHub #43) ────────────────────────────────────────────────
@@ -763,7 +787,7 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
         vin=vin,
         timestamp_ms=int(sig.get("sts") or sig.get("1") or 0),
         soc=float(sig.get("100003") or sig.get("1204") or 0),
-        range_km=float(sig.get("3260") or 0),
+        range_km=capability_profile.battery_range_km(sig),   # None: not reported (#365)
         is_reev=(sig.get("3235") is not None),   # fuel level FIELD present → range-extender variant
         fuel_level_pct=fuel_pct,                                        # REEV tank %
         fuel_liters=(fuel_ml / 1000.0 if fuel_ml is not None else None),  # 3263 = mL
@@ -807,7 +831,7 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
         climate_power=_si(sig, "1348"),   # 1348 PTC power (W)
         trunk_open=int(sig.get("1281") or 0) != 0,
         windows_open=any(bool(w) for w in win_states),
-        sunshade_open=int(sig.get("1724") or 0) != 0,
+        sunshade_pct=_si(sig, "1724"),
         any_door_open=any(
             int(sig.get(k) or 0) != 0
             for k in ("1277", "1278", "1279", "1280", "1281")
@@ -838,11 +862,11 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
         window_fr_open=bool(win_states[1]),
         window_rl_open=bool(win_states[2]),
         window_rr_open=bool(win_states[3]),
-        # Tyre signal→wheel mapping. The leapmotor-api docs label these LF=2667/RF=2653/
+        # Tyre signal→wheel mapping. Older third-party docs label these LF=2667/RF=2653/
         # LR=2646/RR=2660, but that's WRONG: cross-checked on TWO real B10s against the official
         # app's per-wheel view — the #32 reporter's UK car AND Silvio's IT car, both with the
         # 280-kPa wheel at the REAR-RIGHT — the true order is the ascending-id one:
-        # 2646=FL, 2653=FR, 2660=RL, 2667=RR. (The alarm flags do not move with them: leapmotor-api,
+        # 2646=FL, 2653=FR, 2660=RL, 2667=RR. (The alarm flags do not move with them: the old SDK,
         # leapmotor-ha and ioBroker all pair them as 2641=FL, 2648=FR, 2655=RL, 2662=RR — see the
         # web's _parse_vehicle_status.)
         tire_fl_bar=round(float(sig.get("2646") or 0) / 100.0, 2),
@@ -851,7 +875,9 @@ def _parse_signal(vin: str, sig: dict) -> VehicleData:
         tire_rr_bar=round(float(sig.get("2667") or 0) / 100.0, 2),
         ready=int(sig.get("1258") or 0) == 1,   # B10 faithful READY (ON3) sensor
         ready_reported=_sf(sig, "1258") is not None,
-        charge_completed=int(sig.get("3736") or 0) != 0,  # 3736 chargeCompleted — truthy (confirm value at a real full charge)
+        # 3736 is no full-charge flag: the official app interprets it as isHaveFullCharge (a tip that a healthy-charging
+        # calibration needs a charge to 100 %); a BEV B10 never sets it, a B10 REEV holds it for the whole charge.
+        charge_completed=int(sig.get("3736") or 0) != 0,
         # 🔴 None when the car never sends 1255 — NOT False. Two C10s (@ghuaywen-ai #256,
         # @ebagnoli over 17 continuous days) carry 77 and 88 signals and neither has it, while a
         # B10 sends it 252 times with values 0/1/2. Read as False, an absent signal printed

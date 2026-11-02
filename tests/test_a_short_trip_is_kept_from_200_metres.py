@@ -24,7 +24,7 @@ def _vd(odometer_km, soc=84.3):
         charging_status=0, charge_power_kw=0.0, latitude=45.0, longitude=9.0,
         outside_temp=None, inside_temp=20.0, climate_target_temp=21.0, battery_min_temp=15.0,
         is_locked=True, climate_on=False, climate_cooling=False, climate_heating=False,
-        climate_defrost=False, trunk_open=False, windows_open=False, sunshade_open=False,
+        climate_defrost=False, trunk_open=False, windows_open=False, sunshade_pct=0,
         any_door_open=False, plug_connected=False, remaining_charge_min=0,
         charge_voltage_v=0.0, charge_current_a=0.0,
     )
@@ -33,8 +33,7 @@ def _vd(odometer_km, soc=84.3):
 def _drive(tmp_path, km, end_soc=83.9):
     db = D.Database(str(tmp_path / "t.db"))
     rec = R.Recorder(db, vehicle_id=1)
-    rec._read_wallbox_energy = lambda: None
-    rec._auto_note_trip = lambda tid: None
+    rec._read_wallbox = lambda: {}
     start = _vd(1000.0)
     rec._handle_event(StateEvent(State.PARKED_ACTIVE, State.DRIVING, start), start)
     trip_id = rec._active_trip_id

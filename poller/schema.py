@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS positions (
     climate_defrost  INTEGER DEFAULT NULL,
     trunk_open       INTEGER DEFAULT NULL,
     windows_open     INTEGER DEFAULT NULL,
-    sunshade_open    INTEGER DEFAULT NULL,
+    sunshade_pct     INTEGER DEFAULT NULL,   -- how far the sunshade is open, % (signal 1724); NULL = not said
     plug_connected   INTEGER DEFAULT NULL,
     ready            INTEGER DEFAULT NULL,
     charge_completed INTEGER DEFAULT NULL,
@@ -104,6 +104,17 @@ CREATE TABLE IF NOT EXISTS trip_positions (
     soc         REAL
 );
 
+-- What the poller reads of another device during a poll, by role (see the kinds below SCHEMA):
+-- the home wallbox's power and counter while a charge runs there. Kept for good, like trip_positions,
+-- so the chart's wallbox line outlives Home Assistant's history, which its recorder purges.
+CREATE TABLE IF NOT EXISTS ha_samples (
+    id          INTEGER PRIMARY KEY,
+    vehicle_id  INTEGER REFERENCES vehicles(id),
+    recorded_at TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    value       REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS charges (
     id               INTEGER PRIMARY KEY,
     vehicle_id       INTEGER REFERENCES vehicles(id),
@@ -126,6 +137,10 @@ CREATE TABLE IF NOT EXISTS charges (
                                    -- reading taken — time nobody measured, so the AC total is short
                                    -- by an unknown amount. Counted in minutes, never in kWh: with
                                    -- no reading there is nothing to count kWh from.
+    wb_probe_kwh     REAL,         -- #442: the same sum, kept ON THE SIDE for a charge away from the
+    wb_probe_last_kwh REAL,        -- learned wallbox location (its running baseline; non-NULL = probed)
+    wb_probe_stuck_kwh REAL,       -- and its #215 stall. Moved into ac_energy_kwh only if the counter
+                                   -- followed the car: see db.finalize_charge.
     gross_kwh        REAL,         -- #222: kWh the CHARGER says it delivered, TYPED BY THE OWNER.
                                    -- Never measured by Mate and never mixed with the measured
                                    -- figures: it prices the charge (like a wallbox meter does at
@@ -167,6 +182,7 @@ CREATE INDEX IF NOT EXISTS idx_positions_vehicle ON positions(vehicle_id, record
 -- (Database.get_last_odometer_reading) walks them from the newest without sorting the history.
 CREATE INDEX IF NOT EXISTS idx_positions_vehicle_order ON positions(vehicle_id, id);
 CREATE INDEX IF NOT EXISTS idx_trip_positions_trip ON trip_positions(trip_id);
+CREATE INDEX IF NOT EXISTS idx_ha_samples_kind ON ha_samples(vehicle_id, kind, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_trips_vehicle ON trips(vehicle_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_charges_vehicle ON charges(vehicle_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_maintenance_vehicle ON maintenance_logs(vehicle_id, service_type);
@@ -247,7 +263,63 @@ CREATE TABLE IF NOT EXISTS poll_log (
     reason       TEXT                 -- failed/refused: the error, truncated
 );
 CREATE INDEX IF NOT EXISTS idx_poll_log_at ON poll_log(at);
+
+-- One row per change of a car's state that held for two frames (poller/events.py): `state` 1 opens
+-- a span of `kind`, 0 closes it, and `at` is the first frame's `recorded_at`. The next row of the
+-- same car and kind IN ID ORDER is the span's other end, which a stepped host clock cannot reorder.
+-- The position, charge level, odometer and temperatures are the first frame's. Pruned with `positions`.
+CREATE TABLE IF NOT EXISTS events (
+    id           INTEGER PRIMARY KEY,
+    vehicle_id   INTEGER NOT NULL,
+    kind         TEXT NOT NULL,
+    at           TEXT NOT NULL,       -- UTC ISO, the host clock
+    frame_ts     INTEGER,             -- the car's own clock on that frame, when it had one
+    state        INTEGER NOT NULL,    -- 1 = the state began, 0 = it ended; a level kind: the level reached
+    latitude     REAL,
+    longitude    REAL,
+    soc          REAL,
+    odometer_km  REAL,
+    inside_temp  REAL,
+    climate_target_temp REAL,
+    outside_temp REAL
+);
+CREATE INDEX IF NOT EXISTS idx_events_vehicle_kind_id ON events(vehicle_id, kind, id);
+
+-- The address of a spot a trip started or ended at, one row per geohash-8 cell (19 m north to south, at
+-- most 38 m across) and shared by every car: web/place_lookup.py fills it, a trip finds its ends' rows
+-- by their coordinates. The parts mean the same whoever answered (web/geocode.py maps each provider).
+CREATE TABLE IF NOT EXISTS addresses (
+    id            INTEGER PRIMARY KEY,
+    geohash       TEXT NOT NULL UNIQUE,  -- geohash-8 of the point asked about
+    latitude      REAL NOT NULL,
+    longitude     REAL NOT NULL,
+    provider      TEXT NOT NULL,         -- who gave the answer kept here (or failed, with nothing kept)
+    status        TEXT NOT NULL,         -- found | none (the provider has nothing there) | failed
+    attempts      INTEGER NOT NULL DEFAULT 0,   -- failures in a row of retry_provider
+    retry_at      TEXT,                  -- UTC ISO: retry_provider is not asked again before it
+    retry_provider TEXT,                 -- whose failures those are: a refresh can fail at another one
+    name          TEXT,                  -- the place's own name: a shop, a station
+    house_number  TEXT,
+    road          TEXT,
+    suburb        TEXT,
+    locality      TEXT,                  -- city, town or village
+    postcode      TEXT,
+    country_code  TEXT,                  -- ISO 3166-1, lower case
+    display_name  TEXT,                  -- the provider's full text
+    looked_up_at  TEXT NOT NULL          -- UTC ISO
+);
 """
+
+# The kinds `ha_samples` holds, each in the unit its name says. A role, not an entity id, so a sensor
+# mapped anew keeps the readings its predecessor gave readable.
+WALLBOX_POWER_KW = "wallbox_power_kw"
+WALLBOX_ENERGY_KWH = "wallbox_energy_kwh"
+
+
+# A reading that is a sample of a charge: the car's own flag, or current entering the pack while parked.
+# The partial index below is built on it; web/db_reader._charging_sample asks the same with a table alias.
+CHARGE_SAMPLE = ("charging = 1 OR (charge_current_a <= -0.5 AND "
+                 "COALESCE(speed_kmh, 0) <= 2 AND COALESCE(gear, 'P') = 'P')")
 
 
 def _add_column(conn, sql: str) -> None:
@@ -292,8 +364,8 @@ def ensure_schema(conn) -> None:
     phantom rows and migrates the secrets. Those belong to the process that owns the data; a reader
     must not do them, least of all concurrently with the poller doing the same.
 
-    Idempotent by construction (every step is `IF NOT EXISTS` or `if column not in ...`) and cheap:
-    a handful of PRAGMAs on a database that is already up to date."""
+    Idempotent by construction (every step is `IF NOT EXISTS`, `if column not in ...` or `INSERT OR IGNORE`)
+    and cheap: a handful of PRAGMAs on a database that is already up to date."""
     conn.executescript(SCHEMA)
     conn.execute("""CREATE TABLE IF NOT EXISTS charging_places (
         id INTEGER PRIMARY KEY, vehicle_id INTEGER NOT NULL,
@@ -344,8 +416,9 @@ def ensure_schema(conn) -> None:
         _add_column(conn, "ALTER TABLE positions ADD COLUMN trunk_open INTEGER DEFAULT NULL")
     if "windows_open" not in cols:
         _add_column(conn, "ALTER TABLE positions ADD COLUMN windows_open INTEGER DEFAULT NULL")
-    if "sunshade_open" not in cols:
-        _add_column(conn, "ALTER TABLE positions ADD COLUMN sunshade_open INTEGER DEFAULT NULL")
+    # Replaces sunshade_open, whose 0/1 is not a percent; an older database keeps that column, unused.
+    if "sunshade_pct" not in cols:
+        _add_column(conn, "ALTER TABLE positions ADD COLUMN sunshade_pct INTEGER DEFAULT NULL")
     if "plug_connected" not in cols:
         _add_column(conn, "ALTER TABLE positions ADD COLUMN plug_connected INTEGER DEFAULT NULL")
     if "remaining_charge_min" not in cols:
@@ -365,8 +438,7 @@ def ensure_schema(conn) -> None:
     # 🔴 HERE, not in SCHEMA: charge_current_a arrives with the ALTER just above, so an index on it
     # inside the schema script fails on a fresh database and takes the WHOLE script down with it.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_positions_charge_sample ON positions(vehicle_id, recorded_at)"
-                 " WHERE charging = 1 OR (charge_current_a <= -0.5 AND "
-                 "COALESCE(speed_kmh, 0) <= 2 AND COALESCE(gear, 'P') = 'P')")
+                 " WHERE " + CHARGE_SAMPLE)
     if "ready" not in cols:
         _add_column(conn, "ALTER TABLE positions ADD COLUMN ready INTEGER DEFAULT NULL")
     if "charge_completed" not in cols:
@@ -450,6 +522,10 @@ def ensure_schema(conn) -> None:
     # migration: #295 — minutes a charge sat open at the wallbox with no counter reading taken
     if "wb_dark_min" not in ccols:
         _add_column(conn, "ALTER TABLE charges ADD COLUMN wb_dark_min REAL")
+    # migration: #442 — the wallbox counter read on the side for a charge away from its learned location
+    for col in ("wb_probe_kwh", "wb_probe_last_kwh", "wb_probe_stuck_kwh"):
+        if col not in ccols:
+            _add_column(conn, f"ALTER TABLE charges ADD COLUMN {col} REAL")
     # migration: #222 — the charger's own kWh, typed in for a public charge
     if "gross_kwh" not in ccols:
         _add_column(conn, "ALTER TABLE charges ADD COLUMN gross_kwh REAL")
@@ -484,6 +560,12 @@ def ensure_schema(conn) -> None:
     # → tests/test_a_charge_records_why_it_closed.py
     if "close_reason" not in ccols:
         _add_column(conn, "ALTER TABLE charges ADD COLUMN close_reason TEXT DEFAULT NULL")
+    # migration: WHEN the car ended its charge session, or, for one closed after an outage, its last reading.
+    # `ended_at` is when the charge stopped adding energy, minutes or hours earlier; what reads the session
+    # (a kWh helper in Home Assistant, the wallbox counter) reads up to this. NULL on rows older than the
+    # column and on manual and reconstructed charges, which had no session.
+    if "closed_at" not in ccols:
+        _add_column(conn, "ALTER TABLE charges ADD COLUMN closed_at TEXT DEFAULT NULL")
     # migration: public charging-station label, resolved by the web layer from OSM
     # (web/charger_locator.py; '' = looked up, nothing found). Display-only — it never
     # feeds charge detection, costs or the HOME/AC/FAST/HPC location_type.
@@ -621,11 +703,15 @@ def ensure_schema(conn) -> None:
     # comparator's fast pre-filter (web/db_reader.py get_similar_trips groups candidates by
     # this before validating the actual route). Set at trip creation/finalize (below) going
     # forward; _backfill_trip_geohashes fills every existing trip once, offline (pure math on
-    # lat/lon already stored — unlike the auto-note's reverse-geocoding, no network call, so
+    # lat/lon already stored — unlike the address lookup (web/place_lookup.py), no network call, so
     # there's no reason to defer this to a web-side sweep).
     for _c in ("start_geohash", "end_geohash"):
         if _c not in tcols:
             _add_column(conn, f"ALTER TABLE trips ADD COLUMN {_c} TEXT DEFAULT NULL")
+    # migration: the trip address lookup's switch starts as the automatic note's was, the note having sent
+    # a trip's ends to the lookup service until then; written once, so the two are separate from here on.
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('place_lookup', COALESCE("
+                 "(SELECT CASE value WHEN '0' THEN '0' ELSE '1' END FROM settings WHERE key = 'auto_note'), '1'))")
     conn.commit()
 
 

@@ -39,6 +39,9 @@ def _db(charges, positions):
     # charging current while stationary" (#341, db_reader._charging_sample).
     con.execute("ALTER TABLE positions ADD COLUMN speed_kmh REAL DEFAULT 0")
     con.execute("ALTER TABLE positions ADD COLUMN gear TEXT DEFAULT 'P'")
+    # The readings the curve carries beside the power; none in this fixture.
+    for col in ("battery_min_temp REAL", "outside_temp REAL", "remaining_charge_min INTEGER"):
+        con.execute(f"ALTER TABLE positions ADD COLUMN {col}")
     con.commit()
     return con
 
@@ -90,6 +93,9 @@ def test_power_curve_capped_at_next_charge_start(monkeypatch):
     # charging current while stationary" (#341, db_reader._charging_sample).
     con.execute("ALTER TABLE positions ADD COLUMN speed_kmh REAL DEFAULT 0")
     con.execute("ALTER TABLE positions ADD COLUMN gear TEXT DEFAULT 'P'")
+    # The readings the curve carries beside the power; none in this fixture.
+    for col in ("battery_min_temp REAL", "outside_temp REAL", "remaining_charge_min INTEGER"):
+        con.execute(f"ALTER TABLE positions ADD COLUMN {col}")
     con.commit()
     monkeypatch.setattr(db_reader, "_get", lambda: con)
     # A's curve must stop before B's samples (08:05/08:13 are excluded by the cap)
@@ -112,6 +118,9 @@ def test_window_without_charges_table_is_unclamped():
     # charging current while stationary" (#341, db_reader._charging_sample).
     con.execute("ALTER TABLE positions ADD COLUMN speed_kmh REAL DEFAULT 0")
     con.execute("ALTER TABLE positions ADD COLUMN gear TEXT DEFAULT 'P'")
+    # The readings the curve carries beside the power; none in this fixture.
+    for col in ("battery_min_temp REAL", "outside_temp REAL", "remaining_charge_min INTEGER"):
+        con.execute(f"ALTER TABLE positions ADD COLUMN {col}")
     con.commit()
     rs, re = db_reader._charge_active_window(con, "2026-06-02T16:48:39+00:00", "2026-06-02T23:53:43+00:00")
     assert rs == "2026-06-02T16:48:59+00:00" and re == "2026-06-02T21:18:36+00:00"
@@ -162,12 +171,14 @@ def test_recorder_does_not_duplicate_charge_on_resume():
             return True
         def finalize_charge(self, *a, **k):
             pass
+        def save_ha_samples_at_position(self, *a, **k):
+            pass
 
     db = _FakeDB()
     rec = R.Recorder(db, vehicle_id=1)
-    # Hermetic: on a host with a live HA wallbox, _read_wallbox_energy() would return a real
+    # Hermetic: on a host with a live HA wallbox, _read_wallbox() would return a real
     # reading and the recorder would call wallbox methods the fake doesn't have.
-    rec._read_wallbox_energy = lambda: None
+    rec._read_wallbox = lambda: {}
     data = types.SimpleNamespace(soc=50, latitude=1.0, longitude=2.0)
     rec._handle_event(StateEvent(State.PARKED_ACTIVE, State.CHARGING, data), data)
     assert db.creates == 1 and rec._active_charge_id == 99

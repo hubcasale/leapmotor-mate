@@ -12,11 +12,10 @@ _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 
 import abrp
 import energy_snapshots
-import quirks
 import ready_automation
 import session_share
 from client import (LeapmotorMateClient, set_charge_current_min, EmptyStatusError,
-                    seed_coord_signs, get_coord_signs)
+                    seed_coord_signs, get_coord_signs, use_pin_of)
 from db import Database, log_login
 from mqtt import MqttService
 from outside_temp import OutsideTempSampler
@@ -87,6 +86,11 @@ _API_LOCK = threading.Lock()
 
 
 _CLIM_MODE_TOKEN = {1: "cold", 3: "hot", 4: "wind"}   # signal 3713 → ac_on mode; auto(0)/unknown → wind
+
+
+def _range_text(range_km) -> str:
+    """The poll line's range: a dash when the frame reported none (#365), never a fake 0."""
+    return "—" if range_km is None else f"{range_km:.0f}"
 
 
 def _charge_fields(data) -> str:
@@ -190,7 +194,7 @@ def _set_charge_limit_preserving(api, vin: str, pct: int):
 
     NOT the lib's api.set_charge_limit: that one guards on `cycles`, so for an ENABLED
     start-time-only plan (the cloud omits cycles for those) it falls into an all-defaults branch that
-    DISABLES the schedule and resets starttime to 00:00 (leapmotor-api #18). That was fixed web-side
+    DISABLES the schedule and resets starttime to 00:00 (a known upstream bug). That was fixed web-side
     in v2.5.8, but THIS path still called the lib directly — so changing the limit from the Home
     Assistant number could silently wipe a start-time-only plan. Round-trip the current plan through
     set_charge_schedule, preserving enable/window/cycles/circulation/recharge; only the SoC moves."""
@@ -269,7 +273,7 @@ def _apply_charge_schedule(api, db, vin: str, payload: dict):
     # Keep the Overview's cached window in step with what we just wrote (#173) — the periodic
     # re-read is 30 minutes away, and a chip still showing the old times right after an automation
     # moved them looks like a fault rather than like a cache.
-    _store_charge_schedule(db, {"chargeEnable": 1 if enabled else 0,
+    _store_charge_schedule(db, {"chargeEnable": 1 if enabled else 0, "chargesoc": soc,
                                 "starttime": start_time, "endtime": end_time}, vin)
     log.info("MQTT: charge schedule → %s", applied)
     return applied
@@ -283,19 +287,11 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
     is why it looked stale/out of sync. B10 commands the cloud accepts-but-ignores
     (e.g. full A/C off) stay best-effort."""
     api = client._api
-    # Authorise with the PIN of the car this command NAMES (#186, @cookingeek). MQTT is not scoped
-    # to a picked car — the topic carries the VIN — so on two cars with different PINs, using the
-    # session's own would authenticate one car's command with the other's four digits: a failure
-    # that happens only sometimes and never says why. No per-car PIN → the install-wide one.
-    try:
-        _pin = db.get_operate_pin(vin)
-        if _pin:
-            api.operation_password = _pin
-    except Exception:  # noqa: BLE001 — a PIN lookup must never stop a command from being tried
-        pass
     optimistic = _MQTT_OPTIMISTIC.get(cmd)
     try:
         with _API_LOCK:  # serialize against the poll loop's get_status (shared HTTP session)
+            # Under the lock: the Ready automation sets the PIN of its own car from the poll loop.
+            use_pin_of(api, db, vin)     # MQTT is not scoped to a picked car: the topic names the VIN
             if cmd == "lock":          api.lock_vehicle(vin)
             elif cmd == "unlock":      api.unlock_vehicle(vin)
             elif cmd == "open_trunk":  api.open_trunk(vin)
@@ -317,6 +313,7 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
                     log.warning("MQTT: charge_limit %d%% out of range 50-100 — ignored", pct)
                     return
                 _set_charge_limit_preserving(api, vin, pct)
+                _plan_target[vin] = pct   # in step with what we just wrote, as the window is (#173, #436)
             elif cmd == "charge_schedule":  # writable HA text (#151): JSON {start,stop,soc,active,days}
                 try:
                     sched = json.loads(value)
@@ -387,7 +384,7 @@ def _handle_mqtt_command(client, service, db, vin: str, cmd: str, value):
                 # BOTH forms that work elsewhere — bare `operate=off` (the B10's) and `operate=close`
                 # (what api.ac_off sends, which is what Mate used to send here). What it honours is
                 # operate=off inside the FULL seven-field body: verified on-car by @derekzoli
-                # (markoceri/leapmotor-api#9), who watched acSwitch go false rather than trusting the
+                # (the upstream report), who watched acSwitch go false rather than trusting the
                 # code:0 the cloud returns for every one of them. Same literal as
                 # web/command_client.T03_AC_OFF_BODY — a test holds the two byte-identical.
                 # B10/C10/B05 keep the EXACT original path below (guard + ac_switch operate=off), untouched.
@@ -489,6 +486,7 @@ def _write_comfort_state(db, data):
 
 _SCHEDULE_REFRESH_INTERVAL = 1800   # 30 min — a charge window is set once and left alone for months
 _last_schedule_refresh = 0.0
+_plan_target: dict[str, int] = {}   # the SoC each car's charge plan (190) stops at, by VIN (#436)
 
 
 def _maybe_refresh_charge_schedule(db, client):
@@ -516,6 +514,10 @@ def _store_charge_schedule(db, sched, vin: str = "") -> None:
     leaves the previous value alone rather than blanking the chip on one bad call."""
     if not sched:
         return
+    try:
+        _plan_target[vin] = int(sched["chargesoc"])
+    except (KeyError, TypeError, ValueError):
+        pass
     try:
         db.set_charge_schedule(vin, bool(int(sched.get("chargeEnable", 0) or 0)),
                                str(sched.get("starttime") or ""), str(sched.get("endtime") or ""))
@@ -685,7 +687,8 @@ def load_config(db: "Database") -> dict:
     return {
         "username":  _get("LEAPMOTOR_USER", "leapmotor_user"),
         "password":  _get("LEAPMOTOR_PASS", "leapmotor_pass", secret=True),
-        "pin":       _get("LEAPMOTOR_PIN",  "leapmotor_pin", "", secret=True),
+        # A command takes its car's own PIN (Database.get_operate_pin); the session starts with this one.
+        "pin":       os.environ.get("LEAPMOTOR_PIN", ""),
         "cert_path": _cert_path("app.crt", "CERT_PATH"),
         "key_path":  _cert_path("app.key", "KEY_PATH"),
     }
@@ -790,7 +793,9 @@ class VehicleContext:
         self.empty_status_count = 0   # consecutive "no live signals" responses (car asleep)
         self.poll_error_count = 0     # consecutive hard API errors (cloud unreachable)
         self.research_last_sig: dict = {}   # beta build: last value per signal id, for delta logging
-        self.outside_sampler = OutsideTempSampler()   # live outside temp (Open-Meteo), cached per car
+        # live outside temp (Open-Meteo), cached per car; starts from the last real fix and reading on disk
+        self.outside_sampler = OutsideTempSampler(last_fix=db.last_fix(vehicle_id),
+                                                  last_temp=db.last_outside_temp(vehicle_id))
         self.abrp_last_sent = abrp.NOTHING_SENT   # (token, frame ts) last taken by ABRP; a repeat is not a point
         self.interval = 30.0
         self.next_due = 0.0           # monotonic; 0 = due now, so the first round polls every car
@@ -855,7 +860,17 @@ def _advance_link(db, key, prev, state, reason, next_retry_ts, bad_creds=None) -
     """One link setting moved on by one verdict. `since` moves only when the STATE changes; the
     per-poll rows are kept a week, and an outage that has lasted longer must still say when it
     began, so a setting is where that survives. `bad_creds` sticks for as long as the refusal
-    does: a later refusal worded differently does not un-say that the password was rejected."""
+    does: a later refusal worded differently does not un-say that the password was rejected.
+
+    So does the reason, against an attempt Mate itself put off. Mate keeps a minute between two
+    logins; a poll that falls inside it fails with "Login temporarily deferred after a recent
+    attempt", which is OUR words about OUR timer and says nothing about why the cloud is
+    unreachable. At the parked cadence it arrives every other poll and it was the last word
+    written, so that is what the pages showed — in place of the real failure, named in one word
+    since 4.7.18, that the user and we both need (#381, @maxencedelesgues-droid). The state and
+    the next attempt still move: nothing arrived, and that is true however the attempt ended."""
+    if reason and prev.get("reason") and not session_share.login_attempted(reason):
+        reason = prev["reason"]
     if prev.get("state") != state:
         cur = {"state": state, "since": _utc_iso(), "reason": reason, "next_retry_ts": next_retry_ts}
         if bad_creds is not None:
@@ -959,6 +974,9 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
     """
     answered = stored = False
     try:
+        # A write that failed since the last poll — this car's, the other car's, the daily prune —
+        # must not take every later write with it (#338).
+        db.end_failed_transaction()
         # Apply user-tunable poll cadence + charge-detection floor (Settings) live, each cycle
         try:
             ctx.recorder.set_poll_intervals(
@@ -974,15 +992,15 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
             data = client.get_status(ctx.vehicle)
         answered = True
         acct.note_link(db, "ok")            # the session let the request in, whatever follows
-        # what this car is known to misreport is corrected here, before anyone reads the frame
-        data = quirks.fix_frame(data, ctx.vehicle)
         frame_age = _frame_age_s(data.timestamp_ms)
         # Live outside-air temperature for the car's spot (Open-Meteo; the cloud carries none — see
         # client.py). Opt-in and cached hard, so a parked car makes no calls. Set BEFORE the recorder
         # runs, so it lands on the position row (positions.outside_temp) and flows on to MQTT, ABRP
         # and — averaged along the route — the trip's temperature.
         if db.get_setting("outside_temp_enabled", "0") == "1":
-            data.outside_temp = ctx.outside_sampler.sample(data.latitude, data.longitude, time.time())
+            data.outside_temp = ctx.outside_sampler.sample(
+                data.latitude, data.longitude, time.time(),
+                data.odometer_km if data.odometer_reported else None)
         ctx.recorder.process(data)
         stored = True
         # the answer counts once the frame is on record: a frame the recorder could not store is
@@ -1045,9 +1063,12 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
         # changes, so the Overview hero can label the charge ETA with the real % read cheaply
         # from settings — works even when the limit is changed from the official app. Write
         # only on change, like the GPS sign above → no per-poll churn.
-        _persist_charge_limit(db, data.vin, data.charge_limit_percent)
-
         _maybe_refresh_charge_schedule(db, client)
+        if data.charge_limit_percent is None:
+            # A T03's status carries no limit; its charge plan does (#436). Only then: on our B10
+            # the plan is a copy of the last command and can disagree with the car.
+            data.charge_limit_percent = _plan_target.get(data.vin)
+        _persist_charge_limit(db, data.vin, data.charge_limit_percent)
 
         # Daily ledger of the official lifetime energy/mileage counters + getEC split
         # (silent phase-1 collector) — throttled to 24h, best-effort.
@@ -1087,9 +1108,9 @@ def _poll_vehicle(db, client, ctx, acct) -> None:
         frame_age = (f"{(int(time.time() * 1000) - data.timestamp_ms) / 1000:.0f}s"
                      if data.timestamp_ms else "?")
         log.info(
-            "SOC %.1f%% | Range %d km | Speed %.0f km/h | Odo %.0f km | State: %-8s | "
+            "SOC %.1f%% | Range %s km | Speed %.0f km/h | Odo %.0f km | State: %-8s | "
             "Gear: %s | %s | Frame age: %s | Next poll: %ds%s",
-            data.soc, data.range_km, data.speed_kmh, data.odometer_km,
+            data.soc, _range_text(data.range_km), data.speed_kmh, data.odometer_km,
             ctx.recorder.state.value, data.gear, _charge_fields(data), frame_age, ctx.interval,
             " (boost)" if boosting else "",
         )
@@ -1336,6 +1357,8 @@ def main():
         vid = db.ensure_vehicle(veh.vin, veh.car_type, getattr(veh, "year", None),
                                 abilities=getattr(veh, "abilities", None))
         contexts.append(VehicleContext(db, veh, vid))
+    # A car registered for the first time takes the install-wide PIN an older install still holds.
+    db.migrate_install_pin()
     # The one-car → two-cars transition is visible HERE and nowhere else, and it is where the
     # install-wide ABRP token stops being safe: from this moment both cars would answer to it and
     # push into a single ABRP vehicle. Hand it to the car that was here first and drop the shared
@@ -1420,6 +1443,13 @@ def main():
                     continue
                 _poll_vehicle(db, client, ctx, acct)
                 ctx.next_due = time.time() + ctx.interval
+            # The changes of state those polls stored, one batch per round: on an install with
+            # history the first rounds read it back in slices, between the polls, never instead.
+            for ctx in contexts:
+                try:
+                    db.derive_events(ctx.vehicle_id)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Events not derived for vehicle %d: %s", ctx.vehicle_id, exc)
         except KeyboardInterrupt:
             log.info("Stopped by user")
             break

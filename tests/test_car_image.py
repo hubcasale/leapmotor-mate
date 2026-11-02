@@ -14,7 +14,7 @@ import car_image
 
 # ── the status bridge (pure, no Pillow needed) ──────────────────────────────────
 def test_bridge_plug_and_charging():
-    st = car_image._status_obj({"plug_connected": 1, "charging": 0})
+    st = car_image._status_obj({"cable_connected": 1, "charging": 0})
     assert st.is_plugged is True and st.is_charging is False
 
     sc = car_image._status_obj({"charging": 1})
@@ -77,7 +77,7 @@ def test_static_image_on_bad_bytes_returns_none():
     assert car_image.static_image(b"not a zip") is None
 
 
-# ── compose end-to-end (needs Pillow — present via leapmotor-api[image]) ─────────
+# ── compose end-to-end (needs Pillow — an explicit web requirement) ─────────
 def _tiny_package() -> bytes:
     """A minimal layer package (transparent stand-ins) so compose() can run without the real car."""
     PIL = pytest.importorskip("PIL")

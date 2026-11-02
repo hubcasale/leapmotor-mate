@@ -4,9 +4,11 @@ Local DTOs, commands and certificate-password derivation use MATE-API.
 The old module namespace is patched only at the Mate integration boundary.
 """
 import base64
+import dataclasses
 from process_lock import exclusive
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -60,6 +62,8 @@ def certificate_usable(cert_path, key_path, **kwargs):
 DB = os.environ.get('DB_PATH', '/data/leapmotor_mate.db')
 SESSION_KEY = 'api_v2_shared_session'
 LOGIN_PATH = '/base/base-user/account/v1/login'
+# Where the earlier library read a car's appointments: cmdId 190 is the charge plan, one flat object.
+GET_APPOINTMENT_PATH = '/carownerservice/oversea/vehicle/v1/app/remote/ctl/getAppointment'
 READ_PATHS = {
     '/carownerservice/oversea/vehicle/v1/carpicture/key',
     '/carownerservice/oversea/vehicle/v1/carpicture/package',
@@ -78,15 +82,84 @@ READ_PATHS = {
     '/carownerservice/oversea/drivingRecord/v1/mileage/energy/detail',
     '/carownerservice/oversea/message/v1/list',
     '/carownerservice/oversea/message/v1/unread/count',
-    '/carownerservice/oversea/vehicle/v1/app/remote/ctl/getAppointment',
+    GET_APPOINTMENT_PATH,
 }
 CONTROL_PATH = '/app/app-control-service/v3/api/appremotectl'
+# Where the cloud tells whether the car carried a command out: the command's eventId as msgID, and
+# `data` 0 until the car has answered, 1 once it has (measured on a B10 04/10/2026, #395).
+RESULT_PATH = CONTROL_PATH + '/query'
+# The commands no signal of the car shows done — the charge plan (190) and a destination for the
+# navigator (180) — wait for the car's word. A physical command shows in the car's own signals, which
+# the page reads again after it.
+# How far a reading may be dated after this computer's clock and still count as current (D#437).
+CLOCK_BEHIND_CAR_MARGIN = timedelta(seconds=60)
+CONFIRMED_BY_THE_CAR = frozenset({'180', '190'})
+# Left out of the command log, which a diagnostics bundle publishes: a destination is a place, and
+# set_id names the phone that wrote a climate schedule.
+_UNLOGGED = frozenset({'address', 'addressname', 'latitude', 'longitude', 'set_id'})
 VERIFY_PATH = '/carownerservice/oversea/vehicle/v1/operPwd/verify'
 COMMAND_ABILITIES = {cmd:rule[1] for cmd,rule in COMMAND_RULES.items()}
+# Where the old library read a car's status, its model in the path (B10 and B11 read as c10). It still
+# answers Mate's client — measured 01/10/2026 on a B10: 94 signals, each equal to the signal service's —
+# and it is where every T03 was read until 4.7.7 (#368, #338). Only a plain model name opens it.
+OLD_STATUS_PATH = '/carownerservice/oversea/vehicle/v1/status/get/'
+_OLD_STATUS_MODEL = re.compile(r'[a-z0-9]{2,8}')
+log = logging.getLogger('mate.cloud')
+
+
+def _loggable(value):
+    """What a command carried, as the log shows it: everything but what `_UNLOGGED` names."""
+    if isinstance(value, dict):
+        return {k: '…' if k in _UNLOGGED else _loggable(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_loggable(v) for v in value]
+    return value
+
+
+def _answer(receipt):
+    """The cloud's answer to a command, in the log's words."""
+    if receipt.outcome == 'accepted':
+        return 'accepted by the cloud' + (f', which waits {receipt.timeout_seconds} s for the car'
+                                          if receipt.timeout_seconds else '')
+    if receipt.outcome == 'accepted_untracked':
+        return 'accepted by the cloud, with nothing to follow it by'
+    if receipt.outcome == 'rejected':
+        return f'refused by the cloud (code {receipt.api_code})'
+    return 'an answer that could not be read'
+
+
+def _read_allowed(path):
+    return path in READ_PATHS or (path.startswith(OLD_STATUS_PATH)
+                                  and bool(_OLD_STATUS_MODEL.fullmatch(path[len(OLD_STATUS_PATH):])))
+
+
+def answer_accepted(status, codes):
+    """The cloud said yes: HTTP 200, and every code it sent is 0 (a bool never counts as one)."""
+    return status == 200 and bool(codes) and not any(type(c) is bool or str(c) != '0' for c in codes)
+
+
+def recorded_answer_accepted(status, api_code):
+    """answer_accepted for a row of the request log, which keeps str() of the codes: an element there
+    reads 0 or '0' only when the cloud sent one, and of the words kept instead binary_ok is the yes."""
+    if api_code == 'binary_ok':
+        return status == 200
+    listed = api_code[1:-1].split(', ') if api_code[:1] == '[' and api_code[-1:] == ']' else [api_code]
+    return answer_accepted(status, [{'0': 0, "'0'": '0'}.get(code) for code in listed])
 
 
 def connect_db():
     return sqlite3.connect(DB, timeout=30)
+
+
+def _integer(value):
+    # Cloud configuration permits decimal strings; retain unknown values so
+    # strict command validation still rejects missing/invalid full state.
+    if isinstance(value, str) and re.fullmatch(r'[0-9]+', value):
+        return int(value)
+    return value
+
+
+_PLAN_KEYS = ('chargeEnable', 'chargesoc', 'starttime', 'endtime', 'cycles', 'circulation', 'recharge')
 
 
 def setting(db, key, default=''):
@@ -117,6 +190,11 @@ def _rejection(status, codes):
     error = LeapmotorApiError('New API rejected request: HTTP %s, code %s' % (status, str(codes)[:100]))
     error.api_codes = tuple(codes)
     return error
+
+
+# A sign-in refused for its password, in the words the poller and the history worker wait an hour
+# on (#411).
+REFUSED_PASSWORD='incorrect account or password'
 
 
 class NewAPIClient(MateClientCompatibility):
@@ -152,9 +230,9 @@ class NewAPIClient(MateClientCompatibility):
                        (datetime.now(timezone.utc).isoformat(),method,path,status,str(code)))
             db.execute('DELETE FROM api_v2_http_log WHERE id < (SELECT MAX(id)-10000 FROM api_v2_http_log)')
 
-    def _wire(self, origin, path, body, *, method='POST', form=False, login=False, binary=False):
+    def _wire(self, origin, path, body, *, method='POST', form=False, login=False, binary=False, cartype='B10'):
         origin = validate_url(origin, ALLOWED_HOSTS, origin=True)
-        if path not in READ_PATHS | {LOGIN_PATH,CONTROL_PATH,VERIFY_PATH,CONTROL_PATH+'/query',APPOINTMENT_PATH}:
+        if not _read_allowed(path) and path not in {LOGIN_PATH,CONTROL_PATH,VERIFY_PATH,RESULT_PATH,APPOINTMENT_PATH}:
             raise LeapmotorApiError('Endpoint not migrated; legacy fallback disabled')
         core = dict(source='leapmotor',channel='1',acceptLanguage=self.language,
                     version='V1.16.4-1',deviceType='android',nonce=str(secrets.randbelow(10**15)),
@@ -166,7 +244,7 @@ class NewAPIClient(MateClientCompatibility):
         else:
             sign = sign_authenticated(self._new_key, core, {k:str(v) for k,v in body.items()})
             cert = (Path(self.account_cert_file), Path(self.account_key_file))
-        headers = dict(core,sign=sign,carvin=body.get('vin',body.get('carvin','')),cartype='' if login else 'B10')
+        headers = dict(core,sign=sign,carvin=body.get('vin',body.get('carvin','')),cartype='' if login else cartype)
         headers.update({'Content-Type':'application/x-www-form-urlencoded' if form else 'application/json',
                         'x-region':'EU','x-api-signature-version':'2.0','X-P12_ENC_ALG':'1'})
         if not login:
@@ -204,11 +282,12 @@ class NewAPIClient(MateClientCompatibility):
         if not isinstance(envelope,dict):
             raise LeapmotorApiError('New API returned an invalid envelope')
         codes = [envelope[k] for k in ('code','result') if k in envelope]
-        self._audit(path,method,response.status,codes)
+        accepted = answer_accepted(response.status, codes)
+        self._audit(path,method,response.status,'not_a_zip' if binary and accepted else codes)
         if not login and any(str(code) == '302002004' for code in codes):
             self._invalidate_session(headers['token'])
             raise LeapmotorApiError('Session unavailable; invalidated without replay')
-        if response.status != 200 or not codes or any(type(c) is bool or str(c)!='0' for c in codes):
+        if not accepted:
             raise _rejection(response.status, codes)
         if binary:
             raise LeapmotorApiError('Picture endpoint did not return a ZIP')
@@ -259,8 +338,14 @@ class NewAPIClient(MateClientCompatibility):
             self._audit(LOGIN_PATH,'POST',error.http_status or 0,
                         str(error.api_code) if error.api_code is not None else 'login_'+error.stage)
             detail='stage='+error.stage
+            if getattr(error,'reason',None):detail+=' ('+error.reason+')'   # why the transport failed (0.1.0a15)
             if error.http_status is not None:detail+='; HTTP='+str(error.http_status)
             if error.api_code is not None:detail+='; API='+str(error.api_code)
+            # The number alone says nothing to the poller, which reads a refused password by its
+            # words: 302010108 was asked again every 5 minutes, 257 times in a day (#411). It is
+            # "incorrect account or password" (kerniger/leapmotor-ha#74); in #338 it went the
+            # moment the right password was in.
+            if error.api_code==302010108:detail+=' ('+REFUSED_PASSWORD+')'
             with connect_db() as db:
                 set_setting(db,'api_v2_login_failure',detail)
             raise LeapmotorApiError('New API sign-in unavailable; '+detail+'; no automatic retry') from None
@@ -430,11 +515,11 @@ class NewAPIClient(MateClientCompatibility):
     def _retry_on_token_expiry(self, func, *args, **kwargs):
         return func(*args,**kwargs)
 
-    def read(self,path,body,*,origin=CENTER_ORIGIN,method='POST',form=False):
-        if path not in READ_PATHS:raise LeapmotorApiError('Read endpoint not migrated')
+    def read(self,path,body,*,origin=CENTER_ORIGIN,method='POST',form=False,cartype='B10'):
+        if not _read_allowed(path):raise LeapmotorApiError('Read endpoint not migrated')
         with self._mutex:
             self.login()
-            return self._wire(origin,path,body,method=method,form=form)[0]
+            return self._wire(origin,path,body,method=method,form=form,cartype=cartype)[0]
 
     def _get_vehicle_list(self):
         self._access_refresh_attempt = time.monotonic()
@@ -447,7 +532,8 @@ class NewAPIClient(MateClientCompatibility):
                 for row in data.get(bucket,[]):
                     if not row.get('vin'):continue
                     vehicles.append(Vehicle.from_dict(row,is_shared=shared))
-                    raw={key:row.get(key) for key in ('vin','carType','rightList','moduleRights','abilities','rudder')}
+                    self.__dict__.setdefault('_listed_car_types',{})[row['vin']]=str(row.get('carType') or '').upper()
+                    raw={key:row.get(key) for key in ('vin','carType','rightList','moduleRights','abilities','rudder','funcConfig')}
                     set_setting(db,snapshot_key(row['vin']),json.dumps(dict(
                         account=account_hash(self.username),at=time.time(),shared=shared,vehicle=raw)))
         return vehicles
@@ -478,17 +564,75 @@ class NewAPIClient(MateClientCompatibility):
     def _get_vehicle_raw_status(self,vehicle):
         self._refresh_command_access()
         route=self.route(vehicle.vin)
-        telemetry=self.read('/app/app-signal-service/signal/info/query',{'vin':vehicle.vin},origin=route['appRegion'])
-        data=dict(telemetry.get('data') or {})
-        if data.get('vin')!=vehicle.vin or not isinstance(data.get('signalMap'),dict):
-            raise LeapmotorApiError('New API telemetry mismatch')
+        data,cartype=self._live_readings(vehicle,route)
         config=self.read('/carownerservice/v3/api/vehicleinfo/commonConfig',
-            dict(vin=vehicle.vin,osType='Android',appVersion='V1.16.4-1'),origin=route['appCenter'],method='GET')
+            dict(vin=vehicle.vin,osType='Android',appVersion='V1.16.4-1'),origin=route['appCenter'],method='GET',
+            cartype=cartype)
         config_data=config.get('data') or {}
         if config_data.get('vin')!=vehicle.vin:raise LeapmotorApiError('New API configuration mismatch')
-        data['signal']=data['signalMap']
         data['config']=config_data.get('config',{})
         return dict(code=0,result=0,data=data)
+
+    def _live_readings(self,vehicle,route):
+        """The car's live readings, and the `cartype` they were asked with.
+
+        Every request says `cartype: B10`, and the signal service routes on it: asked as a T03, it
+        answers a B10 with 100 "No data found" (measured 01/10/2026, read only). B10, C10 and the B03X
+        (`A10`) read as a B10; three T03s got that 100 at every poll from 4.7.7 on, while the old
+        library had read them at OLD_STATUS_PATH (#368, #338 — on one account a B03X read and a T03 did
+        not, same session, same minute). So a car the B10 header has never read is asked as what the
+        cloud lists it as, then at the old address, and the way that answers is kept for it. A car that
+        has read once keeps its way; a refusal other than "No data found" is raised as it is.
+        → tests/test_a_t03_is_read_as_a_t03.py
+        """
+        vin=vehicle.vin
+        ways=self.__dict__.setdefault('_status_ways',{})
+        if vin in ways:
+            return self._readings_by(ways[vin],vin,route),ways[vin][1]
+        listed=(self.__dict__.get('_listed_car_types',{}).get(vin) or str(getattr(vehicle,'car_type','') or '')).upper()
+        candidates=[('signal','B10')]
+        if listed and listed!='B10':
+            candidates+=[('signal',listed),('old',listed)]
+        first=None
+        for way in candidates:
+            try:
+                data=self._readings_by(way,vin,route)
+            except LeapmotorApiError as error:
+                if 100 not in getattr(error,'api_codes',()):raise
+                first=first or error
+                continue
+            ways[vin]=way
+            if way!=candidates[0]:
+                log.warning('Status of the %s read %s — kept for this car', listed,
+                            'with cartype %s' % way[1] if way[0]=='signal' else 'at the old status address')
+            return data,way[1]
+        raise first
+
+    def _readings_by(self,way,vin,route):
+        kind,cartype=way
+        if kind=='signal':
+            telemetry=self.read('/app/app-signal-service/signal/info/query',{'vin':vin},origin=route['appRegion'],
+                                cartype=cartype)
+            data=dict(telemetry.get('data') or {})
+            if data.get('vin')!=vin or not isinstance(data.get('signalMap'),dict):
+                raise LeapmotorApiError('New API telemetry mismatch')
+            signals=data.pop('signalMap')
+            if sum(not str(key).isdigit() for key in signals)*2>len(signals):
+                # A T03 answers in names — soc, totalMileage, expectedMileage… with eight numbered keys
+                # among 71 — the shape the old address answers in, which the poller and the web map by
+                # name. A B10's map is numbered: 98 keys, 3 of them named (privacyData, privacyGPS,
+                # sts; measured 01/10/2026). Handed on as numbers, 4.7.11 read a T03 as 0 % (#368).
+                data.update(signals)
+            else:
+                data['signal']=signals
+            return data
+        model=cartype.lower()
+        model={'b10':'c10','b11':'c10'}.get(model,model)
+        envelope=self.read(OLD_STATUS_PATH+model,{'vin':vin},form=True,cartype=cartype)
+        data=dict(envelope.get('data') or {})
+        if data.get('vin',vin)!=vin:raise LeapmotorApiError('Old status address mismatch')
+        data['vin']=vin   # a T03 answers in named fields; the poller maps them (client._named_fields_to_signal)
+        return data
 
     def _get_charge_appointment(self,vin):
         route=self.route(vin)
@@ -496,15 +640,40 @@ class NewAPIClient(MateClientCompatibility):
         if not isinstance(d, dict) or d.get('vin') != vin:
             raise LeapmotorApiError('New API configuration mismatch')
         c=d.get('config',{}).get('3',{})
-        def integer(key):
-            value = c.get(key)
-            # Cloud configuration permits decimal strings; retain unknown values so
-            # strict command validation still rejects missing/invalid full state.
-            if isinstance(value, str) and re.fullmatch(r'[0-9]+', value):
-                return int(value)
-            return value
-        return dict(chargeEnable=integer('isEnable'),chargesoc=integer('percent'),starttime=c.get('beginTime'),
-                    endtime=c.get('endTime'),cycles=c.get('cycles'),circulation=integer('circulation'),recharge=integer('recharge'))
+        plan=dict(chargeEnable=_integer(c.get('isEnable')),chargesoc=_integer(c.get('percent')),starttime=c.get('beginTime'),
+                  endtime=c.get('endTime'),cycles=c.get('cycles'),circulation=_integer(c.get('circulation')),
+                  recharge=_integer(c.get('recharge')))
+        if plan['chargeEnable'] is not None and plan['starttime']:
+            return plan
+        return self._charge_plan_from_appointment(vin, c, plan)
+
+    def _charge_plan_from_appointment(self, vin, config, configured):
+        """The charge plan from getAppointment 190, where the earlier library read it, for a car whose
+        configuration does not say whether its schedule is on or when it starts; else `configured`.
+
+        A T03's configuration carries no plan: its Charges page read "No schedule" right after a save
+        the car took (#380). Asked only then — on our B10 the two disagree on whether the schedule is on
+        (02/10/2026), and a car whose configuration carries its plan keeps reading it there. What each
+        answered is logged once per car, for the bundle.
+        → tests/test_a_t03_reads_its_charge_plan_back.py"""
+        try:
+            data=self.read(GET_APPOINTMENT_PATH,{'vin':vin,'cmdId':'190'},form=True)['data']
+            if isinstance(data,str) and data:
+                data=json.loads(data,object_pairs_hook=_unique_object,parse_constant=_invalid_constant)
+            answer=data if isinstance(data,dict) else {}
+            said=', '.join(f'{k}={answer[k]}' for k in _PLAN_KEYS if k in answer) or 'nothing'
+        except Exception as error:  # noqa: BLE001 — the configuration's answer stands, as before
+            answer,said={},f'a refusal ({type(error).__name__}: {error})'
+        plan={k:(_integer(answer.get(k)) if k in ('chargeEnable','chargesoc','circulation','recharge')
+                 else answer.get(k)) for k in _PLAN_KEYS}
+        found=plan['chargeEnable'] is not None and bool(plan['starttime'])
+        noted=self.__dict__.setdefault('_charge_plan_noted',set())
+        if vin not in noted:
+            noted.add(vin)
+            log.warning("Charge plan: the car's configuration carries %s; getAppointment 190 answered %s — %s",
+                        ', '.join(sorted(config)) or 'none of it', said,
+                        'read from there' if found else 'no plan to show')
+        return plan if found else configured
 
     def _post(self,*,path,headers,data,cert):
         envelope=self.read(path,dict(parse_qsl(data,keep_blank_values=True)),form=True)
@@ -569,7 +738,15 @@ class NewAPIClient(MateClientCompatibility):
             state=prepare(cmd_id,json.loads(cmd_content,object_pairs_hook=_unique_object,
                                            parse_constant=_invalid_constant),vehicle,
                           timezone_name=os.environ.get('TZ'))
-            signals=self._get_vehicle_raw_status(vehicle)['data']['signal']
+            data=self._get_vehicle_raw_status(vehicle)['data']
+            signals=data.get('signal')
+            if signals is None:
+                # A T03 answers in names (#368): the frame's time, its speed and ON3 are read by name,
+                # as the poller and the web read the rest of that map. A frame without its time is
+                # still refused below (#378).
+                on3=data.get('bcmKeyPositionOn3')
+                signals={'1':data.get('collectTimeMs'),'1319':data.get('speed'),
+                         '1258':int(on3) if type(on3) is bool else on3}
             def num(key):
                 try:
                     value=float(signals[key])
@@ -578,6 +755,11 @@ class NewAPIClient(MateClientCompatibility):
             timestamp=num('1')
             try:observed=datetime.fromtimestamp(timestamp/1000,timezone.utc) if timestamp is not None else None
             except (ValueError,OverflowError,OSError):observed=None
+            # A reading dated a little after this computer's clock is a clock behind the car's, not a
+            # reading from the future: an NTP-synchronised Windows PC ran up to 25 s behind (D#437), and
+            # every command sent while the car was awake was refused. Taken as current within a minute.
+            now=datetime.now(timezone.utc)
+            if observed is not None and now<observed<=now+CLOCK_BEHIND_CAR_MARGIN:observed=now
             # Remote commands must remain available while the vehicle sleeps.
             # Age alone cannot distinguish sleep from an unavailable live reading.
             # Retain timestamp validity and last-known stationary/ON3 checks;
@@ -588,7 +770,7 @@ class NewAPIClient(MateClientCompatibility):
             speed,on3=num('1319'),num('1258')
             operating=OperatingState(vin,observed,None if speed is None or speed<0 else speed!=0,
                                      None if on3 is None or on3<0 else on3!=0)
-            decision=operating_decision(operating,now=datetime.now(timezone.utc),
+            decision=operating_decision(operating,now=now,
                 state_max_age=timedelta(seconds=60),allow_stale_parked=True)
             if not configuration_only and decision.state is not Availability.AVAILABLE:
                 raise LeapmotorApiError('Command not sent: '+decision.reason)
@@ -598,15 +780,55 @@ class NewAPIClient(MateClientCompatibility):
             route=self.route(vin)
             self._wire(route['appCenter'],VERIFY_PATH,dict(vin=vin,operatePassword=encrypted),form=True)
             appointment=cmd_id in ('171','361')
+            # What was sent and what the cloud said, one line per command: until 4.9.2 neither was
+            # logged, and a bundle could not show what a schedule save had sent (#395).
+            sent=json.dumps(_loggable(state),separators=(',',':'),ensure_ascii=False)
             try:
                 envelope,response=self._wire(route['appCenter'] if appointment else route['appRegion'],
                     APPOINTMENT_PATH if appointment else CONTROL_PATH,
                     dict(carvin=vin,cmdid=cmd_id,state=json.dumps(state,separators=(',',':')),oppwd=encrypted),form=True)
-            except Exception:
+            except Exception as error:
+                codes=getattr(error,'api_codes',None)
+                log.warning('Command %s (%s) sent: %s → %s; not retried',action_label,cmd_id,sent,
+                            f'refused by the cloud (code {codes[0]})' if codes else
+                            f'no readable answer ({type(error).__name__})')
                 raise LeapmotorApiError('Remote control result unknown; command was not retried') from None
             receipt=interpret(response)
+            log.info('Command %s (%s) sent: %s → %s',action_label,cmd_id,sent,_answer(receipt))
             self.last_new_command_receipt=receipt
-            return dict(envelope,_new_api_outcome=receipt.outcome)
+        if receipt.outcome=='accepted' and cmd_id in CONFIRMED_BY_THE_CAR:   # 'accepted' carries an eventId
+            receipt=self._the_cars_word(route,receipt,action_label)
+            self.last_new_command_receipt=receipt
+        return dict(envelope,_new_api_outcome=receipt.outcome)
+
+    def _the_cars_word(self,route,receipt,label):
+        """Ask the cloud whether the car carried the command out, as the earlier library did for
+        every command: `data` 1 is the car's yes, 0 no word yet. Asked every second
+        until the time the cloud gave the car — 5 s for one awake, 30 for one asleep. On a B10
+        (04/10/2026) the yes came the second the car's own configuration changed: in 1.3 s awake,
+        in 15 s from 14 minutes asleep. An acceptance alone says nothing of the car, and a T03's plan
+        read «on» in Mate while the car charged at the plug (#395).
+        → tests/test_a_setting_waits_for_the_cars_word.py"""
+        began=time.monotonic()
+        wait=receipt.timeout_seconds or 30
+        said='nothing'
+        while True:
+            try:
+                with self._mutex:
+                    self.login()
+                    envelope,_=self._wire(route['appRegion'],RESULT_PATH,{'msgID':receipt.event_id},method='GET')
+                said=envelope.get('data')
+                if type(said) is not bool and str(said)=='1':
+                    log.info('Command %s: the car carried it out (%.1f s)',label,time.monotonic()-began)
+                    return dataclasses.replace(receipt,outcome='confirmed')
+            except Exception as error:  # noqa: BLE001 — a question that fails leaves the answer open
+                said=type(error).__name__
+            if time.monotonic()-began+1>=wait:
+                break
+            time.sleep(1)
+        log.warning('Command %s: the car did not say it carried it out within %d s (last answer: %s)',
+                    label,wait,said)
+        return dataclasses.replace(receipt,outcome='unconfirmed')
 
     def seat_heat(self,vin,*,position,level):
         return self._seat(vin,'301',position,level)

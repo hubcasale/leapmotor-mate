@@ -47,13 +47,13 @@ def _package(package_bytes: bytes):
 
 
 def _status_obj(status: dict):
-    """A minimal duck-typed VehicleStatus — only the fields `leapmotor_api.image` reads, mapped from
+    """A minimal duck-typed VehicleStatus — only the fields the picture composer reads, mapped from
     Mate's `get_latest_status()`: the **4 doors** + tailgate, the **2 left-side windows** (the only
     ones the 3/4 render draws), and the charge cable (plug/charging). Old rows (pre-migration) report
     None for the per-door/window keys → treated as closed."""
     s = status or {}
     charging = bool(s.get("charging"))
-    plugged = bool(s.get("plug_connected")) or charging
+    plugged = bool(s.get("cable_connected")) or charging
 
     def _open(key):
         return 1 if s.get(key) else 0

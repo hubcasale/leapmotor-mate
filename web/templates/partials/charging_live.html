@@ -1,6 +1,6 @@
 {% set is_charging = status and status.charging %}
-{% set is_complete = status and status.plug_connected and status.charge_completed and not is_charging %}
-<span id="charging-state" data-charging="{{ 'true' if is_charging else 'false' }}" hidden></span>
+{% set is_complete = status and status.cable_connected and status.charge_completed and not is_charging %}
+<span id="charging-state" data-session="{{ session.id if session else '' }}" hidden></span>
 <div class="flex items-center gap-2 mb-4">
   <span class="text-xl">⚡</span>
   <span class="font-semibold text-white">{{ t('charging_status') }}</span>
@@ -29,6 +29,8 @@
         {% set h = (status.remaining_charge_min // 60)|int %}
         {% set m = (status.remaining_charge_min % 60)|int %}
         {% if h > 0 %}{{ h }}h {{ m }}m{% else %}{{ m }}m{% endif %}
+        {% set finish = charge_finish(status) %}
+        {% if finish %}<div class="text-xs font-normal text-slate-400">{{ t('charge_ends_at').format(time=finish) }}</div>{% endif %}
       {% else %}—{% endif %}
     </div>
   </div>
